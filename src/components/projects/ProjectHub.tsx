@@ -60,11 +60,10 @@ export function ProjectHub({ project, basePath }: ProjectHubProps) {
           disabled: true,
         },
         {
-          href: "#",
+          href: `/pc/projets/${project.id}/finance`,
           label: "Suivi financier",
-          description: "Bientôt disponible — Phase 7",
-          color: "bg-zinc-200 text-zinc-500 cursor-not-allowed",
-          disabled: true,
+          description: "Lots, situations mensuelles et attestations PDF",
+          color: "bg-emerald-600 text-white",
         },
       ];
 

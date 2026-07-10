@@ -7,6 +7,10 @@ export type Project = {
   latitude: number | null;
   longitude: number | null;
   description: string | null;
+  typology: string | null;
+  client_name: string | null;
+  client_address: string | null;
+  default_payment_terms: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -19,7 +23,110 @@ export type Enterprise = {
   contact_name: string | null;
   contact_email: string | null;
   contact_phone: string | null;
+  lot_number: string | null;
+  designation: string | null;
+  enterprise_address: string | null;
+  contract_amount_ht: number;
+  prorata_percent: number;
+  payment_terms: string | null;
+  vat_rate: number;
+  sort_order: number;
   created_at: string;
+  updated_at: string;
+};
+
+export type FinancialAmendment = {
+  id: string;
+  enterprise_id: string;
+  amendment_number: number;
+  designation: string | null;
+  os_number: string | null;
+  amount_ht: number;
+  amount_ttc: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type FinancialSituation = {
+  id: string;
+  enterprise_id: string;
+  situation_number: number;
+  situation_date: string;
+  works_cumulative_ht: number;
+  amendment_works_cumulative_ht: number;
+  prorata_cumulative_ht: number;
+  retention_guarantee_cumulative_ht: number;
+  retention_finition_cumulative_ht: number;
+  retention_diverse_cumulative_ht: number;
+  penalties_cumulative_ht: number;
+  cie_cumulative_ht: number;
+  notes: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type FinancialSituationDelegation = {
+  id: string;
+  situation_id: string;
+  company_name: string;
+  delegation_type: "subcontractor" | "supplier";
+  delegation_amount: number;
+  cumulative_ttc: number;
+  previous_cumulative_ttc: number;
+  sort_order: number;
+  created_at: string;
+};
+
+export type FinancialAuditLog = {
+  id: string;
+  project_id: string;
+  enterprise_id: string | null;
+  entity_type: string;
+  entity_id: string | null;
+  action: string;
+  summary: string | null;
+  created_at: string;
+};
+
+export type SituationLine = {
+  label: string;
+  cumulative: number;
+  previous: number;
+  period: number;
+};
+
+export type ComputedSituation = {
+  advancementPercent: number;
+  contractAmountHt: number;
+  contractAmountTtc: number;
+  amendmentsTotalHt: number;
+  amendmentsTotalTtc: number;
+  totalMarketHt: number;
+  totalMarketTtc: number;
+  lines: SituationLine[];
+  subtotalHt: number;
+  subtotalPreviousHt: number;
+  subtotalPeriodHt: number;
+  totalHt: number;
+  totalPreviousHt: number;
+  totalPeriodHt: number;
+  vatAmount: number;
+  vatPreviousAmount: number;
+  vatPeriodAmount: number;
+  totalTtc: number;
+  totalPreviousTtc: number;
+  totalPeriodTtc: number;
+  bankGuaranteeHt: number;
+  bankGuaranteeTtc: number;
+};
+
+export type LotWithFinancials = Enterprise & {
+  amendments: FinancialAmendment[];
+  situations: FinancialSituation[];
+};
+
+export type ProjectFinancialData = Project & {
+  enterprises: LotWithFinancials[];
 };
 
 export type Plan = {
@@ -83,6 +190,10 @@ export type ProjectFormData = {
   city?: string;
   postal_code?: string;
   description?: string;
+  typology?: string;
+  client_name?: string;
+  client_address?: string;
+  default_payment_terms?: string;
 };
 
 export type EnterpriseFormData = {
@@ -91,6 +202,49 @@ export type EnterpriseFormData = {
   contact_name?: string;
   contact_email?: string;
   contact_phone?: string;
+};
+
+export type LotFormData = {
+  lot_number: string;
+  designation: string;
+  name: string;
+  enterprise_address?: string;
+  contract_amount_ht: number;
+  prorata_percent: number;
+  payment_terms?: string;
+  vat_rate?: number;
+  contact_name?: string;
+  contact_email?: string;
+  contact_phone?: string;
+};
+
+export type AmendmentFormData = {
+  amendment_number: number;
+  designation?: string;
+  os_number?: string;
+  amount_ht: number;
+};
+
+export type SituationFormData = {
+  situation_number: number;
+  situation_date: string;
+  works_cumulative_ht: number;
+  amendment_works_cumulative_ht?: number;
+  prorata_cumulative_ht?: number;
+  retention_guarantee_cumulative_ht?: number;
+  retention_finition_cumulative_ht?: number;
+  retention_diverse_cumulative_ht?: number;
+  penalties_cumulative_ht?: number;
+  cie_cumulative_ht?: number;
+  notes?: string;
+};
+
+export type DelegationFormData = {
+  company_name: string;
+  delegation_type: "subcontractor" | "supplier";
+  delegation_amount: number;
+  cumulative_ttc: number;
+  previous_cumulative_ttc?: number;
 };
 
 export type VisitFormData = {
