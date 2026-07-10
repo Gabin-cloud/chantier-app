@@ -1,6 +1,6 @@
 {
   "name": "chantier-app",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "main": "electron/main.js",
   "scripts": {
@@ -9,8 +9,7 @@
     "start": "next start",
     "lint": "eslint",
     "desktop:dev": "concurrently -k \"npm run dev\" \"wait-on http://localhost:3000/pc && electron .\"",
-    "build:desktop": "cross-env BUILD_DESKTOP=1 next build && node scripts/prepare-standalone.js",
-    "pack:desktop": "npm run build:desktop && electron-builder --win --publish never",
+    "pack:desktop": "electron-builder --win --publish never",
     "dist:desktop": "npm run pack:desktop"
   },
   "dependencies": {
@@ -47,13 +46,6 @@
     "files": [
       "electron/**/*",
       "package.json"
-    ],
-    "extraResources": [
-      {
-        "from": ".next/standalone",
-        "to": "standalone",
-        "filter": ["**/*"]
-      }
     ],
     "win": {
       "target": [
