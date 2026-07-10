@@ -1,0 +1,118 @@
+import Link from "next/link";
+import type { Project } from "@/lib/types/database";
+
+type ProjectHubProps = {
+  project: Project;
+  basePath: "tablette" | "pc";
+};
+
+function formatLocation(project: Project) {
+  const parts = [project.address, project.postal_code, project.city].filter(
+    Boolean
+  );
+  return parts.length > 0 ? parts.join(", ") : null;
+}
+
+export function ProjectHub({ project, basePath }: ProjectHubProps) {
+  const isTablette = basePath === "tablette";
+  const location = formatLocation(project);
+
+  const actions = isTablette
+    ? [
+        {
+          href: `/tablette/projets/${project.id}/parametres`,
+          label: "Paramètres du projet",
+          description: "Entreprises, localisation, informations",
+          color: "bg-white border border-zinc-200 text-zinc-900",
+        },
+        {
+          href: `/tablette/checklist`,
+          label: "Checklist sécurité",
+          description: "Contrôle de sécurité terrain",
+          color: "bg-emerald-600 text-white",
+        },
+        {
+          href: "#",
+          label: "Nouvelle visite",
+          description: "Bientôt disponible — Phase 3",
+          color: "bg-zinc-200 text-zinc-500 cursor-not-allowed",
+          disabled: true,
+        },
+        {
+          href: "#",
+          label: "Rapports",
+          description: "Bientôt disponible — Phase 5",
+          color: "bg-zinc-200 text-zinc-500 cursor-not-allowed",
+          disabled: true,
+        },
+      ]
+    : [
+        {
+          href: `/pc/projets/${project.id}/parametres`,
+          label: "Paramètres du projet",
+          description: "Entreprises, localisation, informations",
+          color: "bg-white border border-zinc-200 text-zinc-900",
+        },
+        {
+          href: "#",
+          label: "Rapports",
+          description: "Bientôt disponible — Phase 5",
+          color: "bg-zinc-200 text-zinc-500 cursor-not-allowed",
+          disabled: true,
+        },
+        {
+          href: "#",
+          label: "Suivi financier",
+          description: "Bientôt disponible — Phase 7",
+          color: "bg-zinc-200 text-zinc-500 cursor-not-allowed",
+          disabled: true,
+        },
+      ];
+
+  return (
+    <div className="mx-auto w-full max-w-2xl">
+      <header className="mb-6 rounded-2xl bg-white px-6 py-5 shadow-sm">
+        <Link
+          href={`/${basePath}`}
+          className="text-sm font-medium text-zinc-400 hover:text-zinc-600"
+        >
+          ← Mes projets
+        </Link>
+        <h1 className="mt-3 text-2xl font-bold text-zinc-900 sm:text-3xl">
+          {project.name}
+        </h1>
+        {location && <p className="mt-2 text-zinc-500">{location}</p>}
+        {project.description && (
+          <p className="mt-3 text-sm text-zinc-600">{project.description}</p>
+        )}
+      </header>
+
+      <div className="space-y-3">
+        {actions.map((action) =>
+          action.disabled ? (
+            <div
+              key={action.label}
+              className={`block rounded-2xl p-5 shadow-sm ${action.color}`}
+            >
+              <p className="text-lg font-semibold">{action.label}</p>
+              <p className="mt-1 text-sm opacity-80">{action.description}</p>
+            </div>
+          ) : (
+            <Link
+              key={action.label}
+              href={action.href}
+              className={`block rounded-2xl p-5 shadow-sm transition-shadow hover:shadow-md active:scale-[0.99] ${action.color}`}
+            >
+              <p className="text-lg font-semibold">{action.label}</p>
+              <p
+                className={`mt-1 text-sm ${isTablette && action.color.includes("emerald") ? "text-emerald-100" : "text-zinc-500"}`}
+              >
+                {action.description}
+              </p>
+            </Link>
+          )
+        )}
+      </div>
+    </div>
+  );
+}
