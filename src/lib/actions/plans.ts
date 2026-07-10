@@ -1,11 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { requireProjectAccess, requireProjectRoles } from "@/lib/auth/permissions";
 import { createClient } from "@/lib/supabase/server";
 
 const PLANS_BUCKET = "plans";
 
 export async function getPlans(projectId: string) {
+  await requireProjectAccess(projectId);
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("plans")
@@ -25,6 +27,7 @@ export async function getPlanPublicUrl(filePath: string) {
 }
 
 export async function uploadPlan(projectId: string, formData: FormData) {
+  await requireProjectRoles(projectId, ["admin", "gestionnaire", "terrain"]);
   const file = formData.get("file") as File | null;
   const nameInput = (formData.get("name") as string | null)?.trim();
 
@@ -70,6 +73,7 @@ export async function uploadPlan(projectId: string, formData: FormData) {
 }
 
 export async function deletePlan(projectId: string, planId: string) {
+  await requireProjectRoles(projectId, ["admin", "gestionnaire", "terrain"]);
   const supabase = await createClient();
 
   const { data: plan, error: fetchError } = await supabase

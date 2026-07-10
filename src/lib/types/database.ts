@@ -286,3 +286,45 @@ export type MarkerUpdateData = {
   remark?: string;
   linked_marker_ids?: string[];
 };
+
+export type GlobalRole = "super_admin" | "user";
+
+export type ProjectRole =
+  | "admin"
+  | "gestionnaire"
+  | "financier"
+  | "terrain"
+  | "lecture";
+
+export type Profile = {
+  id: string;
+  email: string;
+  full_name: string | null;
+  global_role: GlobalRole;
+  created_at: string;
+  updated_at: string;
+};
+
+export type ProjectMember = {
+  id: string;
+  project_id: string;
+  user_id: string;
+  role: ProjectRole;
+  created_at: string;
+};
+
+export const PROJECT_ROLE_LABELS: Record<ProjectRole, string> = {
+  admin: "Administrateur",
+  gestionnaire: "Gestionnaire",
+  financier: "Financier",
+  terrain: "Terrain",
+  lecture: "Lecture seule",
+};
+
+export const PROJECT_ROLE_DESCRIPTIONS: Record<ProjectRole, string> = {
+  admin: "Accès complet et gestion des membres",
+  gestionnaire: "Édition complète du projet, visites et finances",
+  financier: "Accès au suivi financier uniquement",
+  terrain: "Visites, plans et checklist sur le terrain",
+  lecture: "Consultation sans modification",
+};

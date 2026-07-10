@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { requireFinanceAccess } from "@/lib/actions/members";
 import { computeAmendmentTtc } from "@/lib/finance/calculations";
 import { createClient } from "@/lib/supabase/server";
 import type {
@@ -47,6 +48,7 @@ async function logAudit(
 }
 
 export async function getProjectFinancialData(projectId: string): Promise<ProjectFinancialData> {
+  await requireFinanceAccess(projectId);
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("projects")
@@ -98,6 +100,7 @@ export async function getProjectFinancialData(projectId: string): Promise<Projec
 }
 
 export async function getLot(projectId: string, lotId: string) {
+  await requireFinanceAccess(projectId);
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("enterprises")
@@ -135,6 +138,7 @@ export async function getSituation(
   lotId: string,
   situationId: string
 ) {
+  await requireFinanceAccess(projectId);
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("financial_situations")
@@ -188,6 +192,7 @@ export async function updateProjectFinancialInfo(
     default_payment_terms?: string;
   }
 ) {
+  await requireFinanceAccess(projectId);
   const supabase = await createClient();
   const { error } = await supabase
     .from("projects")
@@ -214,6 +219,7 @@ export async function updateProjectFinancialInfo(
 }
 
 export async function upsertLot(projectId: string, formData: LotFormData, lotId?: string) {
+  await requireFinanceAccess(projectId);
   const supabase = await createClient();
   const payload = {
     project_id: projectId,
@@ -285,6 +291,7 @@ export async function upsertLot(projectId: string, formData: LotFormData, lotId?
 }
 
 export async function deleteLot(projectId: string, lotId: string) {
+  await requireFinanceAccess(projectId);
   const supabase = await createClient();
   const { error } = await supabase
     .from("enterprises")
@@ -306,6 +313,7 @@ export async function upsertAmendment(
   formData: AmendmentFormData,
   amendmentId?: string
 ) {
+  await requireFinanceAccess(projectId);
   const supabase = await createClient();
 
   const { data: lot, error: lotError } = await supabase
@@ -375,6 +383,7 @@ export async function deleteAmendment(
   lotId: string,
   amendmentId: string
 ) {
+  await requireFinanceAccess(projectId);
   const supabase = await createClient();
   const { error } = await supabase
     .from("financial_amendments")
@@ -402,6 +411,7 @@ export async function upsertSituation(
   formData: SituationFormData,
   situationId?: string
 ) {
+  await requireFinanceAccess(projectId);
   const supabase = await createClient();
 
   const payload = {
@@ -468,6 +478,7 @@ export async function deleteSituation(
   lotId: string,
   situationId: string
 ) {
+  await requireFinanceAccess(projectId);
   const supabase = await createClient();
   const { error } = await supabase
     .from("financial_situations")
@@ -495,6 +506,7 @@ export async function saveSituationDelegations(
   situationId: string,
   delegations: DelegationFormData[]
 ) {
+  await requireFinanceAccess(projectId);
   const supabase = await createClient();
 
   const { error: deleteError } = await supabase
@@ -533,6 +545,7 @@ export async function saveSituationDelegations(
 }
 
 export async function getFinancialAuditLog(projectId: string) {
+  await requireFinanceAccess(projectId);
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("financial_audit_log")
@@ -550,6 +563,7 @@ export async function getFinanceNavLabels(
   lotId: string,
   situationId?: string
 ) {
+  await requireFinanceAccess(projectId);
   const supabase = await createClient();
 
   const { data: lot, error: lotError } = await supabase
@@ -595,13 +609,15 @@ export async function getFinanceNavLabels(
 
 const FINANCIAL_BUCKET = "financial-files";
 
-export async function getFinancialFileUrl(filePath: string) {
+export async function getFinancialFileUrl(projectId: string, filePath: string) {
+  await requireFinanceAccess(projectId);
   const supabase = await createClient();
   const { data } = supabase.storage.from(FINANCIAL_BUCKET).getPublicUrl(filePath);
   return data.publicUrl;
 }
 
 export async function uploadOperationPhoto(projectId: string, formData: FormData) {
+  await requireFinanceAccess(projectId);
   const file = formData.get("file") as File | null;
   if (!file || file.size === 0) throw new Error("Veuillez sélectionner une image.");
 
@@ -631,6 +647,7 @@ export async function uploadSituationInvoice(
   situationId: string,
   formData: FormData
 ) {
+  await requireFinanceAccess(projectId);
   const file = formData.get("file") as File | null;
   if (!file || file.size === 0) throw new Error("Veuillez sélectionner un fichier.");
 
@@ -684,6 +701,7 @@ export async function addBankGuarantee(
   projectId: string,
   data: { company_name: string; amount_ht: number; notes?: string }
 ) {
+  await requireFinanceAccess(projectId);
   const supabase = await createClient();
   const { error } = await supabase.from("financial_bank_guarantees").insert({
     project_id: projectId,
@@ -697,6 +715,7 @@ export async function addBankGuarantee(
 }
 
 export async function deleteBankGuarantee(projectId: string, guaranteeId: string) {
+  await requireFinanceAccess(projectId);
   const supabase = await createClient();
   const { error } = await supabase
     .from("financial_bank_guarantees")

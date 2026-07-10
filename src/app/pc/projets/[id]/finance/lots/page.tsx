@@ -26,7 +26,7 @@ export default async function FinanceLotsPage({ params }: PageProps) {
   try {
     const project = await getProjectFinancialData(id);
     const photoUrl = project.operation_photo_path
-      ? await getFinancialFileUrl(project.operation_photo_path)
+      ? await getFinancialFileUrl(id, project.operation_photo_path)
       : null;
 
     return (

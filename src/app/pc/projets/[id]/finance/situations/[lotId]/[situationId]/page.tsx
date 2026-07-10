@@ -22,7 +22,7 @@ export default async function EditSituationPage({ params }: PageProps) {
     const situation = await getSituation(id, lotId, situationId);
     const lot = situation.enterprise;
     const invoiceUrl = situation.invoice_file_path
-      ? await getFinancialFileUrl(situation.invoice_file_path)
+      ? await getFinancialFileUrl(id, situation.invoice_file_path)
       : null;
 
     return (

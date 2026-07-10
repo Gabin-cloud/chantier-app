@@ -4,6 +4,13 @@ import {
   DatabaseErrorNotice,
   SupabaseSetupNotice,
 } from "@/components/SupabaseSetupNotice";
+import {
+  canAccessField,
+  canEditProject,
+  canManageMembers,
+  getProjectRole,
+} from "@/lib/auth/permissions";
+import { getProjectMembers } from "@/lib/actions/members";
 import { getPlansWithUrls } from "@/lib/actions/plans";
 import { getProject } from "@/lib/actions/projects";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
@@ -20,10 +27,26 @@ export default async function ParametresPage({ params }: PageProps) {
   const { id } = await params;
 
   try {
-    const [project, plans] = await Promise.all([
+    const [project, plans, members, projectRole] = await Promise.all([
       getProject(id),
       getPlansWithUrls(id),
+      getProjectMembers(id),
+      getProjectRole(id),
     ]);
+
+    if (!projectRole) {
+      return <DatabaseErrorNotice message="Accès refusé à ce projet." />;
+    }
+
+    const canEdit = canEditProject(projectRole);
+    const canManage = canManageMembers(projectRole);
+    const canPlans = canAccessField(projectRole);
+
+    if (!canEdit && !canManage && !canPlans) {
+      return (
+        <DatabaseErrorNotice message="Droits insuffisants pour accéder aux paramètres." />
+      );
+    }
 
     return (
       <main className="min-h-full bg-zinc-100 px-4 py-6 sm:px-6">
@@ -42,7 +65,11 @@ export default async function ParametresPage({ params }: PageProps) {
             project={project}
             enterprises={project.enterprises}
             plans={plans}
+            members={members}
             basePath="tablette"
+            canEdit={canEdit}
+            canManageMembers={canManage}
+            canEditPlans={canPlans}
           />
         </div>
       </main>

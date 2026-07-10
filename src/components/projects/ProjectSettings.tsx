@@ -4,6 +4,8 @@ import Link from "next/link";
 import { useState, useTransition } from "react";
 import { PlanManager } from "@/components/projects/PlanManager";
 import { ProjectForm } from "@/components/projects/ProjectForm";
+import { ProjectMembersManager } from "@/components/auth/ProjectMembersManager";
+import type { ProjectMemberWithProfile } from "@/lib/actions/members";
 import {
   addEnterprise,
   deleteEnterprise,
@@ -17,7 +19,11 @@ type ProjectSettingsProps = {
   project: Project;
   enterprises: Enterprise[];
   plans: PlanWithUrl[];
+  members: ProjectMemberWithProfile[];
   basePath: "tablette" | "pc";
+  canEdit: boolean;
+  canManageMembers: boolean;
+  canEditPlans: boolean;
 };
 
 const inputClass =
@@ -27,7 +33,11 @@ export function ProjectSettings({
   project,
   enterprises,
   plans,
+  members,
   basePath,
+  canEdit,
+  canManageMembers,
+  canEditPlans,
 }: ProjectSettingsProps) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -93,6 +103,14 @@ export function ProjectSettings({
 
   return (
     <div className="space-y-6">
+      <ProjectMembersManager
+        projectId={project.id}
+        members={members}
+        canManage={canManageMembers}
+      />
+
+      {canEdit && (
+      <>
       <section className="rounded-2xl bg-white p-5 shadow-sm">
         <h2 className="mb-4 text-lg font-semibold text-zinc-900">
           Informations du projet
@@ -104,7 +122,9 @@ export function ProjectSettings({
         />
       </section>
 
-      <PlanManager projectId={project.id} initialPlans={plans} />
+      {canEditPlans && (
+        <PlanManager projectId={project.id} initialPlans={plans} />
+      )}
 
       <section className="rounded-2xl bg-white p-5 shadow-sm">
         <h2 className="mb-1 text-lg font-semibold text-zinc-900">
@@ -178,6 +198,12 @@ export function ProjectSettings({
           </button>
         </form>
       </section>
+      </>
+      )}
+
+      {!canEdit && canEditPlans && (
+        <PlanManager projectId={project.id} initialPlans={plans} />
+      )}
 
       {error && (
         <p className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700">

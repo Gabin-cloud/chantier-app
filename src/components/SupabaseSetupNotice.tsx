@@ -16,7 +16,8 @@ NEXT_PUBLIC_SUPABASE_ANON_KEY=votre_cle_anon`}
         <p className="mt-4 text-sm text-zinc-500">
           Puis exécutez les scripts SQL dans{" "}
           <code className="rounded bg-zinc-100 px-1">supabase/migrations/</code>
-          (001 puis 002 pour les plans et visites, 003 et 004 pour le suivi financier).
+          (001 puis 002 pour les plans et visites, 003 et 004 pour le suivi financier,
+          005 pour l&apos;authentification et les accès par personne).
         </p>
       </div>
     </main>

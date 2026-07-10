@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { requireProjectAccess, requireProjectRoles } from "@/lib/auth/permissions";
 import { createClient } from "@/lib/supabase/server";
 import type { MarkerUpdateData, MarkerWithLinks, VisitFormData } from "@/lib/types/database";
 
@@ -47,6 +48,7 @@ async function getMarkerLinks(supabase: Awaited<ReturnType<typeof createClient>>
 }
 
 export async function getVisits(projectId: string) {
+  await requireProjectAccess(projectId);
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("visits")
@@ -73,6 +75,8 @@ export async function getVisit(visitId: string): Promise<{
 
   if (visitError) throw new Error(visitError.message);
 
+  await requireProjectAccess(visit.project_id);
+
   const { data: markers, error: markersError } = await supabase
     .from("markers")
     .select("*")
@@ -92,6 +96,7 @@ export async function getVisit(visitId: string): Promise<{
 }
 
 export async function createVisit(projectId: string, formData: VisitFormData) {
+  await requireProjectRoles(projectId, ["admin", "gestionnaire", "terrain"]);
   const supabase = await createClient();
 
   const title =
@@ -117,6 +122,7 @@ export async function createVisit(projectId: string, formData: VisitFormData) {
 }
 
 export async function completeVisit(projectId: string, visitId: string) {
+  await requireProjectRoles(projectId, ["admin", "gestionnaire", "terrain"]);
   const supabase = await createClient();
   const { error } = await supabase
     .from("visits")
@@ -136,6 +142,7 @@ export async function createMarker(
   xPercent: number,
   yPercent: number
 ) {
+  await requireProjectRoles(projectId, ["admin", "gestionnaire", "terrain"]);
   const supabase = await createClient();
 
   const { count, error: countError } = await supabase
@@ -172,6 +179,7 @@ export async function updateMarker(
   markerId: string,
   data: MarkerUpdateData
 ) {
+  await requireProjectRoles(projectId, ["admin", "gestionnaire", "terrain"]);
   const supabase = await createClient();
 
   if (data.remark !== undefined) {
@@ -206,6 +214,7 @@ export async function uploadMarkerPhoto(
   markerId: string,
   formData: FormData
 ) {
+  await requireProjectRoles(projectId, ["admin", "gestionnaire", "terrain"]);
   const file = formData.get("photo") as File | null;
   if (!file || file.size === 0) throw new Error("Veuillez sélectionner une photo.");
 
@@ -234,6 +243,7 @@ export async function uploadMarkerPhoto(
 }
 
 export async function deleteMarker(visitId: string, projectId: string, markerId: string) {
+  await requireProjectRoles(projectId, ["admin", "gestionnaire", "terrain"]);
   const supabase = await createClient();
 
   const { error } = await supabase.from("markers").delete().eq("id", markerId);

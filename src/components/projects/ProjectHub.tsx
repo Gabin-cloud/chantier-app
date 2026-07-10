@@ -1,9 +1,16 @@
 import Link from "next/link";
-import type { Project } from "@/lib/types/database";
+import {
+  canAccessFinance,
+  canAccessField,
+  canEditProject,
+  canManageMembers,
+} from "@/lib/auth/permissions";
+import type { Project, ProjectRole } from "@/lib/types/database";
 
 type ProjectHubProps = {
   project: Project;
   basePath: "tablette" | "pc";
+  projectRole: ProjectRole;
 };
 
 function formatLocation(project: Project) {
@@ -13,59 +20,59 @@ function formatLocation(project: Project) {
   return parts.length > 0 ? parts.join(", ") : null;
 }
 
-export function ProjectHub({ project, basePath }: ProjectHubProps) {
+export function ProjectHub({ project, basePath, projectRole }: ProjectHubProps) {
   const isTablette = basePath === "tablette";
   const location = formatLocation(project);
 
-  const actions = isTablette
-    ? [
-        {
-          href: `/tablette/projets/${project.id}/parametres`,
-          label: "Paramètres du projet",
-          description: "Entreprises, localisation, informations",
-          color: "bg-white border border-zinc-200 text-zinc-900",
-        },
-        {
-          href: `/tablette/projets/${project.id}/visites`,
-          label: "Visites de chantier",
-          description: "Nouvelle visite, plans et pastilles",
-          color: "bg-blue-600 text-white",
-        },
-        {
-          href: `/tablette/checklist`,
-          label: "Checklist sécurité",
-          description: "Contrôle de sécurité terrain",
-          color: "bg-emerald-600 text-white",
-        },
-        {
-          href: `#`,
-          label: "Rapports",
-          description: "Bientôt disponible — Phase 5",
-          color: "bg-zinc-200 text-zinc-500 cursor-not-allowed",
-          disabled: true,
-        },
-      ]
-    : [
-        {
-          href: `/pc/projets/${project.id}/parametres`,
-          label: "Paramètres du projet",
-          description: "Entreprises, localisation, informations",
-          color: "bg-white border border-zinc-200 text-zinc-900",
-        },
-        {
-          href: "#",
-          label: "Rapports",
-          description: "Bientôt disponible — Phase 5",
-          color: "bg-zinc-200 text-zinc-500 cursor-not-allowed",
-          disabled: true,
-        },
-        {
-          href: `/pc/projets/${project.id}/finance`,
-          label: "Suivi financier",
-          description: "Lots, situations mensuelles et attestations PDF",
-          color: "bg-emerald-600 text-white",
-        },
-      ];
+  const canOpenSettings =
+    canEditProject(projectRole) ||
+    canManageMembers(projectRole) ||
+    canAccessField(projectRole);
+
+  const allTabletteActions = [
+    {
+      href: `/tablette/projets/${project.id}/parametres`,
+      label: "Paramètres du projet",
+      description: "Entreprises, plans, accès",
+      color: "bg-white border border-zinc-200 text-zinc-900",
+      visible: canOpenSettings,
+    },
+    {
+      href: `/tablette/projets/${project.id}/visites`,
+      label: "Visites de chantier",
+      description: "Nouvelle visite, plans et pastilles",
+      color: "bg-blue-600 text-white",
+      visible: canAccessField(projectRole),
+    },
+    {
+      href: `/tablette/checklist`,
+      label: "Checklist sécurité",
+      description: "Contrôle de sécurité terrain",
+      color: "bg-emerald-600 text-white",
+      visible: canAccessField(projectRole),
+    },
+  ];
+
+  const allPcActions = [
+    {
+      href: `/pc/projets/${project.id}/parametres`,
+      label: "Paramètres du projet",
+      description: "Entreprises, plans, accès",
+      color: "bg-white border border-zinc-200 text-zinc-900",
+      visible: canOpenSettings,
+    },
+    {
+      href: `/pc/projets/${project.id}/finance`,
+      label: "Suivi financier",
+      description: "Lots, situations mensuelles et attestations PDF",
+      color: "bg-emerald-600 text-white",
+      visible: canAccessFinance(projectRole),
+    },
+  ];
+
+  const actions = (isTablette ? allTabletteActions : allPcActions).filter(
+    (action) => action.visible
+  );
 
   return (
     <div className="mx-auto w-full max-w-2xl">
@@ -86,16 +93,12 @@ export function ProjectHub({ project, basePath }: ProjectHubProps) {
       </header>
 
       <div className="space-y-3">
-        {actions.map((action) =>
-          action.disabled ? (
-            <div
-              key={action.label}
-              className={`block rounded-2xl p-5 shadow-sm ${action.color}`}
-            >
-              <p className="text-lg font-semibold">{action.label}</p>
-              <p className="mt-1 text-sm opacity-80">{action.description}</p>
-            </div>
-          ) : (
+        {actions.length === 0 ? (
+          <div className="rounded-2xl bg-white p-5 text-center text-zinc-500 shadow-sm">
+            Accès en lecture seule — aucune action disponible pour votre rôle.
+          </div>
+        ) : (
+          actions.map((action) => (
             <Link
               key={action.label}
               href={action.href}
@@ -112,7 +115,7 @@ export function ProjectHub({ project, basePath }: ProjectHubProps) {
                 {action.description}
               </p>
             </Link>
-          )
+          ))
         )}
       </div>
     </div>

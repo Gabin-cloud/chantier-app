@@ -1,10 +1,13 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { requireProjectAccess, requireProjectRoles, requireUser } from "@/lib/auth/permissions";
+import { ensureProjectCreatorMember } from "@/lib/actions/members";
 import { createClient } from "@/lib/supabase/server";
 import type { EnterpriseFormData, ProjectFormData } from "@/lib/types/database";
 
 export async function getProjects() {
+  await requireUser();
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("projects")
@@ -16,6 +19,7 @@ export async function getProjects() {
 }
 
 export async function getProject(id: string) {
+  await requireProjectAccess(id);
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("projects")
@@ -36,6 +40,7 @@ export async function getProject(id: string) {
 }
 
 export async function createProject(formData: ProjectFormData): Promise<string> {
+  const user = await requireUser();
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("projects")
@@ -51,6 +56,8 @@ export async function createProject(formData: ProjectFormData): Promise<string> 
 
   if (error) throw new Error(error.message);
 
+  await ensureProjectCreatorMember(data.id, user.id);
+
   revalidatePath("/tablette");
   revalidatePath("/pc");
 
@@ -58,6 +65,7 @@ export async function createProject(formData: ProjectFormData): Promise<string> 
 }
 
 export async function updateProject(id: string, formData: ProjectFormData) {
+  await requireProjectRoles(id, ["admin", "gestionnaire"]);
   const supabase = await createClient();
   const { error } = await supabase
     .from("projects")
@@ -81,6 +89,7 @@ export async function updateProject(id: string, formData: ProjectFormData) {
 }
 
 export async function addEnterprise(projectId: string, formData: EnterpriseFormData) {
+  await requireProjectRoles(projectId, ["admin", "gestionnaire"]);
   const supabase = await createClient();
   const { error } = await supabase.from("enterprises").insert({
     project_id: projectId,
@@ -98,6 +107,7 @@ export async function addEnterprise(projectId: string, formData: EnterpriseFormD
 }
 
 export async function deleteEnterprise(projectId: string, enterpriseId: string) {
+  await requireProjectRoles(projectId, ["admin", "gestionnaire"]);
   const supabase = await createClient();
   const { error } = await supabase
     .from("enterprises")
