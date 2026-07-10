@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { FinanceLayout } from "@/components/finance/FinanceLayout";
 import { MarketsRecap } from "@/components/finance/MarketsRecap";
 import {
   DatabaseErrorNotice,
@@ -22,20 +22,9 @@ export default async function FinanceRecapPage({ params }: PageProps) {
     const project = await getProjectFinancialData(id);
 
     return (
-      <main className="min-h-full bg-slate-50 px-6 py-8">
-        <div className="mx-auto w-full max-w-5xl">
-          <Link
-            href={`/pc/projets/${id}/finance`}
-            className="text-sm font-medium text-slate-400 hover:text-slate-600"
-          >
-            ← Suivi financier
-          </Link>
-          <header className="mb-6 mt-4">
-            <h1 className="text-2xl font-bold text-slate-900">Récap marchés</h1>
-          </header>
-          <MarketsRecap project={project} lots={project.enterprises ?? []} />
-        </div>
-      </main>
+      <FinanceLayout title="Récap marchés">
+        <MarketsRecap project={project} lots={project.enterprises ?? []} />
+      </FinanceLayout>
     );
   } catch (error) {
     return (

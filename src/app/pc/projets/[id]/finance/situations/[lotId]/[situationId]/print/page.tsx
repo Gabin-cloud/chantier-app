@@ -1,10 +1,10 @@
-import Link from "next/link";
-import { SituationCertificate } from "@/components/finance/SituationCertificate";
+import { FinanceLayout } from "@/components/finance/FinanceLayout";
+import { SituationExportPanel } from "@/components/finance/SituationExportPanel";
 import {
   DatabaseErrorNotice,
   SupabaseSetupNotice,
 } from "@/components/SupabaseSetupNotice";
-import { getSituation } from "@/lib/actions/finance";
+import { getFinancialFileUrl, getSituation } from "@/lib/actions/finance";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
 type PageProps = {
@@ -21,24 +21,22 @@ export default async function PrintSituationPage({ params }: PageProps) {
   try {
     const situation = await getSituation(id, lotId, situationId);
     const lot = situation.enterprise;
+    const invoiceUrl = situation.invoice_file_path
+      ? await getFinancialFileUrl(situation.invoice_file_path)
+      : null;
 
     return (
-      <main className="min-h-full bg-slate-100 px-6 py-8 print:bg-white print:p-0">
-        <div className="mx-auto max-w-4xl print:max-w-none">
-          <Link
-            href={`/pc/projets/${id}/finance/situations/${lotId}/${situationId}`}
-            className="no-print mb-4 inline-block text-sm font-medium text-slate-400 hover:text-slate-600"
-          >
-            ← Retour à la situation
-          </Link>
-          <SituationCertificate
-            project={lot.project}
-            lot={lot}
-            situation={situation}
-            delegations={situation.financial_situation_delegations ?? []}
-          />
-        </div>
-      </main>
+      <FinanceLayout
+        title="Export PDF"
+        subtitle={`Situation n°${situation.situation_number}`}
+      >
+        <SituationExportPanel
+          project={lot.project}
+          lot={lot}
+          situation={situation}
+          invoiceUrl={invoiceUrl}
+        />
+      </FinanceLayout>
     );
   } catch (error) {
     return (

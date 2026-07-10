@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { FinanceLayout } from "@/components/finance/FinanceLayout";
 import { LotDetail } from "@/components/finance/LotDetail";
 import {
   DatabaseErrorNotice,
@@ -22,17 +22,12 @@ export default async function FinanceLotDetailPage({ params }: PageProps) {
     const lot = await getLot(id, lotId);
 
     return (
-      <main className="min-h-full bg-slate-50 px-6 py-8">
-        <div className="mx-auto w-full max-w-3xl">
-          <Link
-            href={`/pc/projets/${id}/finance/lots`}
-            className="text-sm font-medium text-slate-400 hover:text-slate-600"
-          >
-            ← Lots &amp; marchés
-          </Link>
-          <LotDetail project={lot.project} lot={lot} />
-        </div>
-      </main>
+      <FinanceLayout
+        title={`Lot ${lot.lot_number}`}
+        subtitle={`${lot.designation} — ${lot.name}`}
+      >
+        <LotDetail project={lot.project} lot={lot} />
+      </FinanceLayout>
     );
   } catch (error) {
     return (

@@ -1,11 +1,15 @@
-import Link from "next/link";
+import { BankGuaranteesManager } from "@/components/finance/BankGuaranteesManager";
+import { FinanceLayout } from "@/components/finance/FinanceLayout";
 import { FinancialProjectInfo } from "@/components/finance/FinancialProjectInfo";
 import { LotsManager } from "@/components/finance/LotsManager";
 import {
   DatabaseErrorNotice,
   SupabaseSetupNotice,
 } from "@/components/SupabaseSetupNotice";
-import { getProjectFinancialData } from "@/lib/actions/finance";
+import {
+  getFinancialFileUrl,
+  getProjectFinancialData,
+} from "@/lib/actions/finance";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
 type PageProps = {
@@ -21,26 +25,21 @@ export default async function FinanceLotsPage({ params }: PageProps) {
 
   try {
     const project = await getProjectFinancialData(id);
+    const photoUrl = project.operation_photo_path
+      ? await getFinancialFileUrl(project.operation_photo_path)
+      : null;
 
     return (
-      <main className="min-h-full bg-slate-50 px-6 py-8">
-        <div className="mx-auto w-full max-w-3xl">
-          <Link
-            href={`/pc/projets/${id}/finance`}
-            className="text-sm font-medium text-slate-400 hover:text-slate-600"
-          >
-            ← Suivi financier
-          </Link>
-          <header className="mb-6 mt-4">
-            <h1 className="text-2xl font-bold text-slate-900">Lots &amp; marchés</h1>
-            <p className="mt-1 text-slate-500">{project.name}</p>
-          </header>
-          <div className="space-y-6">
-            <FinancialProjectInfo project={project} />
-            <LotsManager project={project} lots={project.enterprises ?? []} />
-          </div>
+      <FinanceLayout title="Lots & marchés" subtitle={project.name}>
+        <div className="space-y-6">
+          <FinancialProjectInfo project={project} photoUrl={photoUrl} />
+          <BankGuaranteesManager
+            projectId={id}
+            guarantees={project.bank_guarantees ?? []}
+          />
+          <LotsManager project={project} lots={project.enterprises ?? []} />
         </div>
-      </main>
+      </FinanceLayout>
     );
   } catch (error) {
     return (

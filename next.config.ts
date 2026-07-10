@@ -4,6 +4,14 @@ const isDesktopBuild = process.env.BUILD_DESKTOP === "1";
 
 const nextConfig: NextConfig = {
   output: isDesktopBuild ? "standalone" : undefined,
+  images: {
+    remotePatterns: [
+      {
+        protocol: "https",
+        hostname: "**.supabase.co",
+      },
+    ],
+  },
   experimental: {
     serverActions: {
       bodySizeLimit: "50mb",

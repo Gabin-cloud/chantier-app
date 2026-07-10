@@ -56,7 +56,8 @@ export async function getProjectFinancialData(projectId: string): Promise<Projec
         *,
         financial_amendments(*),
         financial_situations(*)
-      )`
+      ),
+      financial_bank_guarantees(*)`
     )
     .eq("id", projectId)
     .single();
@@ -89,6 +90,9 @@ export async function getProjectFinancialData(projectId: string): Promise<Projec
       );
     }
   }
+
+  data.bank_guarantees = data.financial_bank_guarantees ?? [];
+  delete data.financial_bank_guarantees;
 
   return data as ProjectFinancialData;
 }
@@ -225,6 +229,10 @@ export async function upsertLot(projectId: string, formData: LotFormData, lotId?
     contact_name: formData.contact_name || null,
     contact_email: formData.contact_email || null,
     contact_phone: formData.contact_phone || null,
+    email_chantier: formData.email_chantier || null,
+    email_factures: formData.email_factures || null,
+    email_administratif: formData.email_administratif || null,
+    has_bank_guarantee: formData.has_bank_guarantee ?? false,
   };
 
   if (lotId) {
@@ -535,4 +543,167 @@ export async function getFinancialAuditLog(projectId: string) {
 
   if (error) throw new Error(error.message);
   return data;
+}
+
+export async function getFinanceNavLabels(
+  projectId: string,
+  lotId: string,
+  situationId?: string
+) {
+  const supabase = await createClient();
+
+  const { data: lot, error: lotError } = await supabase
+    .from("enterprises")
+    .select("lot_number, designation, name")
+    .eq("id", lotId)
+    .eq("project_id", projectId)
+    .single();
+
+  if (lotError) {
+    return {
+      lotNumber: null,
+      lotDesignation: null,
+      lotName: null,
+      situationNumber: null,
+      isNewSituation: false,
+      isPrint: false,
+    };
+  }
+
+  let situationNumber: number | null = null;
+
+  if (situationId) {
+    const { data: situation } = await supabase
+      .from("financial_situations")
+      .select("situation_number")
+      .eq("id", situationId)
+      .eq("enterprise_id", lotId)
+      .single();
+
+    situationNumber = situation?.situation_number ?? null;
+  }
+
+  return {
+    lotNumber: lot.lot_number,
+    lotDesignation: lot.designation,
+    lotName: lot.name,
+    situationNumber,
+    isNewSituation: false,
+    isPrint: false,
+  };
+}
+
+const FINANCIAL_BUCKET = "financial-files";
+
+export async function getFinancialFileUrl(filePath: string) {
+  const supabase = await createClient();
+  const { data } = supabase.storage.from(FINANCIAL_BUCKET).getPublicUrl(filePath);
+  return data.publicUrl;
+}
+
+export async function uploadOperationPhoto(projectId: string, formData: FormData) {
+  const file = formData.get("file") as File | null;
+  if (!file || file.size === 0) throw new Error("Veuillez sélectionner une image.");
+
+  const supabase = await createClient();
+  const ext = file.name.split(".").pop() ?? "jpg";
+  const filePath = `${projectId}/operation-photo.${ext}`;
+  const buffer = Buffer.from(await file.arrayBuffer());
+
+  const { error: uploadError } = await supabase.storage
+    .from(FINANCIAL_BUCKET)
+    .upload(filePath, buffer, { contentType: file.type, upsert: true });
+
+  if (uploadError) throw new Error(uploadError.message);
+
+  const { error } = await supabase
+    .from("projects")
+    .update({ operation_photo_path: filePath })
+    .eq("id", projectId);
+
+  if (error) throw new Error(error.message);
+  revalidateFinance(projectId);
+}
+
+export async function uploadSituationInvoice(
+  projectId: string,
+  lotId: string,
+  situationId: string,
+  formData: FormData
+) {
+  const file = formData.get("file") as File | null;
+  if (!file || file.size === 0) throw new Error("Veuillez sélectionner un fichier.");
+
+  const isPdf =
+    file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+  const isImage = file.type.startsWith("image/");
+
+  if (!isPdf && !isImage) {
+    throw new Error("Seuls les fichiers PDF ou images sont acceptés.");
+  }
+
+  const supabase = await createClient();
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const filePath = `${projectId}/situations/${situationId}/${safeName}`;
+  const buffer = Buffer.from(await file.arrayBuffer());
+
+  const { error: uploadError } = await supabase.storage
+    .from(FINANCIAL_BUCKET)
+    .upload(filePath, buffer, {
+      contentType: file.type || "application/pdf",
+      upsert: true,
+    });
+
+  if (uploadError) throw new Error(uploadError.message);
+
+  const { error } = await supabase
+    .from("financial_situations")
+    .update({
+      invoice_file_path: filePath,
+      invoice_file_name: file.name,
+    })
+    .eq("id", situationId)
+    .eq("enterprise_id", lotId);
+
+  if (error) throw new Error(error.message);
+
+  await logAudit(
+    projectId,
+    lotId,
+    "situation",
+    situationId,
+    "update",
+    `Facture entreprise jointe : ${file.name}`
+  );
+
+  revalidateFinance(projectId);
+  return filePath;
+}
+
+export async function addBankGuarantee(
+  projectId: string,
+  data: { company_name: string; amount_ht: number; notes?: string }
+) {
+  const supabase = await createClient();
+  const { error } = await supabase.from("financial_bank_guarantees").insert({
+    project_id: projectId,
+    company_name: data.company_name,
+    amount_ht: data.amount_ht,
+    notes: data.notes || null,
+  });
+
+  if (error) throw new Error(error.message);
+  revalidateFinance(projectId);
+}
+
+export async function deleteBankGuarantee(projectId: string, guaranteeId: string) {
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("financial_bank_guarantees")
+    .delete()
+    .eq("id", guaranteeId)
+    .eq("project_id", projectId);
+
+  if (error) throw new Error(error.message);
+  revalidateFinance(projectId);
 }

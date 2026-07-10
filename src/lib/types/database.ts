@@ -11,6 +11,7 @@ export type Project = {
   client_name: string | null;
   client_address: string | null;
   default_payment_terms: string | null;
+  operation_photo_path: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -31,8 +32,21 @@ export type Enterprise = {
   payment_terms: string | null;
   vat_rate: number;
   sort_order: number;
+  email_chantier: string | null;
+  email_factures: string | null;
+  email_administratif: string | null;
+  has_bank_guarantee: boolean;
   created_at: string;
   updated_at: string;
+};
+
+export type FinancialBankGuarantee = {
+  id: string;
+  project_id: string;
+  company_name: string;
+  amount_ht: number;
+  notes: string | null;
+  created_at: string;
 };
 
 export type FinancialAmendment = {
@@ -61,6 +75,8 @@ export type FinancialSituation = {
   penalties_cumulative_ht: number;
   cie_cumulative_ht: number;
   notes: string | null;
+  invoice_file_path: string | null;
+  invoice_file_name: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -127,6 +143,7 @@ export type LotWithFinancials = Enterprise & {
 
 export type ProjectFinancialData = Project & {
   enterprises: LotWithFinancials[];
+  bank_guarantees?: FinancialBankGuarantee[];
 };
 
 export type Plan = {
@@ -216,6 +233,10 @@ export type LotFormData = {
   contact_name?: string;
   contact_email?: string;
   contact_phone?: string;
+  email_chantier?: string;
+  email_factures?: string;
+  email_administratif?: string;
+  has_bank_guarantee?: boolean;
 };
 
 export type AmendmentFormData = {

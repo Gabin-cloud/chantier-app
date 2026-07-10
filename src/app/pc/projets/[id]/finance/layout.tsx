@@ -1,17 +1,21 @@
-import { FinanceLayout } from "@/components/finance/FinanceLayout";
-import { SituationsRecap } from "@/components/finance/SituationsRecap";
+import type { ReactNode } from "react";
+import { FinanceNavBandeau } from "@/components/finance/FinanceNavBandeau";
 import {
   DatabaseErrorNotice,
   SupabaseSetupNotice,
 } from "@/components/SupabaseSetupNotice";
-import { getProjectFinancialData } from "@/lib/actions/finance";
+import { getProject } from "@/lib/actions/projects";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
-type PageProps = {
+type FinanceRootLayoutProps = {
+  children: ReactNode;
   params: Promise<{ id: string }>;
 };
 
-export default async function FinanceRecapSituationsPage({ params }: PageProps) {
+export default async function FinanceRootLayout({
+  children,
+  params,
+}: FinanceRootLayoutProps) {
   if (!isSupabaseConfigured()) {
     return <SupabaseSetupNotice />;
   }
@@ -19,12 +23,13 @@ export default async function FinanceRecapSituationsPage({ params }: PageProps) 
   const { id } = await params;
 
   try {
-    const project = await getProjectFinancialData(id);
+    const project = await getProject(id);
 
     return (
-      <FinanceLayout title="Récap situations">
-        <SituationsRecap project={project} lots={project.enterprises ?? []} />
-      </FinanceLayout>
+      <div className="min-h-full bg-slate-50">
+        <FinanceNavBandeau projectId={id} projectName={project.name} />
+        {children}
+      </div>
     );
   } catch (error) {
     return (

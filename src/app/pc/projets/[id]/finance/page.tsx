@@ -1,5 +1,5 @@
-import Link from "next/link";
 import { FinancialHub } from "@/components/finance/FinancialHub";
+import { FinanceLayout } from "@/components/finance/FinanceLayout";
 import {
   DatabaseErrorNotice,
   SupabaseSetupNotice,
@@ -22,9 +22,9 @@ export default async function FinancePage({ params }: PageProps) {
     const project = await getProjectFinancialData(id);
 
     return (
-      <main className="min-h-full bg-slate-50 px-6 py-8">
+      <FinanceLayout title="Suivi financier" subtitle={project.name}>
         <FinancialHub project={project} />
-      </main>
+      </FinanceLayout>
     );
   } catch (error) {
     return (

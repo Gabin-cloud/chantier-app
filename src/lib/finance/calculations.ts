@@ -62,6 +62,47 @@ export function computeAutoProrataCumulative(
   return round2(worksCumulativeHt * prorataPercent);
 }
 
+export function computeAutoRetentionGuarantee(
+  worksCumulativeHt: number,
+  amendmentWorksCumulativeHt: number,
+  hasBankGuarantee: boolean
+): number {
+  if (hasBankGuarantee) return 0;
+  return round2((worksCumulativeHt + amendmentWorksCumulativeHt) * 0.05);
+}
+
+export function getDefaultSituationDate(referenceDate = new Date()): string {
+  const year = referenceDate.getFullYear();
+  const month = referenceDate.getMonth();
+  const lastDay = new Date(year, month + 1, 0);
+  return lastDay.toISOString().slice(0, 10);
+}
+
+export function getEndOfMonthLabel(dateStr: string): string {
+  const date = new Date(dateStr);
+  return new Intl.DateTimeFormat("fr-FR", {
+    month: "long",
+    year: "numeric",
+  }).format(date);
+}
+
+export function parseMoneyInput(value: string): number {
+  const cleaned = value
+    .replace(/\s/g, "")
+    .replace(/€/g, "")
+    .replace(/\./g, "")
+    .replace(",", ".");
+  const parsed = Number.parseFloat(cleaned);
+  return Number.isFinite(parsed) ? round2(parsed) : 0;
+}
+
+export function formatMoneyDisplay(value: number): string {
+  return new Intl.NumberFormat("fr-FR", {
+    minimumFractionDigits: 2,
+    maximumFractionDigits: 2,
+  }).format(value);
+}
+
 type ComputeSituationInput = {
   contractAmountHt: number;
   vatRate: number;
@@ -70,6 +111,8 @@ type ComputeSituationInput = {
   situation: FinancialSituation;
   previousSituation: FinancialSituation | null;
   autoProrata?: boolean;
+  hasBankGuarantee?: boolean;
+  autoRetention?: boolean;
 };
 
 export function computeSituation({
@@ -80,6 +123,8 @@ export function computeSituation({
   situation,
   previousSituation,
   autoProrata = true,
+  hasBankGuarantee = false,
+  autoRetention = true,
 }: ComputeSituationInput): ComputedSituation {
   const { totalHt: amendmentsTotalHt, totalTtc: amendmentsTotalTtc } =
     computeAmendmentsTotals(amendments);
@@ -106,9 +151,13 @@ export function computeSituation({
     ? computeAutoProrataCumulative(worksCumulative, prorataPercent)
     : Number(situation.prorata_cumulative_ht);
 
-  const retentionGuaranteeCumulative = Number(
-    situation.retention_guarantee_cumulative_ht
-  );
+  const retentionGuaranteeCumulative = autoRetention
+    ? computeAutoRetentionGuarantee(
+        worksCumulative,
+        amendmentWorksCumulative,
+        hasBankGuarantee
+      )
+    : Number(situation.retention_guarantee_cumulative_ht);
   const retentionFinitionCumulative = Number(
     situation.retention_finition_cumulative_ht
   );
@@ -146,7 +195,13 @@ export function computeSituation({
     buildLine(
       "Retenue de garantie 5 %",
       retentionGuaranteeCumulative,
-      Number(prev.retention_guarantee_cumulative_ht)
+      autoRetention
+        ? computeAutoRetentionGuarantee(
+            Number(prev.works_cumulative_ht),
+            Number(prev.amendment_works_cumulative_ht),
+            hasBankGuarantee
+          )
+        : Number(prev.retention_guarantee_cumulative_ht)
     ),
   ];
 
@@ -165,7 +220,13 @@ export function computeSituation({
             prorataPercent
           )
         : Number(prev.prorata_cumulative_ht)) -
-      Number(prev.retention_guarantee_cumulative_ht)
+      (autoRetention
+        ? computeAutoRetentionGuarantee(
+            Number(prev.works_cumulative_ht),
+            Number(prev.amendment_works_cumulative_ht),
+            hasBankGuarantee
+          )
+        : Number(prev.retention_guarantee_cumulative_ht))
   );
 
   lines.push(

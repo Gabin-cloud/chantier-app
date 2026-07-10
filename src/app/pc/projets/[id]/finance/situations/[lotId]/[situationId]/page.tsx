@@ -1,10 +1,10 @@
-import Link from "next/link";
+import { FinanceLayout } from "@/components/finance/FinanceLayout";
 import { SituationForm } from "@/components/finance/SituationForm";
 import {
   DatabaseErrorNotice,
   SupabaseSetupNotice,
 } from "@/components/SupabaseSetupNotice";
-import { getSituation } from "@/lib/actions/finance";
+import { getFinancialFileUrl, getSituation } from "@/lib/actions/finance";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
 type PageProps = {
@@ -21,25 +21,22 @@ export default async function EditSituationPage({ params }: PageProps) {
   try {
     const situation = await getSituation(id, lotId, situationId);
     const lot = situation.enterprise;
+    const invoiceUrl = situation.invoice_file_path
+      ? await getFinancialFileUrl(situation.invoice_file_path)
+      : null;
 
     return (
-      <main className="min-h-full bg-slate-50 px-6 py-8">
-        <div className="mx-auto w-full max-w-6xl">
-          <Link
-            href={`/pc/projets/${id}/finance/situations/${lotId}`}
-            className="text-sm font-medium text-slate-400 hover:text-slate-600"
-          >
-            ← Retour aux situations
-          </Link>
-          <div className="mt-4">
-            <SituationForm
-              project={lot.project}
-              lot={lot}
-              situation={situation}
-            />
-          </div>
-        </div>
-      </main>
+      <FinanceLayout
+        title={`Situation n°${situation.situation_number}`}
+        subtitle={`Lot ${lot.lot_number} — ${lot.name}`}
+      >
+        <SituationForm
+          project={lot.project}
+          lot={lot}
+          situation={situation}
+          invoiceUrl={invoiceUrl}
+        />
+      </FinanceLayout>
     );
   } catch (error) {
     return (

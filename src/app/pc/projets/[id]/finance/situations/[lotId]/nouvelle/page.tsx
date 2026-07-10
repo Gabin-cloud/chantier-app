@@ -1,4 +1,4 @@
-import Link from "next/link";
+import { FinanceLayout } from "@/components/finance/FinanceLayout";
 import { SituationForm } from "@/components/finance/SituationForm";
 import {
   DatabaseErrorNotice,
@@ -22,19 +22,12 @@ export default async function NewSituationPage({ params }: PageProps) {
     const lot = await getLot(id, lotId);
 
     return (
-      <main className="min-h-full bg-slate-50 px-6 py-8">
-        <div className="mx-auto w-full max-w-6xl">
-          <Link
-            href={`/pc/projets/${id}/finance/situations/${lotId}`}
-            className="text-sm font-medium text-slate-400 hover:text-slate-600"
-          >
-            ← Retour aux situations
-          </Link>
-          <div className="mt-4">
-            <SituationForm project={lot.project} lot={lot} isNew />
-          </div>
-        </div>
-      </main>
+      <FinanceLayout
+        title="Nouvelle situation de travaux"
+        subtitle={`Lot ${lot.lot_number} — ${lot.name}`}
+      >
+        <SituationForm project={lot.project} lot={lot} isNew />
+      </FinanceLayout>
     );
   } catch (error) {
     return (

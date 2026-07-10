@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { FinanceLayout } from "@/components/finance/FinanceLayout";
 import { formatCurrency } from "@/lib/finance/calculations";
 import {
   DatabaseErrorNotice,
@@ -24,56 +25,60 @@ export default async function FinanceSituationsPage({ params }: PageProps) {
     const lots = (project.enterprises ?? []) as LotWithFinancials[];
 
     return (
-      <main className="min-h-full bg-slate-50 px-6 py-8">
-        <div className="mx-auto w-full max-w-3xl">
-          <Link
-            href={`/pc/projets/${id}/finance`}
-            className="text-sm font-medium text-slate-400 hover:text-slate-600"
-          >
-            ← Suivi financier
-          </Link>
-          <header className="mb-6 mt-4">
-            <h1 className="text-2xl font-bold text-slate-900">
-              Situations de travaux
-            </h1>
-            <p className="mt-1 text-slate-500">
-              Sélectionnez un lot pour saisir ou consulter ses situations mensuelles.
-            </p>
-          </header>
-
-          {lots.length === 0 ? (
-            <p className="rounded-2xl bg-white p-5 text-sm text-slate-500 shadow-sm">
-              Aucun lot configuré.{" "}
-              <Link
-                href={`/pc/projets/${id}/finance/lots`}
-                className="font-medium text-blue-600 hover:text-blue-700"
-              >
-                Ajouter des lots
-              </Link>
-            </p>
-          ) : (
-            <ul className="space-y-3">
-              {lots.map((lot) => (
-                <li key={lot.id}>
-                  <Link
-                    href={`/pc/projets/${id}/finance/situations/${lot.id}`}
-                    className="block rounded-2xl bg-white p-5 shadow-sm transition-shadow hover:shadow-md"
-                  >
-                    <p className="font-semibold text-slate-900">
+      <FinanceLayout
+        title="Situations de travaux"
+        subtitle="Sélectionnez un lot pour saisir ou consulter ses situations mensuelles."
+      >
+        {lots.length === 0 ? (
+          <p className="rounded-2xl bg-white p-5 text-sm text-slate-500 shadow-sm">
+            Aucun lot configuré.{" "}
+            <Link
+              href={`/pc/projets/${id}/finance/lots`}
+              className="font-medium text-blue-600 hover:text-blue-700"
+            >
+              Ajouter des lots
+            </Link>
+          </p>
+        ) : (
+          <div className="overflow-x-auto rounded-2xl bg-white shadow-sm">
+            <table className="w-full min-w-[800px] text-sm">
+              <thead>
+                <tr className="border-b border-slate-200 text-left text-slate-500">
+                  <th className="px-4 py-3 font-medium">Lot</th>
+                  <th className="px-4 py-3 font-medium">Entreprise</th>
+                  <th className="px-4 py-3 font-medium text-right">Marché H.T.</th>
+                  <th className="px-4 py-3 font-medium text-right">Situations</th>
+                  <th className="px-4 py-3 font-medium" />
+                </tr>
+              </thead>
+              <tbody>
+                {lots.map((lot) => (
+                  <tr key={lot.id} className="border-b border-slate-100">
+                    <td className="px-4 py-3 font-medium">
                       {lot.lot_number} — {lot.designation}
-                    </p>
-                    <p className="text-sm text-slate-500">{lot.name}</p>
-                    <p className="mt-2 text-sm text-slate-600">
-                      {(lot.situations ?? []).length} situation(s) · Marché{" "}
-                      {formatCurrency(Number(lot.contract_amount_ht))} HT
-                    </p>
-                  </Link>
-                </li>
-              ))}
-            </ul>
-          )}
-        </div>
-      </main>
+                    </td>
+                    <td className="px-4 py-3">{lot.name}</td>
+                    <td className="px-4 py-3 text-right">
+                      {formatCurrency(Number(lot.contract_amount_ht))}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      {(lot.situations ?? []).length}
+                    </td>
+                    <td className="px-4 py-3 text-right">
+                      <Link
+                        href={`/pc/projets/${id}/finance/situations/${lot.id}`}
+                        className="rounded-lg bg-blue-50 px-3 py-1.5 font-medium text-blue-700 hover:bg-blue-100"
+                      >
+                        Ouvrir
+                      </Link>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </FinanceLayout>
     );
   } catch (error) {
     return (
