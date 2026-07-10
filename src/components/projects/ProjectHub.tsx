@@ -26,20 +26,19 @@ export function ProjectHub({ project, basePath }: ProjectHubProps) {
           color: "bg-white border border-zinc-200 text-zinc-900",
         },
         {
+          href: `/tablette/projets/${project.id}/visites`,
+          label: "Visites de chantier",
+          description: "Nouvelle visite, plans et pastilles",
+          color: "bg-blue-600 text-white",
+        },
+        {
           href: `/tablette/checklist`,
           label: "Checklist sécurité",
           description: "Contrôle de sécurité terrain",
           color: "bg-emerald-600 text-white",
         },
         {
-          href: "#",
-          label: "Nouvelle visite",
-          description: "Bientôt disponible — Phase 3",
-          color: "bg-zinc-200 text-zinc-500 cursor-not-allowed",
-          disabled: true,
-        },
-        {
-          href: "#",
+          href: `#`,
           label: "Rapports",
           description: "Bientôt disponible — Phase 5",
           color: "bg-zinc-200 text-zinc-500 cursor-not-allowed",
@@ -105,7 +104,11 @@ export function ProjectHub({ project, basePath }: ProjectHubProps) {
             >
               <p className="text-lg font-semibold">{action.label}</p>
               <p
-                className={`mt-1 text-sm ${isTablette && action.color.includes("emerald") ? "text-emerald-100" : "text-zinc-500"}`}
+                className={`mt-1 text-sm ${
+                  action.color.includes("emerald") || action.color.includes("blue")
+                    ? "text-white/80"
+                    : "text-zinc-500"
+                }`}
               >
                 {action.description}
               </p>

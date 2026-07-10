@@ -2,17 +2,21 @@
 
 import Link from "next/link";
 import { useState, useTransition } from "react";
+import { PlanManager } from "@/components/projects/PlanManager";
 import { ProjectForm } from "@/components/projects/ProjectForm";
 import {
   addEnterprise,
   deleteEnterprise,
   updateProject,
 } from "@/lib/actions/projects";
-import type { Enterprise, Project, ProjectFormData } from "@/lib/types/database";
+import type { Enterprise, Plan, Project, ProjectFormData } from "@/lib/types/database";
+
+type PlanWithUrl = Plan & { public_url: string };
 
 type ProjectSettingsProps = {
   project: Project;
   enterprises: Enterprise[];
+  plans: PlanWithUrl[];
   basePath: "tablette" | "pc";
 };
 
@@ -22,6 +26,7 @@ const inputClass =
 export function ProjectSettings({
   project,
   enterprises,
+  plans,
   basePath,
 }: ProjectSettingsProps) {
   const [isPending, startTransition] = useTransition();
@@ -98,6 +103,8 @@ export function ProjectSettings({
           initialData={initialData}
         />
       </section>
+
+      <PlanManager projectId={project.id} initialPlans={plans} />
 
       <section className="rounded-2xl bg-white p-5 shadow-sm">
         <h2 className="mb-1 text-lg font-semibold text-zinc-900">

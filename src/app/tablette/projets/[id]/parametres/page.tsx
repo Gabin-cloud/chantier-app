@@ -4,6 +4,7 @@ import {
   DatabaseErrorNotice,
   SupabaseSetupNotice,
 } from "@/components/SupabaseSetupNotice";
+import { getPlansWithUrls } from "@/lib/actions/plans";
 import { getProject } from "@/lib/actions/projects";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
@@ -19,7 +20,10 @@ export default async function ParametresPage({ params }: PageProps) {
   const { id } = await params;
 
   try {
-    const project = await getProject(id);
+    const [project, plans] = await Promise.all([
+      getProject(id),
+      getPlansWithUrls(id),
+    ]);
 
     return (
       <main className="min-h-full bg-zinc-100 px-4 py-6 sm:px-6">
@@ -37,6 +41,7 @@ export default async function ParametresPage({ params }: PageProps) {
           <ProjectSettings
             project={project}
             enterprises={project.enterprises}
+            plans={plans}
             basePath="tablette"
           />
         </div>

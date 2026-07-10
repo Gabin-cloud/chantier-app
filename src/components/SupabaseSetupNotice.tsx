@@ -14,10 +14,9 @@ export function SupabaseSetupNotice() {
 NEXT_PUBLIC_SUPABASE_ANON_KEY=votre_cle_anon`}
         </pre>
         <p className="mt-4 text-sm text-zinc-500">
-          Puis exécutez le script SQL dans{" "}
-          <code className="rounded bg-zinc-100 px-1">
-            supabase/migrations/001_phase1_projects.sql
-          </code>
+          Puis exécutez les scripts SQL dans{" "}
+          <code className="rounded bg-zinc-100 px-1">supabase/migrations/</code>
+          (001 puis 002 pour les plans et visites).
         </p>
       </div>
     </main>
