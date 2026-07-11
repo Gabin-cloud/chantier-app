@@ -7,6 +7,7 @@ import {
 import { getProfile } from "@/lib/auth/permissions";
 import { getProjects } from "@/lib/actions/projects";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
+
 export default async function TabletteHomePage() {
   if (!isSupabaseConfigured()) {
     return <SupabaseSetupNotice />;
@@ -16,8 +17,8 @@ export default async function TabletteHomePage() {
     const [projects, profile] = await Promise.all([getProjects(), getProfile()]);
 
     return (
-      <main className="min-h-full bg-zinc-100 px-4 py-6 sm:px-6">
-        <div className="mx-auto mb-6 max-w-2xl">
+      <main className="tablette-page px-4 py-5 sm:px-6">
+        <div className="mx-auto mb-5 max-w-2xl">
           <UserMenu
             email={profile.email}
             fullName={profile.full_name}

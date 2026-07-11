@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useMemo, useState, useTransition } from "react";
+import { PlanViewer } from "@/components/visits/PlanViewer";
 import {
   completeVisit,
   createMarker,
@@ -44,6 +45,7 @@ export function VisitEditor({
   const selectedPlan = plans.find((p) => p.id === selectedPlanId);
   const planMarkers = markers.filter((m) => m.plan_id === selectedPlanId);
   const selectedMarker = markers.find((m) => m.id === selectedMarkerId) ?? null;
+  const isCompleted = visit.status === "completed";
 
   const otherMarkers = useMemo(
     () => markers.filter((m) => m.id !== selectedMarkerId),
@@ -57,12 +59,8 @@ export function VisitEditor({
     setAddMode(false);
   }
 
-  function handlePlanClick(e: React.MouseEvent<HTMLDivElement>) {
-    if (!addMode || !selectedPlan || visit.status === "completed") return;
-
-    const rect = e.currentTarget.getBoundingClientRect();
-    const xPercent = ((e.clientX - rect.left) / rect.width) * 100;
-    const yPercent = ((e.clientY - rect.top) / rect.height) * 100;
+  function handlePlanClick(xPercent: number, yPercent: number) {
+    if (!addMode || !selectedPlan || isCompleted) return;
 
     startTransition(async () => {
       try {
@@ -71,8 +69,8 @@ export function VisitEditor({
           visit.id,
           projectId,
           selectedPlanId,
-          Math.min(100, Math.max(0, xPercent)),
-          Math.min(100, Math.max(0, yPercent))
+          xPercent,
+          yPercent
         );
         const withPhoto: MarkerWithPhoto = { ...newMarker, photo_public_url: null };
         setMarkers((prev) => [...prev, withPhoto]);
@@ -188,247 +186,225 @@ export function VisitEditor({
   }
 
   return (
-    <div className="flex min-h-[calc(100vh-3rem)] flex-col lg:flex-row lg:gap-4">
-      {/* Zone plan */}
-      <div className="flex min-h-0 flex-1 flex-col">
-        <div className="mb-3 flex flex-wrap items-center gap-2">
-          {plans.map((plan) => (
-            <button
-              key={plan.id}
-              type="button"
-              onClick={() => {
-                setSelectedPlanId(plan.id);
-                setSelectedMarkerId(null);
-              }}
-              className={`min-h-11 rounded-xl px-4 py-2 text-sm font-semibold transition-colors ${
-                plan.id === selectedPlanId
-                  ? "bg-zinc-900 text-white"
-                  : "bg-white text-zinc-700 shadow-sm hover:bg-zinc-50"
-              }`}
-            >
-              {plan.name}
-            </button>
-          ))}
+    <div className="tablette-visit-editor flex min-h-0 flex-col md:flex-row">
+      {/* Bande gauche — pastilles et remarques */}
+      <aside className="flex w-full shrink-0 flex-col border-r border-zinc-200 bg-white md:w-72 lg:w-80">
+        <div className="border-b border-zinc-100 px-4 py-3">
+          <h2 className="text-base font-bold text-zinc-900">Pastilles</h2>
+          <p className="text-xs text-zinc-500">
+            {planMarkers.length} sur ce plan
+          </p>
         </div>
 
-        <div className="mb-3 flex flex-wrap gap-2">
-          {visit.status !== "completed" && (
-            <button
-              type="button"
-              onClick={() => setAddMode((v) => !v)}
-              className={`min-h-12 rounded-xl px-5 py-3 text-sm font-bold ${
-                addMode
-                  ? "bg-amber-500 text-white"
-                  : "bg-white text-zinc-800 shadow-sm"
-              }`}
-            >
-              {addMode ? "✓ Mode pastille actif — touchez le plan" : "+ Ajouter une pastille"}
-            </button>
+        <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
+          {planMarkers.length === 0 ? (
+            <p className="px-2 py-4 text-sm text-zinc-500">
+              Activez le mode pastille et touchez le plan.
+            </p>
+          ) : (
+            <ul className="space-y-1.5">
+              {planMarkers.map((marker) => (
+                <li key={marker.id}>
+                  <button
+                    type="button"
+                    onClick={() => selectMarker(marker)}
+                    className={`w-full rounded-xl px-3 py-2.5 text-left transition-colors ${
+                      selectedMarkerId === marker.id
+                        ? "bg-amber-50 ring-2 ring-amber-400"
+                        : "bg-zinc-50 hover:bg-zinc-100"
+                    }`}
+                  >
+                    <div className="flex items-center gap-2.5">
+                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-600 text-xs font-bold text-white">
+                        {marker.marker_number}
+                      </span>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-zinc-900">
+                          {marker.remark || "Sans remarque"}
+                        </p>
+                        {marker.linked_marker_ids.length > 0 && (
+                          <p className="text-xs text-zinc-500">
+                            Liée à {marker.linked_marker_ids.length} pastille(s)
+                          </p>
+                        )}
+                      </div>
+                      {marker.photo_public_url && (
+                        <span className="text-xs text-emerald-600">📷</span>
+                      )}
+                    </div>
+                  </button>
+                </li>
+              ))}
+            </ul>
           )}
-          {visit.status !== "completed" && (
-            <button
-              type="button"
-              onClick={handleCompleteVisit}
-              disabled={isPending}
-              className="min-h-12 rounded-xl bg-emerald-600 px-5 py-3 text-sm font-bold text-white hover:bg-emerald-500 disabled:opacity-50"
-            >
-              Terminer la visite
-            </button>
-          )}
-          {visit.status === "completed" && (
-            <span className="inline-flex min-h-12 items-center rounded-xl bg-emerald-100 px-5 text-sm font-semibold text-emerald-800">
-              Visite terminée
-            </span>
-          )}
+        </div>
+
+        {selectedMarker && (
+          <div className="max-h-[45vh] shrink-0 overflow-y-auto border-t border-zinc-100 px-4 py-3">
+            <h3 className="mb-2 text-sm font-semibold text-zinc-900">
+              Pastille n°{selectedMarker.marker_number}
+            </h3>
+            <textarea
+              value={remarkDraft}
+              onChange={(e) => setRemarkDraft(e.target.value)}
+              placeholder="Saisissez votre remarque…"
+              rows={3}
+              disabled={isCompleted}
+              className="mb-2 w-full resize-none rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm focus:border-zinc-400 focus:outline-none disabled:opacity-60"
+            />
+
+            {otherMarkers.length > 0 && !isCompleted && (
+              <div className="mb-2">
+                <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                  Lier à d&apos;autres pastilles
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {otherMarkers.map((m) => (
+                    <button
+                      key={m.id}
+                      type="button"
+                      onClick={() => toggleLink(m.id)}
+                      className={`rounded-lg px-2.5 py-1 text-xs font-semibold ${
+                        linkDraft.includes(m.id)
+                          ? "bg-zinc-900 text-white"
+                          : "bg-zinc-100 text-zinc-700"
+                      }`}
+                    >
+                      #{m.marker_number}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {selectedMarker.photo_public_url && (
+              <img
+                src={selectedMarker.photo_public_url}
+                alt="Photo pastille"
+                className="mb-2 max-h-28 w-full rounded-xl object-cover"
+              />
+            )}
+
+            {!isCompleted && (
+              <div className="space-y-2">
+                <label className="block">
+                  <span className="mb-1 block text-xs font-medium text-zinc-700">
+                    Photo
+                  </span>
+                  <input
+                    type="file"
+                    accept="image/*"
+                    capture="environment"
+                    onChange={handlePhotoUpload}
+                    disabled={isPending}
+                    className="w-full text-xs text-zinc-600"
+                  />
+                </label>
+                <button
+                  type="button"
+                  onClick={handleSaveMarker}
+                  disabled={isPending}
+                  className="min-h-10 w-full rounded-xl bg-zinc-900 py-2 text-sm font-bold text-white disabled:opacity-50"
+                >
+                  Enregistrer
+                </button>
+                <button
+                  type="button"
+                  onClick={handleDeleteMarker}
+                  disabled={isPending}
+                  className="min-h-10 w-full rounded-xl border border-red-200 py-2 text-sm font-medium text-red-600"
+                >
+                  Supprimer
+                </button>
+              </div>
+            )}
+          </div>
+        )}
+
+        {error && (
+          <p className="shrink-0 px-4 py-2 text-xs font-medium text-red-700">{error}</p>
+        )}
+      </aside>
+
+      {/* Zone plan — plein écran */}
+      <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-zinc-100">
+        <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-zinc-200 bg-white px-3 py-2">
+          <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto pb-0.5">
+            {plans.map((plan) => (
+              <button
+                key={plan.id}
+                type="button"
+                onClick={() => {
+                  setSelectedPlanId(plan.id);
+                  setSelectedMarkerId(null);
+                }}
+                className={`shrink-0 rounded-lg px-3 py-2 text-sm font-semibold transition-colors ${
+                  plan.id === selectedPlanId
+                    ? "bg-emerald-600 text-white"
+                    : "bg-zinc-100 text-zinc-700 hover:bg-zinc-200"
+                }`}
+              >
+                {plan.name}
+              </button>
+            ))}
+          </div>
+
+          <div className="flex shrink-0 flex-wrap gap-2">
+            {!isCompleted && (
+              <button
+                type="button"
+                onClick={() => setAddMode((v) => !v)}
+                className={`min-h-10 rounded-lg px-4 py-2 text-sm font-bold ${
+                  addMode
+                    ? "bg-amber-500 text-white"
+                    : "bg-zinc-100 text-zinc-800"
+                }`}
+              >
+                {addMode ? "Mode pastille actif" : "+ Pastille"}
+              </button>
+            )}
+            {!isCompleted && (
+              <button
+                type="button"
+                onClick={handleCompleteVisit}
+                disabled={isPending}
+                className="min-h-10 rounded-lg bg-emerald-600 px-4 py-2 text-sm font-bold text-white hover:bg-emerald-500 disabled:opacity-50"
+              >
+                Terminer
+              </button>
+            )}
+            {isCompleted && (
+              <span className="inline-flex min-h-10 items-center rounded-lg bg-emerald-100 px-4 text-sm font-semibold text-emerald-800">
+                Visite terminée
+              </span>
+            )}
+          </div>
         </div>
 
         <div
-          className={`relative flex-1 overflow-hidden rounded-2xl bg-white shadow-sm ${
-            addMode ? "ring-4 ring-amber-400" : ""
-          }`}
-          style={{ minHeight: "55vh" }}
+          className={`relative min-h-0 flex-1 ${addMode ? "ring-2 ring-inset ring-amber-400" : ""}`}
         >
           {selectedPlan && (
-            <>
-              <iframe
-                src={`${selectedPlan.public_url}#toolbar=0&navpanes=0`}
-                title={selectedPlan.name}
-                className="h-full w-full border-0"
-                style={{ minHeight: "55vh" }}
-              />
-              <div
-                className={`absolute inset-0 ${addMode ? "cursor-crosshair" : "pointer-events-none"}`}
-                onClick={handlePlanClick}
-              >
-                {planMarkers.map((marker) => (
-                  <button
-                    key={marker.id}
-                    type="button"
-                    style={{
-                      left: `${marker.x_percent}%`,
-                      top: `${marker.y_percent}%`,
-                    }}
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      selectMarker(marker);
-                    }}
-                    className={`pointer-events-auto absolute flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 text-sm font-bold shadow-lg transition-transform hover:scale-110 ${
-                      selectedMarkerId === marker.id
-                        ? "border-white bg-amber-500 text-white ring-4 ring-amber-300"
-                        : "border-white bg-red-600 text-white"
-                    }`}
-                  >
-                    {marker.marker_number}
-                  </button>
-                ))}
-              </div>
-            </>
+            <PlanViewer
+              key={selectedPlan.id}
+              url={selectedPlan.public_url}
+              addMode={addMode && !isCompleted}
+              markers={planMarkers.map((m) => ({
+                id: m.id,
+                x_percent: m.x_percent,
+                y_percent: m.y_percent,
+                marker_number: m.marker_number,
+              }))}
+              selectedMarkerId={selectedMarkerId}
+              onPlanClick={handlePlanClick}
+              onMarkerClick={(id) => {
+                const marker = markers.find((m) => m.id === id);
+                if (marker) selectMarker(marker);
+              }}
+            />
           )}
         </div>
       </div>
-
-      {/* Panneau récap */}
-      <aside className="mt-4 flex w-full shrink-0 flex-col lg:mt-0 lg:w-96">
-        <div className="flex max-h-[85vh] flex-col rounded-2xl bg-white shadow-sm">
-          <div className="border-b border-zinc-100 px-5 py-4">
-            <h2 className="text-lg font-bold text-zinc-900">Remarques</h2>
-            <p className="text-sm text-zinc-500">
-              {planMarkers.length} pastille{planMarkers.length !== 1 ? "s" : ""} sur ce plan
-            </p>
-          </div>
-
-          <div className="flex-1 overflow-y-auto px-3 py-3">
-            {planMarkers.length === 0 ? (
-              <p className="px-2 py-4 text-sm text-zinc-500">
-                Activez le mode pastille et touchez le plan pour commencer.
-              </p>
-            ) : (
-              <ul className="space-y-2">
-                {planMarkers.map((marker) => (
-                  <li key={marker.id}>
-                    <button
-                      type="button"
-                      onClick={() => selectMarker(marker)}
-                      className={`w-full rounded-xl px-4 py-3 text-left transition-colors ${
-                        selectedMarkerId === marker.id
-                          ? "bg-amber-50 ring-2 ring-amber-400"
-                          : "bg-zinc-50 hover:bg-zinc-100"
-                      }`}
-                    >
-                      <div className="flex items-center gap-3">
-                        <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-600 text-sm font-bold text-white">
-                          {marker.marker_number}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium text-zinc-900">
-                            {marker.remark || "Sans remarque"}
-                          </p>
-                          {marker.linked_marker_ids.length > 0 && (
-                            <p className="text-xs text-zinc-500">
-                              Liée à {marker.linked_marker_ids.length} pastille(s)
-                            </p>
-                          )}
-                        </div>
-                        {marker.photo_public_url && (
-                          <span className="text-xs text-emerald-600">📷</span>
-                        )}
-                      </div>
-                    </button>
-                  </li>
-                ))}
-              </ul>
-            )}
-          </div>
-
-          {selectedMarker && (
-            <div className="border-t border-zinc-100 px-5 py-4">
-              <h3 className="mb-3 font-semibold text-zinc-900">
-                Pastille n°{selectedMarker.marker_number}
-              </h3>
-              <textarea
-                value={remarkDraft}
-                onChange={(e) => setRemarkDraft(e.target.value)}
-                placeholder="Saisissez votre remarque…"
-                rows={3}
-                disabled={visit.status === "completed"}
-                className="mb-3 w-full resize-none rounded-xl border-2 border-zinc-200 bg-zinc-50 px-3 py-2 text-sm focus:border-zinc-400 focus:outline-none disabled:opacity-60"
-              />
-
-              {otherMarkers.length > 0 && visit.status !== "completed" && (
-                <div className="mb-3">
-                  <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                    Lier à d&apos;autres pastilles
-                  </p>
-                  <div className="flex flex-wrap gap-2">
-                    {otherMarkers.map((m) => (
-                      <button
-                        key={m.id}
-                        type="button"
-                        onClick={() => toggleLink(m.id)}
-                        className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
-                          linkDraft.includes(m.id)
-                            ? "bg-zinc-900 text-white"
-                            : "bg-zinc-100 text-zinc-700"
-                        }`}
-                      >
-                        #{m.marker_number}
-                      </button>
-                    ))}
-                  </div>
-                </div>
-              )}
-
-              {selectedMarker.photo_public_url && (
-                <img
-                  src={selectedMarker.photo_public_url}
-                  alt="Photo pastille"
-                  className="mb-3 max-h-32 rounded-xl object-cover"
-                />
-              )}
-
-              {visit.status !== "completed" && (
-                <div className="space-y-2">
-                  <label className="block">
-                    <span className="mb-1 block text-sm font-medium text-zinc-700">
-                      Photo
-                    </span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      onChange={handlePhotoUpload}
-                      disabled={isPending}
-                      className="w-full text-sm text-zinc-600"
-                    />
-                  </label>
-                  <button
-                    type="button"
-                    onClick={handleSaveMarker}
-                    disabled={isPending}
-                    className="min-h-11 w-full rounded-xl bg-zinc-900 py-2.5 text-sm font-bold text-white disabled:opacity-50"
-                  >
-                    Enregistrer
-                  </button>
-                  <button
-                    type="button"
-                    onClick={handleDeleteMarker}
-                    disabled={isPending}
-                    className="min-h-11 w-full rounded-xl border border-red-200 py-2.5 text-sm font-medium text-red-600"
-                  >
-                    Supprimer la pastille
-                  </button>
-                </div>
-              )}
-            </div>
-          )}
-        </div>
-
-        {error && (
-          <p className="mt-3 rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700">
-            {error}
-          </p>
-        )}
-      </aside>
     </div>
   );
 }

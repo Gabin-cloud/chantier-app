@@ -34,35 +34,36 @@ export default async function VisitePage({ params }: PageProps) {
       }))
     );
 
+    const visitDate = new Date(visit.visit_date).toLocaleDateString("fr-FR", {
+      weekday: "long",
+      day: "numeric",
+      month: "long",
+      year: "numeric",
+    });
+
     return (
-      <main className="min-h-full bg-zinc-100 px-4 py-4 sm:px-4">
-        <div className="mx-auto w-full max-w-7xl">
+      <main className="tablette-page flex min-h-0 flex-col bg-zinc-100">
+        <header className="flex shrink-0 items-center gap-3 border-b border-zinc-200 bg-white px-3 py-2.5 sm:px-4">
           <Link
             href={`/tablette/projets/${id}/visites`}
-            className="text-sm font-medium text-zinc-400 hover:text-zinc-600"
+            className="shrink-0 rounded-lg px-2 py-1.5 text-sm font-medium text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700"
           >
             ← Visites
           </Link>
-          <header className="mb-4 mt-3 rounded-2xl bg-white px-5 py-4 shadow-sm">
-            <h1 className="text-xl font-bold text-zinc-900 sm:text-2xl">
+          <div className="min-w-0 flex-1">
+            <h1 className="truncate text-base font-bold text-zinc-900 sm:text-lg">
               {visit.title}
             </h1>
-            <p className="mt-1 text-sm text-zinc-500">
-              {new Date(visit.visit_date).toLocaleDateString("fr-FR", {
-                weekday: "long",
-                day: "numeric",
-                month: "long",
-                year: "numeric",
-              })}
-            </p>
-          </header>
-          <VisitEditor
-            projectId={id}
-            visit={visit}
-            plans={plans}
-            initialMarkers={markersWithPhotos}
-          />
-        </div>
+            <p className="truncate text-xs text-zinc-500 sm:text-sm">{visitDate}</p>
+          </div>
+        </header>
+
+        <VisitEditor
+          projectId={id}
+          visit={visit}
+          plans={plans}
+          initialMarkers={markersWithPhotos}
+        />
       </main>
     );
   } catch (error) {

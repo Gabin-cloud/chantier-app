@@ -28,6 +28,19 @@ export async function middleware(request: NextRequest) {
   } = await supabase.auth.getUser();
 
   const { pathname } = request.nextUrl;
+
+  if (pathname === "/") {
+    const ua = request.headers.get("user-agent") ?? "";
+    const isTablet =
+      /iPad|Tablet|Android(?!.*Mobile)/i.test(ua) ||
+      (ua.includes("Macintosh") && ua.includes("Mobile"));
+    if (isTablet) {
+      const url = request.nextUrl.clone();
+      url.pathname = "/tablette";
+      return NextResponse.redirect(url);
+    }
+  }
+
   const isProtected =
     pathname.startsWith("/pc") || pathname.startsWith("/tablette");
   const isAuthPage = pathname.startsWith("/login");
@@ -48,5 +61,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/pc/:path*", "/tablette/:path*", "/login"],
+  matcher: ["/", "/pc/:path*", "/tablette/:path*", "/login"],
 };
