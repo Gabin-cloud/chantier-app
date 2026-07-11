@@ -18,7 +18,11 @@ export default async function PcHomePage() {
     return (
       <main className="min-h-full bg-slate-50 px-6 py-8">
         <div className="mx-auto mb-6 max-w-2xl">
-          <UserMenu email={profile.email} fullName={profile.full_name} />
+          <UserMenu
+            email={profile.email}
+            fullName={profile.full_name}
+            basePath="pc"
+          />
         </div>
         <ProjectList projects={projects} basePath="pc" />
       </main>

@@ -301,7 +301,19 @@ export type Profile = {
   email: string;
   full_name: string | null;
   global_role: GlobalRole;
+  notify_new_projects: boolean;
   created_at: string;
+  updated_at: string;
+};
+
+export type UserM365Connection = {
+  user_id: string;
+  ms_user_id: string;
+  ms_email: string;
+  access_token: string;
+  refresh_token: string;
+  token_expires_at: string;
+  connected_at: string;
   updated_at: string;
 };
 

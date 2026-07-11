@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireProjectAccess, requireProjectRoles, requireUser } from "@/lib/auth/permissions";
 import { ensureProjectCreatorMember } from "@/lib/actions/members";
+import { notifyNewProjectCreated } from "@/lib/notifications/project-created";
 import { createClient } from "@/lib/supabase/server";
 import type { EnterpriseFormData, ProjectFormData } from "@/lib/types/database";
 
@@ -57,6 +58,20 @@ export async function createProject(formData: ProjectFormData): Promise<string> 
   if (error) throw new Error(error.message);
 
   await ensureProjectCreatorMember(data.id, user.id);
+
+  const { data: creatorProfile } = await supabase
+    .from("profiles")
+    .select("full_name, email")
+    .eq("id", user.id)
+    .single();
+
+  await notifyNewProjectCreated({
+    projectId: data.id,
+    projectName: formData.name,
+    createdByUserId: user.id,
+    createdByName: creatorProfile?.full_name ?? null,
+    createdByEmail: creatorProfile?.email ?? user.email ?? "",
+  });
 
   revalidatePath("/tablette");
   revalidatePath("/pc");

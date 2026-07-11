@@ -18,7 +18,11 @@ export default async function TabletteHomePage() {
     return (
       <main className="min-h-full bg-zinc-100 px-4 py-6 sm:px-6">
         <div className="mx-auto mb-6 max-w-2xl">
-          <UserMenu email={profile.email} fullName={profile.full_name} />
+          <UserMenu
+            email={profile.email}
+            fullName={profile.full_name}
+            basePath="tablette"
+          />
         </div>
         <ProjectList projects={projects} basePath="tablette" />
       </main>
