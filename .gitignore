@@ -20,6 +20,7 @@
 # production
 /build
 /dist-desktop
+/dist-desktop-v2
 
 # misc
 .DS_Store
@@ -40,3 +41,7 @@ yarn-error.log*
 # typescript
 *.tsbuildinfo
 next-env.d.ts
+
+# supabase cli (lien local au projet distant)
+supabase/.temp/
+supabase/.branches/

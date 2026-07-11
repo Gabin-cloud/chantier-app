@@ -47,6 +47,22 @@ body {
   min-height: 0;
 }
 
+button,
+a,
+[role="button"],
+input,
+select,
+textarea,
+label {
+  touch-action: manipulation;
+}
+
+.tablette-visit-editor button,
+.tablette-visit-editor a {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
 @supports not (height: 100dvh) {
   .tablette-page {
     min-height: calc(100vh - var(--safe-top) - var(--safe-bottom));

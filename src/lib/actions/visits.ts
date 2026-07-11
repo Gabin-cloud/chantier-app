@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireProjectAccess, requireProjectRoles } from "@/lib/auth/permissions";
 import { createClient } from "@/lib/supabase/server";
 import type { MarkerUpdateData, MarkerWithLinks, VisitFormData } from "@/lib/types/database";
+import { computeVisitControlSummary } from "@/lib/control-summary";
 import { ensureDefaultPhases } from "@/lib/actions/phases";
 
 const PHOTOS_BUCKET = "visit-photos";
@@ -115,6 +116,8 @@ export async function getVisit(visitId: string): Promise<{
     trade: marker.trade ?? null,
     location_label: marker.location_label ?? null,
     location_preset_id: marker.location_preset_id ?? null,
+    checklist_item_id: marker.checklist_item_id ?? null,
+    control_result: marker.control_result ?? null,
     linked_marker_ids: linkMap.get(marker.id) ?? [],
   }));
 
@@ -157,9 +160,26 @@ export async function createVisit(projectId: string, formData: VisitFormData) {
 export async function completeVisit(projectId: string, visitId: string) {
   await requireProjectRoles(projectId, ["admin", "gestionnaire", "terrain"]);
   const supabase = await createClient();
+
+  const { data: visit } = await supabase
+    .from("visits")
+    .select("phase_id")
+    .eq("id", visitId)
+    .single();
+
+  let markersQuery = supabase.from("markers").select("checklist_item_id, control_result");
+  if (visit?.phase_id) {
+    markersQuery = markersQuery.eq("phase_id", visit.phase_id);
+  } else {
+    markersQuery = markersQuery.eq("visit_id", visitId);
+  }
+  const { data: markers } = await markersQuery;
+
+  const control_summary = computeVisitControlSummary(markers ?? []);
+
   const { error } = await supabase
     .from("visits")
-    .update({ status: "completed" })
+    .update({ status: "completed", control_summary })
     .eq("id", visitId);
 
   if (error) throw new Error(error.message);
@@ -248,6 +268,8 @@ export async function updateMarker(
     trade: string | null;
     location_label: string | null;
     location_preset_id: string | null;
+    checklist_item_id: string | null;
+    control_result: string | null;
   }> = {};
 
   if (data.status !== undefined) scalarFields.status = data.status;
@@ -256,6 +278,12 @@ export async function updateMarker(
   if (data.location_label !== undefined) scalarFields.location_label = data.location_label || null;
   if (data.location_preset_id !== undefined) {
     scalarFields.location_preset_id = data.location_preset_id;
+  }
+  if (data.checklist_item_id !== undefined) {
+    scalarFields.checklist_item_id = data.checklist_item_id;
+  }
+  if (data.control_result !== undefined) {
+    scalarFields.control_result = data.control_result;
   }
 
   if (Object.keys(scalarFields).length > 0) {
@@ -277,7 +305,36 @@ export async function updateMarker(
     }
   }
 
+  const { data: visit } = await supabase
+    .from("visits")
+    .select("phase_id")
+    .eq("id", visitId)
+    .single();
+
+  if (
+    data.control_result !== undefined ||
+    data.checklist_item_id !== undefined
+  ) {
+    await refreshVisitControlSummary(supabase, visitId, visit?.phase_id ?? null);
+  }
+
   revalidatePath(`/tablette/projets/${projectId}/visites/${visitId}`);
+}
+
+async function refreshVisitControlSummary(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  visitId: string,
+  phaseId: string | null
+) {
+  let markersQuery = supabase.from("markers").select("checklist_item_id, control_result");
+  if (phaseId) {
+    markersQuery = markersQuery.eq("phase_id", phaseId);
+  } else {
+    markersQuery = markersQuery.eq("visit_id", visitId);
+  }
+  const { data: markers } = await markersQuery;
+  const control_summary = computeVisitControlSummary(markers ?? []);
+  await supabase.from("visits").update({ control_summary }).eq("id", visitId);
 }
 
 export async function uploadMarkerPhoto(

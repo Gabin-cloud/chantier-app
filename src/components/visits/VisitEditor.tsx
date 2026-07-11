@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
-import { VisitChecklist } from "@/components/visits/VisitChecklist";
+import { VisitReportPreview } from "@/components/visits/VisitReportPreview";
 import { PlanViewer } from "@/components/visits/PlanViewer";
 import { PlanPicker } from "@/components/plans/PlanPicker";
 import { savePlanDrawings } from "@/lib/actions/drawings";
@@ -16,6 +16,7 @@ import {
   uploadMarkerPhoto,
 } from "@/lib/actions/visits";
 import type {
+  ControlResult,
   DrawingStroke,
   Enterprise,
   MarkerStatus,
@@ -26,14 +27,17 @@ import type {
   PlanFolder,
   ProjectLocation,
   Visit,
-  VisitChecklistResponse,
+  VisitControlSummary,
 } from "@/lib/types/database";
 import {
+  CONTROL_RESULT_LABELS,
   DRAW_COLOR_PRESETS,
   DRAW_WIDTH_PRESETS,
   MARKER_STATUS_COLORS,
   MARKER_STATUS_LABELS,
+  VISIT_CONTROL_SUMMARY_LABELS,
 } from "@/lib/types/database";
+import { computeVisitControlSummary } from "@/lib/control-summary";
 
 type PlanWithUrl = Plan & { pdf_url: string };
 
@@ -44,6 +48,8 @@ type MarkerWithPhoto = MarkerWithLinks & {
   trade: string | null;
   location_label: string | null;
   location_preset_id: string | null;
+  checklist_item_id: string | null;
+  control_result: ControlResult | null;
 };
 
 type VisitEditorProps = {
@@ -53,7 +59,6 @@ type VisitEditorProps = {
   plans: PlanWithUrl[];
   planFolders?: PlanFolder[];
   checklistItems?: PhaseChecklistItem[];
-  checklistResponses?: VisitChecklistResponse[];
   enterprises: Enterprise[];
   locations: ProjectLocation[];
   initialMarkers: MarkerWithPhoto[];
@@ -75,7 +80,6 @@ export function VisitEditor({
   plans,
   planFolders = [],
   checklistItems = [],
-  checklistResponses = [],
   enterprises,
   locations: initialLocations,
   initialMarkers,
@@ -106,6 +110,9 @@ export function VisitEditor({
   const [tradeDraft, setTradeDraft] = useState("");
   const [locationPresetDraft, setLocationPresetDraft] = useState("");
   const [locationLabelDraft, setLocationLabelDraft] = useState("");
+  const [checklistItemDraft, setChecklistItemDraft] = useState("");
+  const [controlResultDraft, setControlResultDraft] = useState<ControlResult | "">("");
+  const [showReport, setShowReport] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const saveDrawingsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -125,6 +132,21 @@ export function VisitEditor({
     () => enterprises.find((e) => e.id === enterpriseDraft) ?? null,
     [enterprises, enterpriseDraft]
   );
+
+  const visitControlSummary: VisitControlSummary = useMemo(
+    () => visit.control_summary ?? computeVisitControlSummary(markers),
+    [visit.control_summary, markers]
+  );
+
+  const checklistItemsByZone = useMemo(() => {
+    const map = new Map<string, PhaseChecklistItem[]>();
+    for (const item of checklistItems) {
+      const zone = item.zone_name || "Général";
+      if (!map.has(zone)) map.set(zone, []);
+      map.get(zone)!.push(item);
+    }
+    return map;
+  }, [checklistItems]);
 
   const scheduleSaveDrawings = useCallback(
     (planId: string, strokes: DrawingStroke[]) => {
@@ -160,6 +182,8 @@ export function VisitEditor({
     setTradeDraft(marker.trade ?? "");
     setLocationPresetDraft(marker.location_preset_id ?? "");
     setLocationLabelDraft(marker.location_label ?? "");
+    setChecklistItemDraft(marker.checklist_item_id ?? "");
+    setControlResultDraft(marker.control_result ?? "");
     setAddMode(false);
     setDrawMode(false);
   }
@@ -184,11 +208,12 @@ export function VisitEditor({
           trade: null,
           location_label: null,
           location_preset_id: null,
+          checklist_item_id: null,
+          control_result: null,
           photo_public_url: null,
         };
         setMarkers((prev) => [...prev, withPhoto]);
         selectMarker(withPhoto);
-        router.refresh();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Impossible d'ajouter la pastille.");
       }
@@ -232,6 +257,8 @@ export function VisitEditor({
           trade: (selectedEnterprise?.trade ?? tradeDraft) || null,
           location_label: locationLabelDraft || null,
           location_preset_id: locationPresetId,
+          checklist_item_id: checklistItemDraft || null,
+          control_result: controlResultDraft || null,
         });
 
         setMarkers((prev) =>
@@ -246,11 +273,12 @@ export function VisitEditor({
                   trade: (selectedEnterprise?.trade ?? tradeDraft) || null,
                   location_label: locationLabelDraft || null,
                   location_preset_id: locationPresetId,
+                  checklist_item_id: checklistItemDraft || null,
+                  control_result: controlResultDraft || null,
                 }
               : m
           )
         );
-        router.refresh();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Erreur lors de l'enregistrement.");
       }
@@ -277,7 +305,6 @@ export function VisitEditor({
             m.id === selectedMarker.id ? { ...m, photo_public_url: url } : m
           )
         );
-        router.refresh();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Erreur lors de l'upload.");
       }
@@ -293,7 +320,6 @@ export function VisitEditor({
         await deleteMarker(visit.id, projectId, selectedMarker.id);
         setMarkers((prev) => prev.filter((m) => m.id !== selectedMarker.id));
         setSelectedMarkerId(null);
-        router.refresh();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Erreur lors de la suppression.");
       }
@@ -347,15 +373,29 @@ export function VisitEditor({
   return (
     <div className="tablette-visit-editor flex min-h-0 flex-col md:flex-row">
       <aside className="flex w-full shrink-0 flex-col border-r border-zinc-200 bg-white md:w-72 lg:w-80">
-        <VisitChecklist
-          projectId={projectId}
-          visitId={visit.id}
-          items={checklistItems}
-          initialResponses={checklistResponses}
-          readOnly={isCompleted}
-        />
-
         <div className="border-b border-zinc-100 px-4 py-3">
+          <div className="mb-2 flex items-center justify-between gap-2">
+            <span
+              className={`rounded-full px-2.5 py-1 text-xs font-semibold ${
+                visitControlSummary === "ok"
+                  ? "bg-emerald-100 text-emerald-800"
+                  : visitControlSummary === "partial"
+                    ? "bg-amber-100 text-amber-800"
+                    : visitControlSummary === "ko"
+                      ? "bg-red-100 text-red-800"
+                      : "bg-zinc-100 text-zinc-700"
+              }`}
+            >
+              {VISIT_CONTROL_SUMMARY_LABELS[visitControlSummary]}
+            </span>
+            <button
+              type="button"
+              onClick={() => setShowReport(true)}
+              className="rounded-lg bg-zinc-100 px-2.5 py-1 text-xs font-semibold text-zinc-700"
+            >
+              Aperçu rapport
+            </button>
+          </div>
           <h2 className="text-base font-bold text-zinc-900">Réserves</h2>
           <p className="text-xs text-zinc-500">
             {planMarkers.length} sur ce plan
@@ -460,6 +500,51 @@ export function VisitEditor({
               <p className="mb-3 text-xs text-zinc-500">
                 Corps de métier : {selectedEnterprise.trade}
               </p>
+            )}
+
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              Point de contrôle
+            </label>
+            <select
+              value={checklistItemDraft}
+              onChange={(e) => setChecklistItemDraft(e.target.value)}
+              disabled={isCompleted}
+              className="mb-2 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm disabled:opacity-60"
+            >
+              <option value="">— Choisir un point —</option>
+              {[...checklistItemsByZone.entries()].map(([zone, items]) => (
+                <optgroup key={zone} label={zone}>
+                  {items.map((item) => (
+                    <option key={item.id} value={item.id}>
+                      {item.label}
+                    </option>
+                  ))}
+                </optgroup>
+              ))}
+            </select>
+
+            {checklistItemDraft && (
+              <div className="mb-3 flex flex-wrap gap-1.5">
+                {(["ok", "partial", "ko"] as ControlResult[]).map((result) => (
+                  <button
+                    key={result}
+                    type="button"
+                    disabled={isCompleted}
+                    onClick={() => setControlResultDraft(result)}
+                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
+                      controlResultDraft === result
+                        ? result === "ok"
+                          ? "bg-emerald-600 text-white"
+                          : result === "ko"
+                            ? "bg-red-600 text-white"
+                            : "bg-amber-500 text-white"
+                        : "bg-zinc-100 text-zinc-700"
+                    }`}
+                  >
+                    {CONTROL_RESULT_LABELS[result]}
+                  </button>
+                ))}
+              </div>
             )}
 
             <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-zinc-500">
@@ -742,6 +827,17 @@ export function VisitEditor({
         </div>
         </div>
       </div>
+
+      {showReport && (
+        <VisitReportPreview
+          visit={visit}
+          phaseName={phaseName ?? null}
+          checklistItems={checklistItems}
+          markers={markers}
+          enterprises={enterprises}
+          onClose={() => setShowReport(false)}
+        />
+      )}
     </div>
   );
 }

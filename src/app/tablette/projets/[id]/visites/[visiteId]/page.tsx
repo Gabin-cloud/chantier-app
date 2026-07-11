@@ -5,10 +5,7 @@ import {
 } from "@/components/SupabaseSetupNotice";
 import { VisitEditor } from "@/components/visits/VisitEditor";
 import { getPlanDrawings } from "@/lib/actions/drawings";
-import {
-  getProjectChecklistItems,
-  getVisitChecklistResponses,
-} from "@/lib/actions/checklist";
+import { getProjectChecklistItems } from "@/lib/actions/checklist";
 import { getProjectLocations } from "@/lib/actions/locations";
 import { getPlanFolders, getPlansWithUrls } from "@/lib/actions/plans";
 import { getProjectPhases } from "@/lib/actions/phases";
@@ -41,10 +38,9 @@ export default async function VisitePage({ params }: PageProps) {
     const phaseName = phases.find((p) => p.id === visit.phase_id)?.name ?? null;
     const checklistItems = allChecklistItems.filter((item) => item.phase_id === visit.phase_id);
 
-    const [locations, drawings, checklistResponses] = await Promise.all([
+    const [locations, drawings] = await Promise.all([
       getProjectLocations(id).catch(() => []),
       getPlanDrawings(visiteId).catch(() => []),
-      getVisitChecklistResponses(visiteId).catch(() => []),
     ]);
 
     const markersWithPhotos = await Promise.all(
@@ -90,7 +86,6 @@ export default async function VisitePage({ params }: PageProps) {
           plans={plans}
           planFolders={planFolders}
           checklistItems={checklistItems}
-          checklistResponses={checklistResponses}
           enterprises={project.enterprises}
           locations={locations}
           initialMarkers={markersWithPhotos}

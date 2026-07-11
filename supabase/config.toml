@@ -1,0 +1,7 @@
+# Configuration Supabase CLI (migrations distantes)
+# Doc : https://supabase.com/docs/guides/cli
+
+project_id = "chantier-app"
+
+[db]
+major_version = 15

@@ -69,6 +69,13 @@ export function ProjectHub({ project, basePath, projectRole }: ProjectHubProps) 
       visible: canOpenSettings,
     },
     {
+      href: `/pc/projets/${project.id}/controles`,
+      label: "Tableau de contrôle",
+      description: "Synthèse des points de contrôle par phase et zone",
+      color: "bg-blue-600 text-white",
+      visible: canAccessField(projectRole) || canEditProject(projectRole),
+    },
+    {
       href: `/pc/projets/${project.id}/finance`,
       label: "Suivi financier",
       description: "Lots, situations mensuelles et attestations PDF",

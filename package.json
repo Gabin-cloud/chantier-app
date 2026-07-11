@@ -8,6 +8,9 @@
     "build": "next build",
     "start": "next start",
     "lint": "eslint",
+    "db:link": "supabase link",
+    "db:push": "powershell -ExecutionPolicy Bypass -File scripts/db-push.ps1",
+    "db:status": "supabase migration list",
     "desktop:dev": "concurrently -k \"npm run dev\" \"wait-on http://localhost:3000/pc && electron .\"",
     "pack:desktop": "electron-builder --win --publish never",
     "dist:desktop": "npm run pack:desktop"
@@ -37,6 +40,7 @@
     "electron-builder": "^26.0.12",
     "eslint": "^9",
     "eslint-config-next": "16.2.10",
+    "supabase": "^2.34.3",
     "tailwindcss": "^4",
     "typescript": "^5",
     "wait-on": "^8.0.5"

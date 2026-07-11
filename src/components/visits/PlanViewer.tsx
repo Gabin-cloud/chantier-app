@@ -118,6 +118,8 @@ export function PlanViewer({
   const pinchActiveRef = useRef(false);
   const initialFitDoneRef = useRef(false);
   const viewportSizeRef = useRef({ width: 0, height: 0 });
+  const transformLayerRef = useRef<HTMLDivElement>(null);
+  const activeGestureRef = useRef<"none" | "pan" | "pinch" | "draw">("none");
 
   const basePageSizeRef = useRef<Size>({ width: 0, height: 0 });
   const zoomRef = useRef(1);
@@ -155,6 +157,18 @@ export function PlanViewer({
     panRef.current = nextPan;
     setPan(nextPan);
   }, []);
+
+  const syncLayerTransform = useCallback((nextPan: Pan) => {
+    const layer = transformLayerRef.current;
+    if (!layer) return;
+    layer.style.transform = `translate3d(${nextPan.x}px, ${nextPan.y}px, 0)`;
+  }, []);
+
+  const commitGesture = useCallback(() => {
+    setPan(panRef.current);
+    setZoom(zoomRef.current);
+    syncLayerTransform(panRef.current);
+  }, [syncLayerTransform]);
 
   const fitToViewport = useCallback(() => {
     const viewport = viewportRef.current;
@@ -380,7 +394,7 @@ export function PlanViewer({
   function handlePointerDown(e: ReactPointerEvent<HTMLDivElement>) {
     if (readOnly && !drawMode) return;
     if (e.pointerType === "mouse" && e.button !== 0) return;
-    if (isMarkerTarget(e.target)) return;
+    if (activeGestureRef.current === "none" && isMarkerTarget(e.target)) return;
 
     e.currentTarget.setPointerCapture(e.pointerId);
     pointersRef.current.set(e.pointerId, {
@@ -392,6 +406,7 @@ export function PlanViewer({
     tapMovedRef.current = false;
 
     if (drawMode && !readOnly && pointersRef.current.size === 1) {
+      activeGestureRef.current = "draw";
       const coords = clientToPercent(e.clientX, e.clientY);
       if (coords) {
         setLiveStroke({
@@ -404,6 +419,7 @@ export function PlanViewer({
     }
 
     if (pointersRef.current.size === 1 && !drawMode) {
+      activeGestureRef.current = "pan";
       panStartRef.current = {
         x: e.clientX,
         y: e.clientY,
@@ -413,6 +429,7 @@ export function PlanViewer({
     }
 
     if (pointersRef.current.size === 2) {
+      activeGestureRef.current = "pinch";
       pinchActiveRef.current = true;
       const pts = [...pointersRef.current.values()];
       const midX = (pts[0].x + pts[1].x) / 2;
@@ -428,18 +445,29 @@ export function PlanViewer({
   }
 
   function handlePointerMove(e: ReactPointerEvent<HTMLDivElement>) {
-    if (isMarkerTarget(e.target)) return;
+    if (
+      activeGestureRef.current === "none" &&
+      isMarkerTarget(e.target)
+    ) {
+      return;
+    }
 
     const pointer = pointersRef.current.get(e.pointerId);
     if (!pointer) return;
 
-    if (Math.hypot(e.clientX - pointer.startX, e.clientY - pointer.startY) > 8) {
+    if (Math.hypot(e.clientX - pointer.startX, e.clientY - pointer.startY) > 6) {
       tapMovedRef.current = true;
     }
 
     pointersRef.current.set(e.pointerId, { ...pointer, x: e.clientX, y: e.clientY });
 
-    if (drawMode && liveStroke && !readOnly && pointersRef.current.size === 1) {
+    if (
+      activeGestureRef.current === "draw" &&
+      drawMode &&
+      liveStroke &&
+      !readOnly &&
+      pointersRef.current.size === 1
+    ) {
       const coords = clientToPercent(e.clientX, e.clientY);
       if (coords) {
         setLiveStroke({
@@ -450,7 +478,7 @@ export function PlanViewer({
       return;
     }
 
-    if (pointersRef.current.size === 2 && pinchRef.current) {
+    if (activeGestureRef.current === "pinch" && pointersRef.current.size === 2 && pinchRef.current) {
       const pts = [...pointersRef.current.values()];
       const distance = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
       const midX = (pts[0].x + pts[1].x) / 2;
@@ -462,22 +490,31 @@ export function PlanViewer({
         const nextZoom = clamp(zoomRef.current * zoomFactor, MIN_ZOOM, MAX_ZOOM);
         const ratio = nextZoom / zoomRef.current;
 
-        applyZoom(nextZoom);
-        applyPan({
+        zoomRef.current = nextZoom;
+        panRef.current = {
           x: midX - (midX - panRef.current.x) * ratio,
           y: midY - (midY - panRef.current.y) * ratio,
-        });
+        };
+        syncLayerTransform(panRef.current);
+        const layer = transformLayerRef.current;
+        if (layer && basePageSizeRef.current.width > 0) {
+          const base = basePageSizeRef.current;
+          layer.style.width = `${base.width * nextZoom}px`;
+          layer.style.height = `${base.height * nextZoom}px`;
+        }
       }
 
       pinchRef.current = { distance, midX, midY };
       return;
     }
 
-    if (pointersRef.current.size === 1 && panStartRef.current) {
-      applyPan({
+    if (activeGestureRef.current === "pan" && pointersRef.current.size === 1 && panStartRef.current) {
+      const nextPan = {
         x: panStartRef.current.px + (e.clientX - panStartRef.current.x),
         y: panStartRef.current.py + (e.clientY - panStartRef.current.y),
-      });
+      };
+      panRef.current = nextPan;
+      syncLayerTransform(nextPan);
     }
   }
 
@@ -499,10 +536,18 @@ export function PlanViewer({
       pinchRef.current = null;
       if (pinchActiveRef.current) {
         pinchActiveRef.current = false;
+        commitGesture();
         void renderPdf(zoomRef.current);
       }
     }
-    if (pointersRef.current.size === 0) panStartRef.current = null;
+
+    if (pointersRef.current.size === 0) {
+      panStartRef.current = null;
+      if (activeGestureRef.current === "pan") {
+        commitGesture();
+      }
+      activeGestureRef.current = "none";
+    }
 
     try {
       e.currentTarget.releasePointerCapture(e.pointerId);
@@ -589,11 +634,12 @@ export function PlanViewer({
 
         {basePageSize.width > 0 && !error && (
           <div
+            ref={transformLayerRef}
             className="absolute left-0 top-0 will-change-transform"
             style={{
               width: layerWidth,
               height: layerHeight,
-              transform: `translate(${pan.x}px, ${pan.y}px)`,
+              transform: `translate3d(${pan.x}px, ${pan.y}px, 0)`,
             }}
           >
             <div ref={layerRef} className="relative h-full w-full">

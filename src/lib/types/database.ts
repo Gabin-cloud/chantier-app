@@ -183,6 +183,7 @@ export type Visit = {
   title: string | null;
   visit_date: string;
   status: VisitStatus;
+  control_summary: VisitControlSummary | null;
   notes: string | null;
   created_at: string;
   updated_at: string;
@@ -261,6 +262,23 @@ export type PlanDrawing = {
   updated_at: string;
 };
 
+export type ControlResult = "ok" | "ko" | "partial";
+
+export const CONTROL_RESULT_LABELS: Record<ControlResult, string> = {
+  ok: "Conforme",
+  ko: "Non conforme",
+  partial: "Partiel",
+};
+
+export type VisitControlSummary = "pending" | "ok" | "partial" | "ko";
+
+export const VISIT_CONTROL_SUMMARY_LABELS: Record<VisitControlSummary, string> = {
+  pending: "En cours",
+  ok: "Conforme",
+  partial: "Partiellement conforme",
+  ko: "Non conforme",
+};
+
 export type ChecklistItemStatus = "pending" | "ok" | "partial" | "ko";
 
 export const CHECKLIST_STATUS_LABELS: Record<ChecklistItemStatus, string> = {
@@ -273,6 +291,7 @@ export const CHECKLIST_STATUS_LABELS: Record<ChecklistItemStatus, string> = {
 export type PhaseChecklistItem = {
   id: string;
   phase_id: string;
+  zone_name: string | null;
   label: string;
   sort_order: number;
   created_at: string;
@@ -304,6 +323,8 @@ export type Marker = {
   trade: string | null;
   location_label: string | null;
   location_preset_id: string | null;
+  checklist_item_id: string | null;
+  control_result: ControlResult | null;
   created_at: string;
   updated_at: string;
 };
@@ -416,6 +437,8 @@ export type MarkerUpdateData = {
   trade?: string | null;
   location_label?: string | null;
   location_preset_id?: string | null;
+  checklist_item_id?: string | null;
+  control_result?: ControlResult | null;
 };
 
 export type GlobalRole = "super_admin" | "user";

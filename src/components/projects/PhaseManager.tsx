@@ -32,6 +32,7 @@ export function PhaseManager({
   const [editName, setEditName] = useState("");
   const [checklistPhaseId, setChecklistPhaseId] = useState(phases[0]?.id ?? "");
   const [newChecklistLabel, setNewChecklistLabel] = useState("");
+  const [newChecklistZone, setNewChecklistZone] = useState("");
 
   function handleAdd(e: React.FormEvent) {
     e.preventDefault();
@@ -78,8 +79,14 @@ export function PhaseManager({
     setError(null);
     startTransition(async () => {
       try {
-        await addPhaseChecklistItem(projectId, checklistPhaseId, newChecklistLabel);
+        await addPhaseChecklistItem(
+          projectId,
+          checklistPhaseId,
+          newChecklistLabel,
+          newChecklistZone
+        );
         setNewChecklistLabel("");
+        setNewChecklistZone("");
       } catch (err) {
         setError(err instanceof Error ? err.message : "Erreur.");
       }
@@ -205,7 +212,10 @@ export function PhaseManager({
                 key={item.id}
                 className="flex items-center justify-between rounded-lg bg-zinc-50 px-3 py-2 text-sm"
               >
-                <span>{item.label}</span>
+                <span>
+                  {item.zone_name ? `${item.zone_name} · ` : ""}
+                  {item.label}
+                </span>
                 {canEdit && (
                   <button
                     type="button"
@@ -221,7 +231,14 @@ export function PhaseManager({
         )}
 
         {canEdit && (
-          <form onSubmit={handleAddChecklistItem} className="flex gap-2">
+          <form onSubmit={handleAddChecklistItem} className="space-y-2">
+            <input
+              value={newChecklistZone}
+              onChange={(e) => setNewChecklistZone(e.target.value)}
+              placeholder="Zone (ex. Fond de fouille, Sous-sol…)"
+              className="w-full rounded-xl border border-zinc-200 px-3 py-2 text-sm"
+            />
+            <div className="flex gap-2">
             <input
               value={newChecklistLabel}
               onChange={(e) => setNewChecklistLabel(e.target.value)}
@@ -235,6 +252,7 @@ export function PhaseManager({
             >
               Ajouter
             </button>
+            </div>
           </form>
         )}
       </div>
