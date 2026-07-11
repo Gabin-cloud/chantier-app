@@ -36,6 +36,7 @@ type PlanViewerProps = {
 
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 8;
+const MAX_CANVAS_SIDE = 4096;
 const DRAW_COLOR = "#f59e0b";
 const DRAW_WIDTH = 2.5;
 const PDF_WORKER_SRC = "/pdf.worker.legacy.min.mjs";
@@ -50,12 +51,25 @@ function strokeToPath(stroke: DrawingStroke) {
   return `M ${first.x} ${first.y} ${rest.map((p) => `L ${p.x} ${p.y}`).join(" ")}`;
 }
 
+function isBenignRenderError(err: unknown) {
+  if (!(err instanceof Error)) return false;
+  const message = err.message.toLowerCase();
+  return (
+    message.includes("cancel") ||
+    message.includes("abort") ||
+    message.includes("multiple render")
+  );
+}
+
 function formatPlanError(err: unknown) {
   if (!(err instanceof Error)) {
     return "Impossible d'afficher le plan PDF.";
   }
 
   const message = err.message.trim();
+  if (isBenignRenderError(err)) {
+    return "Impossible d'afficher le plan PDF.";
+  }
   if (
     message.length > 180 ||
     message.includes("=>") ||
@@ -93,6 +107,7 @@ export function PlanViewer({
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const layerRef = useRef<HTMLDivElement>(null);
   const pageRef = useRef<import("pdfjs-dist").PDFPageProxy | null>(null);
+  const renderTaskRef = useRef<import("pdfjs-dist").RenderTask | null>(null);
   const renderGenerationRef = useRef(0);
 
   const basePageSizeRef = useRef<Size>({ width: 0, height: 0 });
@@ -146,44 +161,78 @@ export function PlanViewer({
     });
   }, [applyPan, applyZoom]);
 
-  const renderPdf = useCallback(async (targetZoom: number) => {
-    const page = pageRef.current;
-    const canvas = canvasRef.current;
-    const base = basePageSizeRef.current;
-    if (!page || !canvas || base.width === 0) return;
+  const cancelActiveRender = useCallback(async () => {
+    const task = renderTaskRef.current;
+    if (!task) return;
 
-    const generation = ++renderGenerationRef.current;
-    setRendering(true);
+    renderTaskRef.current = null;
+    task.cancel();
 
     try {
-      const dpr = Math.min(window.devicePixelRatio || 1, 3);
-      const renderScale = targetZoom * dpr;
-      const viewport = page.getViewport({ scale: renderScale });
+      await task.promise;
+    } catch {
+      // Rendu annulé volontairement avant un nouveau zoom.
+    }
+  }, []);
 
-      canvas.width = Math.floor(viewport.width);
-      canvas.height = Math.floor(viewport.height);
-      canvas.style.width = `${base.width * targetZoom}px`;
-      canvas.style.height = `${base.height * targetZoom}px`;
+  const renderPdf = useCallback(
+    async (targetZoom: number) => {
+      const page = pageRef.current;
+      const canvas = canvasRef.current;
+      const base = basePageSizeRef.current;
+      if (!page || !canvas || base.width === 0) return;
 
-      const context = canvas.getContext("2d");
-      if (!context) throw new Error("Canvas 2D indisponible.");
+      await cancelActiveRender();
 
-      await page.render({
-        canvasContext: context,
-        viewport,
-        canvas,
-      }).promise;
+      const generation = ++renderGenerationRef.current;
+      setRendering(true);
 
-      if (generation === renderGenerationRef.current) {
-        setRendering(false);
-      }
-    } catch (err) {
-      if (generation === renderGenerationRef.current) {
+      try {
+        const dpr = Math.min(window.devicePixelRatio || 1, 3);
+        let renderScale = targetZoom * dpr;
+        const maxBaseSide = Math.max(base.width, base.height);
+        if (maxBaseSide * renderScale > MAX_CANVAS_SIDE) {
+          renderScale = MAX_CANVAS_SIDE / maxBaseSide;
+        }
+
+        const viewport = page.getViewport({ scale: renderScale });
+
+        canvas.width = Math.floor(viewport.width);
+        canvas.height = Math.floor(viewport.height);
+        canvas.style.width = `${base.width * targetZoom}px`;
+        canvas.style.height = `${base.height * targetZoom}px`;
+
+        const context = canvas.getContext("2d");
+        if (!context) throw new Error("Canvas 2D indisponible.");
+
+        const task = page.render({
+          canvasContext: context,
+          viewport,
+          canvas,
+        });
+        renderTaskRef.current = task;
+
+        await task.promise;
+
+        if (generation === renderGenerationRef.current) {
+          renderTaskRef.current = null;
+          setRendering(false);
+          setError(null);
+        }
+      } catch (err) {
+        if (generation !== renderGenerationRef.current || isBenignRenderError(err)) {
+          if (generation === renderGenerationRef.current) {
+            setRendering(false);
+          }
+          return;
+        }
+
         setRendering(false);
         setError(formatPlanError(err));
       }
-    }
-  }, []);
+    },
+    [cancelActiveRender]
+  );
 
   useEffect(() => {
     let cancelled = false;
@@ -230,8 +279,9 @@ export function PlanViewer({
     return () => {
       cancelled = true;
       renderGenerationRef.current += 1;
+      void cancelActiveRender();
     };
-  }, [projectId, planId]);
+  }, [projectId, planId, cancelActiveRender]);
 
   useEffect(() => {
     if (!pdfReady) return;
@@ -476,9 +526,19 @@ export function PlanViewer({
         )}
 
         {error && (
-          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-red-50 p-6 text-center">
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-3 bg-red-50 p-6 text-center">
             <p className="text-sm font-semibold text-red-800">Plan indisponible</p>
             <p className="max-w-sm text-sm font-medium text-red-700">{error}</p>
+            <button
+              type="button"
+              onClick={() => {
+                setError(null);
+                void renderPdf(zoomRef.current);
+              }}
+              className="rounded-xl bg-red-700 px-4 py-2 text-sm font-semibold text-white active:scale-95"
+            >
+              Réessayer
+            </button>
           </div>
         )}
 
