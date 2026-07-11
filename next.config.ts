@@ -4,6 +4,7 @@ const isDesktopBuild = process.env.BUILD_DESKTOP === "1";
 
 const nextConfig: NextConfig = {
   output: isDesktopBuild ? "standalone" : undefined,
+  serverExternalPackages: ["@napi-rs/canvas", "pdfjs-dist"],
   images: {
     remotePatterns: [
       {

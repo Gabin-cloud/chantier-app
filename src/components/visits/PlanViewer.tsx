@@ -7,8 +7,8 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import { getPlanPageImage } from "@/lib/actions/plans";
 import type { DrawingStroke } from "@/lib/types/database";
-import { getPlanPdfData } from "@/lib/actions/plans";
 
 export type PlanViewerMarker = {
   id: string;
@@ -52,6 +52,24 @@ function strokeToPath(stroke: DrawingStroke) {
   return `M ${first.x} ${first.y} ${rest.map((p) => `L ${p.x} ${p.y}`).join(" ")}`;
 }
 
+function formatPlanError(err: unknown) {
+  if (!(err instanceof Error)) {
+    return "Impossible d'afficher le plan pour le moment.";
+  }
+
+  const message = err.message.trim();
+  if (
+    message.length > 180 ||
+    message.includes("=>") ||
+    message.includes("this.#") ||
+    message.includes("worker")
+  ) {
+    return "Le rendu du plan a échoué sur cet appareil. Réessayez dans quelques instants.";
+  }
+
+  return message;
+}
+
 export function PlanViewer({
   projectId,
   planId,
@@ -66,15 +84,13 @@ export function PlanViewer({
   readOnly = false,
 }: PlanViewerProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
-  const canvasRef = useRef<HTMLCanvasElement>(null);
   const layerRef = useRef<HTMLDivElement>(null);
-  const pageRef = useRef<import("pdfjs-dist").PDFPageProxy | null>(null);
   const transformRef = useRef<Transform>({ scale: 1, x: 0, y: 0 });
   const [transform, setTransform] = useState<Transform>({ scale: 1, x: 0, y: 0 });
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
+  const [imageSrc, setImageSrc] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [docReady, setDocReady] = useState(false);
   const [liveStroke, setLiveStroke] = useState<DrawingStroke | null>(null);
 
   const pointersRef = useRef(
@@ -112,99 +128,34 @@ export function PlanViewer({
 
   useEffect(() => {
     let cancelled = false;
-    pageRef.current = null;
-    setDocReady(false);
-    setPageSize({ width: 0, height: 0 });
     setLoading(true);
     setError(null);
+    setImageSrc(null);
+    setPageSize({ width: 0, height: 0 });
 
-    async function loadPdf() {
+    async function loadPlanImage() {
       try {
-        const base64 = await getPlanPdfData(projectId, planId);
-        const binary = atob(base64);
-        const bytes = new Uint8Array(binary.length);
-        for (let i = 0; i < binary.length; i++) {
-          bytes[i] = binary.charCodeAt(i);
-        }
-
-        const pdfjs = await import("pdfjs-dist");
-        pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
-
-        const pdf = await pdfjs.getDocument({ data: bytes }).promise;
+        const pageImage = await getPlanPageImage(projectId, planId);
         if (cancelled) return;
 
-        const page = await pdf.getPage(1);
-        if (cancelled) return;
-
-        const viewport = page.getViewport({ scale: 1 });
-        pageRef.current = page;
-        setPageSize({ width: viewport.width, height: viewport.height });
-        setDocReady(true);
+        const size = { width: pageImage.width, height: pageImage.height };
+        setPageSize(size);
+        setImageSrc(`data:image/png;base64,${pageImage.imageBase64}`);
+        setLoading(false);
+        requestAnimationFrame(() => fitToViewport(size));
       } catch (err) {
         if (!cancelled) {
-          setError(
-            err instanceof Error ? err.message : "Impossible de charger le plan PDF."
-          );
+          setError(formatPlanError(err));
           setLoading(false);
         }
       }
     }
 
-    loadPdf();
+    loadPlanImage();
     return () => {
       cancelled = true;
     };
-  }, [projectId, planId]);
-
-  useEffect(() => {
-    if (!docReady || pageSize.width === 0 || !pageRef.current) return;
-
-    const canvas = canvasRef.current;
-    if (!canvas) return;
-
-    let cancelled = false;
-
-    async function renderPage() {
-      try {
-        const page = pageRef.current!;
-        const viewport = page.getViewport({ scale: 1 });
-        const dpr = Math.min(window.devicePixelRatio || 1, 2);
-        const renderViewport = page.getViewport({ scale: dpr });
-        const canvasEl = canvas!;
-
-        canvasEl.width = renderViewport.width;
-        canvasEl.height = renderViewport.height;
-        canvasEl.style.width = `${viewport.width}px`;
-        canvasEl.style.height = `${viewport.height}px`;
-
-        const context = canvasEl.getContext("2d");
-        if (!context) throw new Error("Canvas 2D indisponible.");
-
-        await page.render({
-          canvasContext: context,
-          viewport: renderViewport,
-          canvas: canvasEl,
-        }).promise;
-
-        if (!cancelled) {
-          fitToViewport(pageSize);
-          setLoading(false);
-        }
-      } catch (err) {
-        if (!cancelled) {
-          setError(
-            err instanceof Error ? err.message : "Erreur lors du rendu du plan."
-          );
-          setLoading(false);
-        }
-      }
-    }
-
-    renderPage();
-    return () => {
-      cancelled = true;
-    };
-  }, [docReady, pageSize, fitToViewport]);
+  }, [projectId, planId, fitToViewport]);
 
   useEffect(() => {
     if (pageSize.width === 0) return;
@@ -435,7 +386,7 @@ export function PlanViewer({
           </div>
         )}
 
-        {pageSize.width > 0 && (
+        {pageSize.width > 0 && imageSrc && (
           <div
             className="absolute left-0 top-0 origin-top-left will-change-transform"
             style={{
@@ -445,7 +396,12 @@ export function PlanViewer({
             }}
           >
             <div ref={layerRef} className="relative h-full w-full">
-              <canvas ref={canvasRef} className="block h-full w-full" />
+              <img
+                src={imageSrc}
+                alt="Plan de chantier"
+                draggable={false}
+                className="block h-full w-full select-none"
+              />
               <svg
                 className="pointer-events-none absolute inset-0 h-full w-full"
                 viewBox="0 0 100 100"

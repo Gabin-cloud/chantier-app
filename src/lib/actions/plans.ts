@@ -72,6 +72,62 @@ export async function getPlanPdfData(
   return buffer.toString("base64");
 }
 
+export type PlanPageImage = {
+  imageBase64: string;
+  width: number;
+  height: number;
+};
+
+export async function getPlanPageImage(
+  projectId: string,
+  planId: string,
+  pageNumber = 1
+): Promise<PlanPageImage> {
+  await requireProjectAccess(projectId);
+  const plan = await getPlanRecord(projectId, planId);
+  const blob = await downloadPlanBlob(plan.file_path);
+  const buffer = Buffer.from(await blob.arrayBuffer());
+
+  if (buffer.length < 4 || buffer.subarray(0, 4).toString("utf8") !== "%PDF") {
+    throw new Error("Le fichier stocké n'est pas un PDF valide.");
+  }
+
+  const { join } = await import("path");
+  const { pathToFileURL } = await import("url");
+  const { createCanvas } = await import("@napi-rs/canvas");
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+
+  pdfjs.GlobalWorkerOptions.workerSrc = pathToFileURL(
+    join(process.cwd(), "node_modules/pdfjs-dist/legacy/build/pdf.worker.min.mjs")
+  ).href;
+
+  const doc = await pdfjs.getDocument({
+    data: new Uint8Array(buffer),
+    useSystemFonts: true,
+  }).promise;
+
+  const page = await doc.getPage(pageNumber);
+  const baseViewport = page.getViewport({ scale: 1 });
+  const maxSide = Math.max(baseViewport.width, baseViewport.height);
+  const renderScale = Math.min(2, 4096 / maxSide);
+  const viewport = page.getViewport({ scale: renderScale });
+
+  const canvas = createCanvas(Math.ceil(viewport.width), Math.ceil(viewport.height));
+  const context = canvas.getContext("2d");
+
+  await page.render({
+    canvasContext: context as unknown as CanvasRenderingContext2D,
+    viewport,
+    canvas: canvas as unknown as HTMLCanvasElement,
+  }).promise;
+
+  return {
+    imageBase64: canvas.toBuffer("image/png").toString("base64"),
+    width: viewport.width,
+    height: viewport.height,
+  };
+}
+
 export async function getPlans(projectId: string) {
   await requireProjectAccess(projectId);
   const supabase = await createClient();

@@ -13,6 +13,7 @@
     "dist:desktop": "npm run pack:desktop"
   },
   "dependencies": {
+    "@napi-rs/canvas": "^1.0.2",
     "@prisma/client": "^7.8.0",
     "@supabase/ssr": "^0.12.0",
     "@supabase/supabase-js": "^2.110.2",
