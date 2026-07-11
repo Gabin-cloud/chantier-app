@@ -89,6 +89,11 @@ export async function getVisit(visitId: string): Promise<{
 
   const markersWithLinks: MarkerWithLinks[] = (markers ?? []).map((marker) => ({
     ...marker,
+    status: marker.status ?? "a_traiter",
+    enterprise_id: marker.enterprise_id ?? null,
+    trade: marker.trade ?? null,
+    location_label: marker.location_label ?? null,
+    location_preset_id: marker.location_preset_id ?? null,
     linked_marker_ids: linkMap.get(marker.id) ?? [],
   }));
 
@@ -188,6 +193,27 @@ export async function updateMarker(
       .update({ remark: data.remark || null })
       .eq("id", markerId);
 
+    if (error) throw new Error(error.message);
+  }
+
+  const scalarFields: Partial<{
+    status: string;
+    enterprise_id: string | null;
+    trade: string | null;
+    location_label: string | null;
+    location_preset_id: string | null;
+  }> = {};
+
+  if (data.status !== undefined) scalarFields.status = data.status;
+  if (data.enterprise_id !== undefined) scalarFields.enterprise_id = data.enterprise_id;
+  if (data.trade !== undefined) scalarFields.trade = data.trade || null;
+  if (data.location_label !== undefined) scalarFields.location_label = data.location_label || null;
+  if (data.location_preset_id !== undefined) {
+    scalarFields.location_preset_id = data.location_preset_id;
+  }
+
+  if (Object.keys(scalarFields).length > 0) {
+    const { error } = await supabase.from("markers").update(scalarFields).eq("id", markerId);
     if (error) throw new Error(error.message);
   }
 

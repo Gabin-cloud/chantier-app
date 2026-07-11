@@ -11,6 +11,7 @@ import {
   getProjectRole,
 } from "@/lib/auth/permissions";
 import { getProjectMembers } from "@/lib/actions/members";
+import { getProjectLocations } from "@/lib/actions/locations";
 import { getPlansWithUrls } from "@/lib/actions/plans";
 import { getProject } from "@/lib/actions/projects";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
@@ -27,10 +28,11 @@ export default async function PcParametresPage({ params }: PageProps) {
   const { id } = await params;
 
   try {
-    const [project, plans, members, projectRole] = await Promise.all([
+    const [project, plans, members, locations, projectRole] = await Promise.all([
       getProject(id),
       getPlansWithUrls(id),
       getProjectMembers(id),
+      getProjectLocations(id),
       getProjectRole(id),
     ]);
 
@@ -65,6 +67,7 @@ export default async function PcParametresPage({ params }: PageProps) {
             project={project}
             enterprises={project.enterprises}
             plans={plans}
+            locations={locations}
             members={members}
             basePath="pc"
             canEdit={canEdit}

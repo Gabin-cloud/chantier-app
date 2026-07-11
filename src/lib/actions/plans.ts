@@ -97,10 +97,9 @@ export async function deletePlan(projectId: string, planId: string) {
 
 export async function getPlansWithUrls(projectId: string) {
   const plans = await getPlans(projectId);
-  const supabase = await createClient();
 
-  return plans.map((plan) => {
-    const { data } = supabase.storage.from(PLANS_BUCKET).getPublicUrl(plan.file_path);
-    return { ...plan, public_url: data.publicUrl };
-  });
+  return plans.map((plan) => ({
+    ...plan,
+    pdf_url: `/api/plans/${plan.id}/pdf?projectId=${projectId}`,
+  }));
 }

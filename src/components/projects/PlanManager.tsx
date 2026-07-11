@@ -5,7 +5,7 @@ import { useRef, useState, useTransition } from "react";
 import { deletePlan, uploadPlan } from "@/lib/actions/plans";
 import type { Plan } from "@/lib/types/database";
 
-type PlanWithUrl = Plan & { public_url: string };
+type PlanWithUrl = Plan & { pdf_url: string };
 
 type PlanManagerProps = {
   projectId: string;
@@ -90,7 +90,7 @@ export function PlanManager({ projectId, initialPlans }: PlanManagerProps) {
               </div>
               <div className="flex shrink-0 gap-2">
                 <a
-                  href={plan.public_url}
+                  href={plan.pdf_url}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="rounded-lg px-3 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-100"

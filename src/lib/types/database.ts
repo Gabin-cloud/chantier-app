@@ -169,6 +169,59 @@ export type Visit = {
   updated_at: string;
 };
 
+export type MarkerStatus =
+  | "a_traiter"
+  | "en_cours"
+  | "rejetee"
+  | "levee"
+  | "constat";
+
+export const MARKER_STATUS_LABELS: Record<MarkerStatus, string> = {
+  a_traiter: "À traiter",
+  en_cours: "En cours",
+  rejetee: "Rejetée",
+  levee: "Levée",
+  constat: "Constat",
+};
+
+export const MARKER_STATUS_COLORS: Record<MarkerStatus, string> = {
+  a_traiter: "bg-red-600",
+  en_cours: "bg-amber-500",
+  rejetee: "bg-zinc-500",
+  levee: "bg-emerald-600",
+  constat: "bg-blue-500",
+};
+
+export type ProjectLocation = {
+  id: string;
+  project_id: string;
+  name: string;
+  is_preset: boolean;
+  created_by: string | null;
+  created_at: string;
+};
+
+export type DrawingPoint = {
+  x: number;
+  y: number;
+};
+
+export type DrawingStroke = {
+  points: DrawingPoint[];
+  color: string;
+  width: number;
+};
+
+export type PlanDrawing = {
+  id: string;
+  visit_id: string;
+  plan_id: string;
+  page_number: number;
+  strokes: DrawingStroke[];
+  created_at: string;
+  updated_at: string;
+};
+
 export type Marker = {
   id: string;
   visit_id: string;
@@ -179,6 +232,11 @@ export type Marker = {
   remark: string | null;
   photo_path: string | null;
   marker_number: number;
+  status: MarkerStatus;
+  enterprise_id: string | null;
+  trade: string | null;
+  location_label: string | null;
+  location_preset_id: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -285,6 +343,11 @@ export type MarkerFormData = {
 export type MarkerUpdateData = {
   remark?: string;
   linked_marker_ids?: string[];
+  status?: MarkerStatus;
+  enterprise_id?: string | null;
+  trade?: string | null;
+  location_label?: string | null;
+  location_preset_id?: string | null;
 };
 
 export type GlobalRole = "super_admin" | "user";

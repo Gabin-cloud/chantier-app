@@ -4,7 +4,10 @@ import {
   SupabaseSetupNotice,
 } from "@/components/SupabaseSetupNotice";
 import { VisitEditor } from "@/components/visits/VisitEditor";
+import { getPlanDrawings } from "@/lib/actions/drawings";
+import { getProjectLocations } from "@/lib/actions/locations";
 import { getPlansWithUrls } from "@/lib/actions/plans";
+import { getProject } from "@/lib/actions/projects";
 import { getMarkerPhotoUrl, getVisit } from "@/lib/actions/visits";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
@@ -20,9 +23,12 @@ export default async function VisitePage({ params }: PageProps) {
   const { id, visiteId } = await params;
 
   try {
-    const [{ visit, markers }, plans] = await Promise.all([
+    const [{ visit, markers }, plans, project, locations, drawings] = await Promise.all([
       getVisit(visiteId),
       getPlansWithUrls(id),
+      getProject(id),
+      getProjectLocations(id),
+      getPlanDrawings(visiteId),
     ]);
 
     const markersWithPhotos = await Promise.all(
@@ -62,7 +68,10 @@ export default async function VisitePage({ params }: PageProps) {
           projectId={id}
           visit={visit}
           plans={plans}
+          enterprises={project.enterprises}
+          locations={locations}
           initialMarkers={markersWithPhotos}
+          initialDrawings={drawings}
         />
       </main>
     );

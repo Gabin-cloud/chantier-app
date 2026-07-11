@@ -7,6 +7,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
+import type { DrawingStroke } from "@/lib/types/database";
 
 export type PlanViewerMarker = {
   id: string;
@@ -22,37 +23,56 @@ type Transform = {
 };
 
 type PlanViewerProps = {
-  url: string;
+  pdfUrl: string;
   addMode?: boolean;
+  drawMode?: boolean;
   markers: PlanViewerMarker[];
+  strokes?: DrawingStroke[];
+  onStrokesChange?: (strokes: DrawingStroke[]) => void;
   selectedMarkerId?: string | null;
   onPlanClick?: (xPercent: number, yPercent: number) => void;
   onMarkerClick?: (markerId: string) => void;
+  readOnly?: boolean;
 };
 
 const MIN_SCALE = 0.25;
 const MAX_SCALE = 6;
+const DRAW_COLOR = "#f59e0b";
+const DRAW_WIDTH = 2.5;
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
 }
 
+function strokeToPath(stroke: DrawingStroke) {
+  if (stroke.points.length === 0) return "";
+  const [first, ...rest] = stroke.points;
+  return `M ${first.x} ${first.y} ${rest.map((p) => `L ${p.x} ${p.y}`).join(" ")}`;
+}
+
 export function PlanViewer({
-  url,
+  pdfUrl,
   addMode = false,
+  drawMode = false,
   markers,
+  strokes = [],
+  onStrokesChange,
   selectedMarkerId,
   onPlanClick,
   onMarkerClick,
+  readOnly = false,
 }: PlanViewerProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const layerRef = useRef<HTMLDivElement>(null);
+  const pageRef = useRef<import("pdfjs-dist").PDFPageProxy | null>(null);
   const transformRef = useRef<Transform>({ scale: 1, x: 0, y: 0 });
   const [transform, setTransform] = useState<Transform>({ scale: 1, x: 0, y: 0 });
   const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [docReady, setDocReady] = useState(false);
+  const [liveStroke, setLiveStroke] = useState<DrawingStroke | null>(null);
 
   const pointersRef = useRef(
     new Map<number, { x: number; y: number; startX: number; startY: number }>()
@@ -62,6 +82,7 @@ export function PlanViewer({
     null
   );
   const tapMovedRef = useRef(false);
+  const interactionLocked = addMode || drawMode;
 
   const applyTransform = useCallback((next: Transform) => {
     transformRef.current = next;
@@ -77,54 +98,38 @@ export function PlanViewer({
       const vw = viewport.clientWidth - padding * 2;
       const vh = viewport.clientHeight - padding * 2;
       const scale = clamp(Math.min(vw / size.width, vh / size.height), MIN_SCALE, MAX_SCALE);
-      const x = (viewport.clientWidth - size.width * scale) / 2;
-      const y = (viewport.clientHeight - size.height * scale) / 2;
-      applyTransform({ scale, x, y });
+      applyTransform({
+        scale,
+        x: (viewport.clientWidth - size.width * scale) / 2,
+        y: (viewport.clientHeight - size.height * scale) / 2,
+      });
     },
     [applyTransform]
   );
 
   useEffect(() => {
     let cancelled = false;
+    pageRef.current = null;
+    setDocReady(false);
+    setPageSize({ width: 0, height: 0 });
+    setLoading(true);
+    setError(null);
 
     async function loadPdf() {
-      setLoading(true);
-      setError(null);
-
       try {
         const pdfjs = await import("pdfjs-dist");
         pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
 
-        const pdf = await pdfjs.getDocument({ url }).promise;
+        const pdf = await pdfjs.getDocument({ url: pdfUrl, withCredentials: true }).promise;
         if (cancelled) return;
 
         const page = await pdf.getPage(1);
         if (cancelled) return;
 
         const viewport = page.getViewport({ scale: 1 });
-        const size = { width: viewport.width, height: viewport.height };
-        setPageSize(size);
-
-        const canvas = canvasRef.current;
-        if (!canvas) return;
-
-        const dpr = Math.min(window.devicePixelRatio || 1, 2);
-        const renderViewport = page.getViewport({ scale: dpr });
-        canvas.width = renderViewport.width;
-        canvas.height = renderViewport.height;
-        canvas.style.width = `${viewport.width}px`;
-        canvas.style.height = `${viewport.height}px`;
-
-        const context = canvas.getContext("2d");
-        if (!context) throw new Error("Canvas 2D indisponible.");
-
-        await page.render({ canvasContext: context, viewport: renderViewport, canvas })
-          .promise;
-
-        if (!cancelled) {
-          fitToViewport(size);
-          setLoading(false);
-        }
+        pageRef.current = page;
+        setPageSize({ width: viewport.width, height: viewport.height });
+        setDocReady(true);
       } catch (err) {
         if (!cancelled) {
           setError(
@@ -136,23 +141,67 @@ export function PlanViewer({
     }
 
     loadPdf();
-
     return () => {
       cancelled = true;
     };
-  }, [url, fitToViewport]);
+  }, [pdfUrl]);
+
+  useEffect(() => {
+    if (!docReady || pageSize.width === 0 || !pageRef.current) return;
+
+    const canvas = canvasRef.current;
+    if (!canvas) return;
+
+    let cancelled = false;
+
+    async function renderPage() {
+      try {
+        const page = pageRef.current!;
+        const viewport = page.getViewport({ scale: 1 });
+        const dpr = Math.min(window.devicePixelRatio || 1, 2);
+        const renderViewport = page.getViewport({ scale: dpr });
+        const canvasEl = canvas!;
+
+        canvasEl.width = renderViewport.width;
+        canvasEl.height = renderViewport.height;
+        canvasEl.style.width = `${viewport.width}px`;
+        canvasEl.style.height = `${viewport.height}px`;
+
+        const context = canvasEl.getContext("2d");
+        if (!context) throw new Error("Canvas 2D indisponible.");
+
+        await page.render({
+          canvasContext: context,
+          viewport: renderViewport,
+          canvas: canvasEl,
+        }).promise;
+
+        if (!cancelled) {
+          fitToViewport(pageSize);
+          setLoading(false);
+        }
+      } catch (err) {
+        if (!cancelled) {
+          setError(
+            err instanceof Error ? err.message : "Erreur lors du rendu du plan."
+          );
+          setLoading(false);
+        }
+      }
+    }
+
+    renderPage();
+    return () => {
+      cancelled = true;
+    };
+  }, [docReady, pageSize, fitToViewport]);
 
   useEffect(() => {
     if (pageSize.width === 0) return;
-
-    fitToViewport(pageSize);
-
     const viewport = viewportRef.current;
     if (!viewport) return;
 
-    const observer = new ResizeObserver(() => {
-      fitToViewport(pageSize);
-    });
+    const observer = new ResizeObserver(() => fitToViewport(pageSize));
     observer.observe(viewport);
     return () => observer.disconnect();
   }, [pageSize, fitToViewport]);
@@ -166,13 +215,11 @@ export function PlanViewer({
     const centerY = viewport.clientHeight / 2;
     const nextScale = clamp(current.scale * factor, MIN_SCALE, MAX_SCALE);
     const ratio = nextScale / current.scale;
-    const nextX = centerX - (centerX - current.x) * ratio;
-    const nextY = centerY - (centerY - current.y) * ratio;
-    applyTransform({ scale: nextScale, x: nextX, y: nextY });
-  }
-
-  function resetView() {
-    fitToViewport(pageSize);
+    applyTransform({
+      scale: nextScale,
+      x: centerX - (centerX - current.x) * ratio,
+      y: centerY - (centerY - current.y) * ratio,
+    });
   }
 
   function clientToPercent(clientX: number, clientY: number) {
@@ -182,11 +229,9 @@ export function PlanViewer({
     const rect = layer.getBoundingClientRect();
     if (rect.width === 0 || rect.height === 0) return null;
 
-    const xPercent = ((clientX - rect.left) / rect.width) * 100;
-    const yPercent = ((clientY - rect.top) / rect.height) * 100;
     return {
-      xPercent: clamp(xPercent, 0, 100),
-      yPercent: clamp(yPercent, 0, 100),
+      xPercent: clamp(((clientX - rect.left) / rect.width) * 100, 0, 100),
+      yPercent: clamp(((clientY - rect.top) / rect.height) * 100, 0, 100),
     };
   }
 
@@ -195,12 +240,11 @@ export function PlanViewer({
   }
 
   function handlePointerDown(e: ReactPointerEvent<HTMLDivElement>) {
+    if (readOnly && !drawMode) return;
     if (e.pointerType === "mouse" && e.button !== 0) return;
     if (isMarkerTarget(e.target)) return;
 
-    const target = e.currentTarget;
-    target.setPointerCapture(e.pointerId);
-
+    e.currentTarget.setPointerCapture(e.pointerId);
     pointersRef.current.set(e.pointerId, {
       x: e.clientX,
       y: e.clientY,
@@ -209,7 +253,19 @@ export function PlanViewer({
     });
     tapMovedRef.current = false;
 
-    if (pointersRef.current.size === 1 && !addMode) {
+    if (drawMode && !readOnly) {
+      const coords = clientToPercent(e.clientX, e.clientY);
+      if (coords) {
+        setLiveStroke({
+          points: [{ x: coords.xPercent, y: coords.yPercent }],
+          color: DRAW_COLOR,
+          width: DRAW_WIDTH,
+        });
+      }
+      return;
+    }
+
+    if (pointersRef.current.size === 1 && !interactionLocked) {
       const current = transformRef.current;
       panStartRef.current = {
         x: e.clientX,
@@ -221,9 +277,12 @@ export function PlanViewer({
 
     if (pointersRef.current.size === 2) {
       const pts = [...pointersRef.current.values()];
-      const distance = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
-      pinchRef.current = { distance, scale: transformRef.current.scale };
+      pinchRef.current = {
+        distance: Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y),
+        scale: transformRef.current.scale,
+      };
       panStartRef.current = null;
+      setLiveStroke(null);
     }
   }
 
@@ -233,17 +292,22 @@ export function PlanViewer({
     const pointer = pointersRef.current.get(e.pointerId);
     if (!pointer) return;
 
-    const dx = e.clientX - pointer.x;
-    const dy = e.clientY - pointer.y;
     if (Math.hypot(e.clientX - pointer.startX, e.clientY - pointer.startY) > 8) {
       tapMovedRef.current = true;
     }
 
-    pointersRef.current.set(e.pointerId, {
-      ...pointer,
-      x: e.clientX,
-      y: e.clientY,
-    });
+    pointersRef.current.set(e.pointerId, { ...pointer, x: e.clientX, y: e.clientY });
+
+    if (drawMode && liveStroke && !readOnly) {
+      const coords = clientToPercent(e.clientX, e.clientY);
+      if (coords) {
+        setLiveStroke({
+          ...liveStroke,
+          points: [...liveStroke.points, { x: coords.xPercent, y: coords.yPercent }],
+        });
+      }
+      return;
+    }
 
     if (pointersRef.current.size === 2 && pinchRef.current) {
       const pts = [...pointersRef.current.values()];
@@ -267,7 +331,7 @@ export function PlanViewer({
       return;
     }
 
-    if (pointersRef.current.size === 1 && panStartRef.current && !addMode) {
+    if (pointersRef.current.size === 1 && panStartRef.current && !interactionLocked) {
       applyTransform({
         ...transformRef.current,
         x: panStartRef.current.tx + (e.clientX - panStartRef.current.x),
@@ -277,26 +341,24 @@ export function PlanViewer({
   }
 
   function handlePointerUp(e: ReactPointerEvent<HTMLDivElement>) {
-    const wasTap =
+    if (drawMode && liveStroke && liveStroke.points.length >= 2 && onStrokesChange) {
+      onStrokesChange([...strokes, liveStroke]);
+    }
+    setLiveStroke(null);
+
+    if (
       pointersRef.current.size === 1 &&
       !tapMovedRef.current &&
       addMode &&
-      onPlanClick;
-
-    if (wasTap) {
+      onPlanClick
+    ) {
       const coords = clientToPercent(e.clientX, e.clientY);
-      if (coords) {
-        onPlanClick(coords.xPercent, coords.yPercent);
-      }
+      if (coords) onPlanClick(coords.xPercent, coords.yPercent);
     }
 
     pointersRef.current.delete(e.pointerId);
-    if (pointersRef.current.size < 2) {
-      pinchRef.current = null;
-    }
-    if (pointersRef.current.size === 0) {
-      panStartRef.current = null;
-    }
+    if (pointersRef.current.size < 2) pinchRef.current = null;
+    if (pointersRef.current.size === 0) panStartRef.current = null;
 
     try {
       e.currentTarget.releasePointerCapture(e.pointerId);
@@ -305,13 +367,7 @@ export function PlanViewer({
     }
   }
 
-  function handleMarkerClick(
-    e: React.MouseEvent<HTMLButtonElement>,
-    markerId: string
-  ) {
-    e.stopPropagation();
-    onMarkerClick?.(markerId);
-  }
+  const displayStrokes = liveStroke ? [...strokes, liveStroke] : strokes;
 
   return (
     <div className="relative flex h-full min-h-0 flex-1 flex-col">
@@ -334,7 +390,7 @@ export function PlanViewer({
         </button>
         <button
           type="button"
-          onClick={resetView}
+          onClick={() => fitToViewport(pageSize)}
           className="flex h-11 items-center justify-center rounded-xl bg-white/95 px-3 text-xs font-semibold text-zinc-700 shadow-md backdrop-blur active:scale-95"
         >
           Ajuster
@@ -344,7 +400,11 @@ export function PlanViewer({
       <div
         ref={viewportRef}
         className={`relative h-full min-h-0 flex-1 touch-none overflow-hidden bg-zinc-200/80 ${
-          addMode ? "cursor-crosshair" : "cursor-grab active:cursor-grabbing"
+          addMode
+            ? "cursor-crosshair"
+            : drawMode
+              ? "cursor-cell"
+              : "cursor-grab active:cursor-grabbing"
         }`}
         onPointerDown={handlePointerDown}
         onPointerMove={handlePointerMove}
@@ -352,7 +412,8 @@ export function PlanViewer({
         onPointerCancel={handlePointerUp}
       >
         {loading && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-zinc-100/90">
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-zinc-100/90">
+            <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-600 border-t-transparent" />
             <p className="text-sm font-medium text-zinc-600">Chargement du plan…</p>
           </div>
         )}
@@ -374,6 +435,23 @@ export function PlanViewer({
           >
             <div ref={layerRef} className="relative h-full w-full">
               <canvas ref={canvasRef} className="block h-full w-full" />
+              <svg
+                className="pointer-events-none absolute inset-0 h-full w-full"
+                viewBox="0 0 100 100"
+                preserveAspectRatio="none"
+              >
+                {displayStrokes.map((stroke, index) => (
+                  <path
+                    key={index}
+                    d={strokeToPath(stroke)}
+                    fill="none"
+                    stroke={stroke.color}
+                    strokeWidth={stroke.width / 10}
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                  />
+                ))}
+              </svg>
               <div className="pointer-events-none absolute inset-0">
                 {markers.map((marker) => (
                   <button
@@ -384,11 +462,14 @@ export function PlanViewer({
                       left: `${marker.x_percent}%`,
                       top: `${marker.y_percent}%`,
                     }}
-                    onClick={(e) => handleMarkerClick(e, marker.id)}
-                    className={`pointer-events-auto absolute flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 text-sm font-bold shadow-lg transition-transform active:scale-110 ${
+                    onClick={(e) => {
+                      e.stopPropagation();
+                      onMarkerClick?.(marker.id);
+                    }}
+                    className={`pointer-events-auto absolute flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 text-sm font-bold text-white shadow-lg transition-transform active:scale-110 ${
                       selectedMarkerId === marker.id
-                        ? "border-white bg-amber-500 text-white ring-4 ring-amber-300"
-                        : "border-white bg-red-600 text-white"
+                        ? "border-white bg-amber-500 ring-4 ring-amber-300"
+                        : "border-white bg-red-600"
                     }`}
                   >
                     {marker.marker_number}

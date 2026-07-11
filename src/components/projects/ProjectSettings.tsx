@@ -2,6 +2,7 @@
 
 import Link from "next/link";
 import { useState, useTransition } from "react";
+import { LocationManager } from "@/components/projects/LocationManager";
 import { PlanManager } from "@/components/projects/PlanManager";
 import { ProjectForm } from "@/components/projects/ProjectForm";
 import { ProjectMembersManager } from "@/components/auth/ProjectMembersManager";
@@ -11,14 +12,15 @@ import {
   deleteEnterprise,
   updateProject,
 } from "@/lib/actions/projects";
-import type { Enterprise, Plan, Project, ProjectFormData } from "@/lib/types/database";
+import type { Enterprise, Plan, Project, ProjectFormData, ProjectLocation } from "@/lib/types/database";
 
-type PlanWithUrl = Plan & { public_url: string };
+type PlanWithUrl = Plan & { pdf_url: string };
 
 type ProjectSettingsProps = {
   project: Project;
   enterprises: Enterprise[];
   plans: PlanWithUrl[];
+  locations: ProjectLocation[];
   members: ProjectMemberWithProfile[];
   basePath: "tablette" | "pc";
   canEdit: boolean;
@@ -33,6 +35,7 @@ export function ProjectSettings({
   project,
   enterprises,
   plans,
+  locations,
   members,
   basePath,
   canEdit,
@@ -124,6 +127,14 @@ export function ProjectSettings({
 
       {canEditPlans && (
         <PlanManager projectId={project.id} initialPlans={plans} />
+      )}
+
+      {canEditPlans && (
+        <LocationManager
+          projectId={project.id}
+          locations={locations}
+          canEdit={canEdit}
+        />
       )}
 
       <section className="rounded-2xl bg-white p-5 shadow-sm">

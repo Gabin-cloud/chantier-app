@@ -2,8 +2,10 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { PlanViewer } from "@/components/visits/PlanViewer";
+import { savePlanDrawings } from "@/lib/actions/drawings";
+import { addCustomLocation } from "@/lib/actions/locations";
 import {
   completeVisit,
   createMarker,
@@ -11,52 +13,132 @@ import {
   updateMarker,
   uploadMarkerPhoto,
 } from "@/lib/actions/visits";
-import type { MarkerWithLinks, Plan, Visit } from "@/lib/types/database";
+import type {
+  DrawingStroke,
+  Enterprise,
+  MarkerStatus,
+  MarkerWithLinks,
+  Plan,
+  PlanDrawing,
+  ProjectLocation,
+  Visit,
+} from "@/lib/types/database";
+import {
+  MARKER_STATUS_COLORS,
+  MARKER_STATUS_LABELS,
+} from "@/lib/types/database";
 
-type PlanWithUrl = Plan & { public_url: string };
+type PlanWithUrl = Plan & { pdf_url: string };
 
 type MarkerWithPhoto = MarkerWithLinks & {
   photo_public_url: string | null;
+  status: MarkerStatus;
+  enterprise_id: string | null;
+  trade: string | null;
+  location_label: string | null;
+  location_preset_id: string | null;
 };
 
 type VisitEditorProps = {
   projectId: string;
   visit: Visit;
   plans: PlanWithUrl[];
+  enterprises: Enterprise[];
+  locations: ProjectLocation[];
   initialMarkers: MarkerWithPhoto[];
+  initialDrawings: PlanDrawing[];
 };
+
+const STATUS_OPTIONS: MarkerStatus[] = [
+  "a_traiter",
+  "en_cours",
+  "rejetee",
+  "levee",
+  "constat",
+];
 
 export function VisitEditor({
   projectId,
   visit,
   plans,
+  enterprises,
+  locations: initialLocations,
   initialMarkers,
+  initialDrawings,
 }: VisitEditorProps) {
   const router = useRouter();
   const [markers, setMarkers] = useState(initialMarkers);
+  const [locations, setLocations] = useState(initialLocations);
+  const [drawingsByPlan, setDrawingsByPlan] = useState<Record<string, DrawingStroke[]>>(() => {
+    const map: Record<string, DrawingStroke[]> = {};
+    for (const drawing of initialDrawings) {
+      map[drawing.plan_id] = drawing.strokes ?? [];
+    }
+    return map;
+  });
+
   const [selectedPlanId, setSelectedPlanId] = useState(plans[0]?.id ?? "");
   const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
   const [addMode, setAddMode] = useState(false);
+  const [drawMode, setDrawMode] = useState(false);
   const [remarkDraft, setRemarkDraft] = useState("");
   const [linkDraft, setLinkDraft] = useState<string[]>([]);
+  const [statusDraft, setStatusDraft] = useState<MarkerStatus>("a_traiter");
+  const [enterpriseDraft, setEnterpriseDraft] = useState("");
+  const [tradeDraft, setTradeDraft] = useState("");
+  const [locationPresetDraft, setLocationPresetDraft] = useState("");
+  const [locationLabelDraft, setLocationLabelDraft] = useState("");
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const saveDrawingsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
   const selectedPlan = plans.find((p) => p.id === selectedPlanId);
   const planMarkers = markers.filter((m) => m.plan_id === selectedPlanId);
   const selectedMarker = markers.find((m) => m.id === selectedMarkerId) ?? null;
   const isCompleted = visit.status === "completed";
+  const currentStrokes = drawingsByPlan[selectedPlanId] ?? [];
 
   const otherMarkers = useMemo(
     () => markers.filter((m) => m.id !== selectedMarkerId),
     [markers, selectedMarkerId]
   );
 
+  const scheduleSaveDrawings = useCallback(
+    (planId: string, strokes: DrawingStroke[]) => {
+      if (isCompleted) return;
+      if (saveDrawingsTimer.current) clearTimeout(saveDrawingsTimer.current);
+      saveDrawingsTimer.current = setTimeout(() => {
+        startTransition(async () => {
+          try {
+            await savePlanDrawings(visit.id, projectId, planId, strokes);
+          } catch (err) {
+            setError(
+              err instanceof Error ? err.message : "Erreur lors de la sauvegarde du dessin."
+            );
+          }
+        });
+      }, 800);
+    },
+    [isCompleted, projectId, visit.id]
+  );
+
+  useEffect(() => {
+    return () => {
+      if (saveDrawingsTimer.current) clearTimeout(saveDrawingsTimer.current);
+    };
+  }, []);
+
   function selectMarker(marker: MarkerWithPhoto) {
     setSelectedMarkerId(marker.id);
     setRemarkDraft(marker.remark ?? "");
     setLinkDraft(marker.linked_marker_ids);
+    setStatusDraft(marker.status ?? "a_traiter");
+    setEnterpriseDraft(marker.enterprise_id ?? "");
+    setTradeDraft(marker.trade ?? "");
+    setLocationPresetDraft(marker.location_preset_id ?? "");
+    setLocationLabelDraft(marker.location_label ?? "");
     setAddMode(false);
+    setDrawMode(false);
   }
 
   function handlePlanClick(xPercent: number, yPercent: number) {
@@ -72,7 +154,15 @@ export function VisitEditor({
           xPercent,
           yPercent
         );
-        const withPhoto: MarkerWithPhoto = { ...newMarker, photo_public_url: null };
+        const withPhoto: MarkerWithPhoto = {
+          ...newMarker,
+          status: "a_traiter",
+          enterprise_id: null,
+          trade: null,
+          location_label: null,
+          location_preset_id: null,
+          photo_public_url: null,
+        };
         setMarkers((prev) => [...prev, withPhoto]);
         selectMarker(withPhoto);
         router.refresh();
@@ -82,20 +172,58 @@ export function VisitEditor({
     });
   }
 
-  function handleSaveMarker() {
+  function handleStrokesChange(strokes: DrawingStroke[]) {
+    setDrawingsByPlan((prev) => ({ ...prev, [selectedPlanId]: strokes }));
+    scheduleSaveDrawings(selectedPlanId, strokes);
+  }
+
+  function handleUndoDrawing() {
+    const strokes = currentStrokes.slice(0, -1);
+    setDrawingsByPlan((prev) => ({ ...prev, [selectedPlanId]: strokes }));
+    scheduleSaveDrawings(selectedPlanId, strokes);
+  }
+
+  async function handleSaveMarker() {
     if (!selectedMarker) return;
 
     startTransition(async () => {
       try {
         setError(null);
+        let locationPresetId = locationPresetDraft || null;
+
+        if (locationLabelDraft.trim() && !locationPresetId) {
+          const created = await addCustomLocation(projectId, locationLabelDraft.trim());
+          setLocations((prev) => {
+            if (prev.some((l) => l.id === created.id)) return prev;
+            return [...prev, created].sort((a, b) => a.name.localeCompare(b.name, "fr"));
+          });
+          locationPresetId = created.id;
+          setLocationPresetDraft(created.id);
+        }
+
         await updateMarker(visit.id, projectId, selectedMarker.id, {
           remark: remarkDraft,
           linked_marker_ids: linkDraft,
+          status: statusDraft,
+          enterprise_id: enterpriseDraft || null,
+          trade: tradeDraft || null,
+          location_label: locationLabelDraft || null,
+          location_preset_id: locationPresetId,
         });
+
         setMarkers((prev) =>
           prev.map((m) =>
             m.id === selectedMarker.id
-              ? { ...m, remark: remarkDraft, linked_marker_ids: linkDraft }
+              ? {
+                  ...m,
+                  remark: remarkDraft,
+                  linked_marker_ids: linkDraft,
+                  status: statusDraft,
+                  enterprise_id: enterpriseDraft || null,
+                  trade: tradeDraft || null,
+                  location_label: locationLabelDraft || null,
+                  location_preset_id: locationPresetId,
+                }
               : m
           )
         );
@@ -167,6 +295,14 @@ export function VisitEditor({
     );
   }
 
+  function locationName(marker: MarkerWithPhoto) {
+    if (marker.location_label) return marker.location_label;
+    if (marker.location_preset_id) {
+      return locations.find((l) => l.id === marker.location_preset_id)?.name ?? null;
+    }
+    return null;
+  }
+
   if (plans.length === 0) {
     return (
       <div className="rounded-2xl bg-white p-8 text-center shadow-sm">
@@ -187,13 +323,10 @@ export function VisitEditor({
 
   return (
     <div className="tablette-visit-editor flex min-h-0 flex-col md:flex-row">
-      {/* Bande gauche — pastilles et remarques */}
       <aside className="flex w-full shrink-0 flex-col border-r border-zinc-200 bg-white md:w-72 lg:w-80">
         <div className="border-b border-zinc-100 px-4 py-3">
-          <h2 className="text-base font-bold text-zinc-900">Pastilles</h2>
-          <p className="text-xs text-zinc-500">
-            {planMarkers.length} sur ce plan
-          </p>
+          <h2 className="text-base font-bold text-zinc-900">Réserves</h2>
+          <p className="text-xs text-zinc-500">{planMarkers.length} sur ce plan</p>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
@@ -203,51 +336,124 @@ export function VisitEditor({
             </p>
           ) : (
             <ul className="space-y-1.5">
-              {planMarkers.map((marker) => (
-                <li key={marker.id}>
-                  <button
-                    type="button"
-                    onClick={() => selectMarker(marker)}
-                    className={`w-full rounded-xl px-3 py-2.5 text-left transition-colors ${
-                      selectedMarkerId === marker.id
-                        ? "bg-amber-50 ring-2 ring-amber-400"
-                        : "bg-zinc-50 hover:bg-zinc-100"
-                    }`}
-                  >
-                    <div className="flex items-center gap-2.5">
-                      <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-red-600 text-xs font-bold text-white">
-                        {marker.marker_number}
-                      </span>
-                      <div className="min-w-0 flex-1">
-                        <p className="truncate text-sm font-medium text-zinc-900">
-                          {marker.remark || "Sans remarque"}
-                        </p>
-                        {marker.linked_marker_ids.length > 0 && (
-                          <p className="text-xs text-zinc-500">
-                            Liée à {marker.linked_marker_ids.length} pastille(s)
+              {planMarkers.map((marker) => {
+                const loc = locationName(marker);
+                return (
+                  <li key={marker.id}>
+                    <button
+                      type="button"
+                      onClick={() => selectMarker(marker)}
+                      className={`w-full rounded-xl px-3 py-2.5 text-left transition-colors ${
+                        selectedMarkerId === marker.id
+                          ? "bg-amber-50 ring-2 ring-amber-400"
+                          : "bg-zinc-50 hover:bg-zinc-100"
+                      }`}
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <span
+                          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white ${
+                            MARKER_STATUS_COLORS[marker.status ?? "a_traiter"]
+                          }`}
+                        >
+                          {marker.marker_number}
+                        </span>
+                        <div className="min-w-0 flex-1">
+                          <p className="truncate text-sm font-medium text-zinc-900">
+                            {marker.remark || "Sans remarque"}
                           </p>
+                          <p className="text-xs text-zinc-500">
+                            {MARKER_STATUS_LABELS[marker.status ?? "a_traiter"]}
+                            {loc ? ` · ${loc}` : ""}
+                          </p>
+                        </div>
+                        {marker.photo_public_url && (
+                          <span className="text-xs text-emerald-600">📷</span>
                         )}
                       </div>
-                      {marker.photo_public_url && (
-                        <span className="text-xs text-emerald-600">📷</span>
-                      )}
-                    </div>
-                  </button>
-                </li>
-              ))}
+                    </button>
+                  </li>
+                );
+              })}
             </ul>
           )}
         </div>
 
         {selectedMarker && (
-          <div className="max-h-[45vh] shrink-0 overflow-y-auto border-t border-zinc-100 px-4 py-3">
+          <div className="max-h-[50vh] shrink-0 overflow-y-auto border-t border-zinc-100 px-4 py-3">
             <h3 className="mb-2 text-sm font-semibold text-zinc-900">
-              Pastille n°{selectedMarker.marker_number}
+              Réserve n°{selectedMarker.marker_number}
             </h3>
+
+            <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              Statut
+            </label>
+            <select
+              value={statusDraft}
+              onChange={(e) => setStatusDraft(e.target.value as MarkerStatus)}
+              disabled={isCompleted}
+              className="mb-3 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm disabled:opacity-60"
+            >
+              {STATUS_OPTIONS.map((status) => (
+                <option key={status} value={status}>
+                  {MARKER_STATUS_LABELS[status]}
+                </option>
+              ))}
+            </select>
+
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              Entreprise
+            </label>
+            <select
+              value={enterpriseDraft}
+              onChange={(e) => setEnterpriseDraft(e.target.value)}
+              disabled={isCompleted}
+              className="mb-3 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm disabled:opacity-60"
+            >
+              <option value="">— Non assignée —</option>
+              {enterprises.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.name}
+                </option>
+              ))}
+            </select>
+
+            <input
+              value={tradeDraft}
+              onChange={(e) => setTradeDraft(e.target.value)}
+              placeholder="Corps de métier"
+              disabled={isCompleted}
+              className="mb-3 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm disabled:opacity-60"
+            />
+
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              Localisation
+            </label>
+            <select
+              value={locationPresetDraft}
+              onChange={(e) => setLocationPresetDraft(e.target.value)}
+              disabled={isCompleted}
+              className="mb-2 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm disabled:opacity-60"
+            >
+              <option value="">— Choisir —</option>
+              {locations.map((loc) => (
+                <option key={loc.id} value={loc.id}>
+                  {loc.name}
+                  {!loc.is_preset ? " (terrain)" : ""}
+                </option>
+              ))}
+            </select>
+            <input
+              value={locationLabelDraft}
+              onChange={(e) => setLocationLabelDraft(e.target.value)}
+              placeholder="Précision (ex. angle fenêtre sud)"
+              disabled={isCompleted}
+              className="mb-3 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm disabled:opacity-60"
+            />
+
             <textarea
               value={remarkDraft}
               onChange={(e) => setRemarkDraft(e.target.value)}
-              placeholder="Saisissez votre remarque…"
+              placeholder="Remarque…"
               rows={3}
               disabled={isCompleted}
               className="mb-2 w-full resize-none rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm focus:border-zinc-400 focus:outline-none disabled:opacity-60"
@@ -280,7 +486,7 @@ export function VisitEditor({
             {selectedMarker.photo_public_url && (
               <img
                 src={selectedMarker.photo_public_url}
-                alt="Photo pastille"
+                alt="Photo réserve"
                 className="mb-2 max-h-28 w-full rounded-xl object-cover"
               />
             )}
@@ -288,9 +494,7 @@ export function VisitEditor({
             {!isCompleted && (
               <div className="space-y-2">
                 <label className="block">
-                  <span className="mb-1 block text-xs font-medium text-zinc-700">
-                    Photo
-                  </span>
+                  <span className="mb-1 block text-xs font-medium text-zinc-700">Photo</span>
                   <input
                     type="file"
                     accept="image/*"
@@ -326,7 +530,6 @@ export function VisitEditor({
         )}
       </aside>
 
-      {/* Zone plan — plein écran */}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-zinc-100">
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-zinc-200 bg-white px-3 py-2">
           <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto pb-0.5">
@@ -353,14 +556,38 @@ export function VisitEditor({
             {!isCompleted && (
               <button
                 type="button"
-                onClick={() => setAddMode((v) => !v)}
+                onClick={() => {
+                  setAddMode((v) => !v);
+                  setDrawMode(false);
+                }}
                 className={`min-h-10 rounded-lg px-4 py-2 text-sm font-bold ${
-                  addMode
-                    ? "bg-amber-500 text-white"
-                    : "bg-zinc-100 text-zinc-800"
+                  addMode ? "bg-amber-500 text-white" : "bg-zinc-100 text-zinc-800"
                 }`}
               >
-                {addMode ? "Mode pastille actif" : "+ Pastille"}
+                {addMode ? "Pastille active" : "+ Pastille"}
+              </button>
+            )}
+            {!isCompleted && (
+              <button
+                type="button"
+                onClick={() => {
+                  setDrawMode((v) => !v);
+                  setAddMode(false);
+                }}
+                className={`min-h-10 rounded-lg px-4 py-2 text-sm font-bold ${
+                  drawMode ? "bg-orange-500 text-white" : "bg-zinc-100 text-zinc-800"
+                }`}
+              >
+                {drawMode ? "Dessin actif" : "✏️ Dessin"}
+              </button>
+            )}
+            {!isCompleted && drawMode && (
+              <button
+                type="button"
+                onClick={handleUndoDrawing}
+                className="min-h-10 rounded-lg bg-zinc-100 px-4 py-2 text-sm font-bold text-zinc-800"
+              >
+                Annuler trait
               </button>
             )}
             {!isCompleted && (
@@ -382,19 +609,25 @@ export function VisitEditor({
         </div>
 
         <div
-          className={`relative min-h-0 flex-1 ${addMode ? "ring-2 ring-inset ring-amber-400" : ""}`}
+          className={`relative min-h-0 flex-1 ${
+            addMode ? "ring-2 ring-inset ring-amber-400" : drawMode ? "ring-2 ring-inset ring-orange-400" : ""
+          }`}
         >
           {selectedPlan && (
             <PlanViewer
               key={selectedPlan.id}
-              url={selectedPlan.public_url}
+              pdfUrl={selectedPlan.pdf_url}
               addMode={addMode && !isCompleted}
+              drawMode={drawMode && !isCompleted}
+              readOnly={isCompleted}
               markers={planMarkers.map((m) => ({
                 id: m.id,
                 x_percent: m.x_percent,
                 y_percent: m.y_percent,
                 marker_number: m.marker_number,
               }))}
+              strokes={currentStrokes}
+              onStrokesChange={handleStrokesChange}
               selectedMarkerId={selectedMarkerId}
               onPlanClick={handlePlanClick}
               onMarkerClick={(id) => {
