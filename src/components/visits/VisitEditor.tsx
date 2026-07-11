@@ -6,7 +6,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from
 import { VisitReportPreview } from "@/components/visits/VisitReportPreview";
 import { PlanViewer } from "@/components/visits/PlanViewer";
 import { PlanPicker } from "@/components/plans/PlanPicker";
-import { savePlanDrawings } from "@/lib/actions/drawings";
+import { savePlanDrawings } from "@/lib/actions/checklist";
 import { addCustomLocation } from "@/lib/actions/locations";
 import {
   completeVisit,
@@ -56,6 +56,9 @@ type VisitEditorProps = {
   projectId: string;
   visit: Visit;
   phaseName?: string | null;
+  zoneName?: string | null;
+  controlLabel?: string | null;
+  reportUrl?: string | null;
   plans: PlanWithUrl[];
   planFolders?: PlanFolder[];
   checklistItems?: PhaseChecklistItem[];
@@ -77,6 +80,9 @@ export function VisitEditor({
   projectId,
   visit,
   phaseName,
+  zoneName,
+  controlLabel,
+  reportUrl,
   plans,
   planFolders = [],
   checklistItems = [],
@@ -133,20 +139,27 @@ export function VisitEditor({
     [enterprises, enterpriseDraft]
   );
 
+  const visitMarkersForSummary = useMemo(
+    () => markers.filter((m) => m.visit_id === visit.id),
+    [markers, visit.id]
+  );
+
   const visitControlSummary: VisitControlSummary = useMemo(
-    () => visit.control_summary ?? computeVisitControlSummary(markers),
-    [visit.control_summary, markers]
+    () =>
+      visit.control_summary ??
+      computeVisitControlSummary(visitMarkersForSummary),
+    [visit.control_summary, visitMarkersForSummary]
   );
 
   const checklistItemsByZone = useMemo(() => {
     const map = new Map<string, PhaseChecklistItem[]>();
     for (const item of checklistItems) {
-      const zone = item.zone_name || "Général";
+      const zone = item.zone_name || zoneName || "Général";
       if (!map.has(zone)) map.set(zone, []);
       map.get(zone)!.push(item);
     }
     return map;
-  }, [checklistItems]);
+  }, [checklistItems, zoneName]);
 
   const scheduleSaveDrawings = useCallback(
     (planId: string, strokes: DrawingStroke[]) => {
@@ -208,7 +221,7 @@ export function VisitEditor({
           trade: null,
           location_label: null,
           location_preset_id: null,
-          checklist_item_id: null,
+          checklist_item_id: visit.checklist_item_id ?? newMarker.checklist_item_id ?? null,
           control_result: null,
           photo_public_url: null,
         };
@@ -395,11 +408,23 @@ export function VisitEditor({
             >
               Aperçu rapport
             </button>
+            {isCompleted && reportUrl && (
+              <a
+                href={reportUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-lg bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800"
+              >
+                PDF
+              </a>
+            )}
           </div>
           <h2 className="text-base font-bold text-zinc-900">Réserves</h2>
           <p className="text-xs text-zinc-500">
             {planMarkers.length} sur ce plan
-            {phaseName ? ` · Phase : ${phaseName}` : ""}
+            {phaseName ? ` · ${phaseName}` : ""}
+            {zoneName ? ` · ${zoneName}` : ""}
+            {controlLabel ? ` · ${controlLabel}` : ""}
           </p>
         </div>
 
@@ -832,6 +857,9 @@ export function VisitEditor({
         <VisitReportPreview
           visit={visit}
           phaseName={phaseName ?? null}
+          zoneName={zoneName ?? null}
+          controlLabel={controlLabel ?? null}
+          reportUrl={reportUrl ?? null}
           checklistItems={checklistItems}
           markers={markers}
           enterprises={enterprises}

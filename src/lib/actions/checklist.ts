@@ -116,6 +116,7 @@ export async function addPhaseChecklistItem(
   projectId: string,
   phaseId: string,
   label: string,
+  zoneId?: string,
   zoneName?: string
 ) {
   await requireProjectRoles(projectId, ["admin", "gestionnaire"]);
@@ -123,6 +124,19 @@ export async function addPhaseChecklistItem(
   if (!trimmed) throw new Error("Le libellé est obligatoire.");
 
   const supabase = await createClient();
+
+  let resolvedZoneId = zoneId || null;
+  let resolvedZoneName = zoneName?.trim() || null;
+
+  if (resolvedZoneId) {
+    const { data: zone } = await supabase
+      .from("phase_zones")
+      .select("name")
+      .eq("id", resolvedZoneId)
+      .single();
+    resolvedZoneName = zone?.name ?? resolvedZoneName;
+  }
+
   const { data: last } = await supabase
     .from("phase_checklist_items")
     .select("sort_order")
@@ -135,8 +149,9 @@ export async function addPhaseChecklistItem(
     .from("phase_checklist_items")
     .insert({
       phase_id: phaseId,
+      zone_id: resolvedZoneId,
+      zone_name: resolvedZoneName,
       label: trimmed,
-      zone_name: zoneName?.trim() || null,
       sort_order: (last?.sort_order ?? 0) + 1,
     })
     .select("*")
@@ -244,14 +259,25 @@ export async function getProjectControlBoard(
   const locationMap = new Map((locations ?? []).map((l) => [l.id, l.name]));
   const phaseMap = new Map(phases.map((p) => [p.id, p.name]));
 
+  const { data: zones } = await supabase
+    .from("phase_zones")
+    .select("id, name, phase_id")
+    .in("phase_id", phaseIds);
+
+  const zoneMap = new Map((zones ?? []).map((z) => [z.id, z.name]));
+
   return items.map((item) => {
     const related = (markers ?? []).filter((m) => m.checklist_item_id === item.id);
     const latest = related[0];
+    const zoneName =
+      (item.zone_id ? zoneMap.get(item.zone_id) : null) ??
+      item.zone_name ??
+      "Général";
 
     return {
       phaseId: item.phase_id,
       phaseName: phaseMap.get(item.phase_id) ?? "Phase",
-      zoneName: item.zone_name || "Général",
+      zoneName,
       itemId: item.id,
       itemLabel: item.label,
       lastControlDate: latest?.created_at ?? null,

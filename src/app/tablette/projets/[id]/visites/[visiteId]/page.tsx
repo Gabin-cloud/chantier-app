@@ -4,11 +4,12 @@ import {
   SupabaseSetupNotice,
 } from "@/components/SupabaseSetupNotice";
 import { VisitEditor } from "@/components/visits/VisitEditor";
-import { getPlanDrawings } from "@/lib/actions/drawings";
-import { getProjectChecklistItems } from "@/lib/actions/checklist";
+import { getProjectChecklistItems, getPlanDrawings } from "@/lib/actions/checklist";
 import { getProjectLocations } from "@/lib/actions/locations";
 import { getPlanFolders, getPlansWithUrls } from "@/lib/actions/plans";
 import { getProjectPhases } from "@/lib/actions/phases";
+import { getProjectZones } from "@/lib/actions/zones";
+import { getVisitReportUrl } from "@/lib/actions/visit-reports";
 import { getProject } from "@/lib/actions/projects";
 import { getMarkerPhotoUrl, getVisit } from "@/lib/actions/visits";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
@@ -25,7 +26,7 @@ export default async function VisitePage({ params }: PageProps) {
   const { id, visiteId } = await params;
 
   try {
-    const [{ visit, markers }, plans, planFolders, phases, project, allChecklistItems] =
+    const [{ visit, markers }, plans, planFolders, phases, project, allChecklistItems, zones] =
       await Promise.all([
       getVisit(visiteId),
       getPlansWithUrls(id),
@@ -33,14 +34,23 @@ export default async function VisitePage({ params }: PageProps) {
       getProjectPhases(id),
       getProject(id),
       getProjectChecklistItems(id),
+      getProjectZones(id),
     ]);
 
     const phaseName = phases.find((p) => p.id === visit.phase_id)?.name ?? null;
-    const checklistItems = allChecklistItems.filter((item) => item.phase_id === visit.phase_id);
+    const zoneName = zones.find((z) => z.id === visit.zone_id)?.name ?? null;
+    const checklistItems = allChecklistItems.filter(
+      (item) =>
+        item.phase_id === visit.phase_id &&
+        (!visit.zone_id || item.zone_id === visit.zone_id)
+    );
+    const controlLabel =
+      checklistItems.find((i) => i.id === visit.checklist_item_id)?.label ?? null;
 
-    const [locations, drawings] = await Promise.all([
+    const [locations, drawings, reportUrl] = await Promise.all([
       getProjectLocations(id).catch(() => []),
       getPlanDrawings(visiteId).catch(() => []),
+      getVisitReportUrl(visiteId).catch(() => null),
     ]);
 
     const markersWithPhotos = await Promise.all(
@@ -75,6 +85,8 @@ export default async function VisitePage({ params }: PageProps) {
             <p className="truncate text-xs text-zinc-500 sm:text-sm">
               {visitDate}
               {phaseName ? ` · ${phaseName}` : ""}
+              {zoneName ? ` · ${zoneName}` : ""}
+              {controlLabel ? ` · ${controlLabel}` : ""}
             </p>
           </div>
         </header>
@@ -83,6 +95,9 @@ export default async function VisitePage({ params }: PageProps) {
           projectId={id}
           visit={visit}
           phaseName={phaseName}
+          zoneName={zoneName}
+          controlLabel={controlLabel}
+          reportUrl={reportUrl}
           plans={plans}
           planFolders={planFolders}
           checklistItems={checklistItems}

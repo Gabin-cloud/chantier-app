@@ -6,6 +6,9 @@ import { createClient } from "@/lib/supabase/server";
 import type { MarkerUpdateData, MarkerWithLinks, VisitFormData } from "@/lib/types/database";
 import { computeVisitControlSummary } from "@/lib/control-summary";
 import { ensureDefaultPhases } from "@/lib/actions/phases";
+import { generateAndStoreVisitReport } from "@/lib/actions/visit-reports";
+import { sendVisitCompletedEmail } from "@/lib/notifications/visit-completed";
+import { getNotificationSenderEmail } from "@/lib/microsoft/config";
 
 const PHOTOS_BUCKET = "visit-photos";
 
@@ -143,6 +146,8 @@ export async function createVisit(projectId: string, formData: VisitFormData) {
     .insert({
       project_id: projectId,
       phase_id: phaseId ?? null,
+      zone_id: formData.zone_id || null,
+      checklist_item_id: formData.checklist_item_id || null,
       title,
       visit_date: formData.visit_date || new Date().toISOString().slice(0, 10),
       notes: formData.notes?.trim() || null,
@@ -161,19 +166,18 @@ export async function completeVisit(projectId: string, visitId: string) {
   await requireProjectRoles(projectId, ["admin", "gestionnaire", "terrain"]);
   const supabase = await createClient();
 
-  const { data: visit } = await supabase
+  const { data: visit, error: visitFetchError } = await supabase
     .from("visits")
-    .select("phase_id")
+    .select("*")
     .eq("id", visitId)
     .single();
 
-  let markersQuery = supabase.from("markers").select("checklist_item_id, control_result");
-  if (visit?.phase_id) {
-    markersQuery = markersQuery.eq("phase_id", visit.phase_id);
-  } else {
-    markersQuery = markersQuery.eq("visit_id", visitId);
-  }
-  const { data: markers } = await markersQuery;
+  if (visitFetchError) throw new Error(visitFetchError.message);
+
+  const { data: markers } = await supabase
+    .from("markers")
+    .select("checklist_item_id, control_result")
+    .eq("visit_id", visitId);
 
   const control_summary = computeVisitControlSummary(markers ?? []);
 
@@ -184,8 +188,145 @@ export async function completeVisit(projectId: string, visitId: string) {
 
   if (error) throw new Error(error.message);
 
+  let reportUrl: string | null = null;
+  try {
+    const report = await generateAndStoreVisitReport(projectId, visitId);
+    reportUrl = report.publicUrl;
+  } catch (reportErr) {
+    console.error("Rapport PDF:", reportErr);
+  }
+
+  try {
+    await sendVisitCompletedEmails(supabase, projectId, {
+      ...visit,
+      control_summary,
+    }, reportUrl);
+  } catch (emailErr) {
+    console.error("Emails visite:", emailErr);
+  }
+
   revalidatePath(`/tablette/projets/${projectId}/visites`);
   revalidatePath(`/tablette/projets/${projectId}/visites/${visitId}`);
+}
+
+async function sendVisitCompletedEmails(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  projectId: string,
+  visit: {
+    id: string;
+    title: string | null;
+    visit_date: string;
+    phase_id: string | null;
+    zone_id: string | null;
+    checklist_item_id: string | null;
+    control_summary: string | null;
+  },
+  reportUrl: string | null
+) {
+  if (!getNotificationSenderEmail()) return;
+
+  const { data: project } = await supabase
+    .from("projects")
+    .select("name")
+    .eq("id", projectId)
+    .single();
+
+  const { data: visitMarkers } = await supabase
+    .from("markers")
+    .select("enterprise_id, control_result")
+    .eq("visit_id", visit.id);
+
+  const enterpriseIds = [
+    ...new Set(
+      (visitMarkers ?? [])
+        .map((m) => m.enterprise_id)
+        .filter((id): id is string => Boolean(id))
+    ),
+  ];
+
+  if (!enterpriseIds.length) return;
+
+  const { data: enterprises } = await supabase
+    .from("enterprises")
+    .select("id, name, contact_email, email_chantier, contact_name")
+    .in("id", enterpriseIds);
+
+  let phaseName: string | null = null;
+  if (visit.phase_id) {
+    const { data: phase } = await supabase
+      .from("visit_phases")
+      .select("name")
+      .eq("id", visit.phase_id)
+      .single();
+    phaseName = phase?.name ?? null;
+  }
+
+  let zoneName: string | null = null;
+  if (visit.zone_id) {
+    const { data: zone } = await supabase
+      .from("phase_zones")
+      .select("name")
+      .eq("id", visit.zone_id)
+      .single();
+    zoneName = zone?.name ?? null;
+  }
+
+  let controlLabel: string | null = null;
+  if (visit.checklist_item_id) {
+    const { data: item } = await supabase
+      .from("phase_checklist_items")
+      .select("label")
+      .eq("id", visit.checklist_item_id)
+      .single();
+    controlLabel = item?.label ?? null;
+  }
+
+  const nonConformCount = (visitMarkers ?? []).filter(
+    (m) => m.control_result === "ko" || m.control_result === "partial"
+  ).length;
+
+  for (const enterprise of enterprises ?? []) {
+    const email = enterprise.email_chantier || enterprise.contact_email;
+    const status = email ? "sent" : "skipped";
+    let errorMessage: string | null = null;
+
+    if (email) {
+      try {
+        await sendVisitCompletedEmail({
+          projectName: project?.name ?? "Chantier",
+          visitTitle: visit.title ?? "Visite",
+          visitDate: visit.visit_date,
+          phaseName,
+          zoneName,
+          controlLabel,
+          controlSummary: (visit.control_summary as "pending" | "ok" | "partial" | "ko") ?? "pending",
+          recipientEmail: email,
+          recipientName: enterprise.contact_name || enterprise.name,
+          markerCount: visitMarkers?.length ?? 0,
+          nonConformCount,
+          reportUrl,
+        });
+      } catch (err) {
+        errorMessage = err instanceof Error ? err.message : "Erreur inconnue";
+        await supabase.from("visit_email_logs").insert({
+          visit_id: visit.id,
+          recipient_email: email,
+          enterprise_name: enterprise.name,
+          status: "failed",
+          error_message: errorMessage,
+        });
+        continue;
+      }
+    }
+
+    await supabase.from("visit_email_logs").insert({
+      visit_id: visit.id,
+      recipient_email: email ?? "—",
+      enterprise_name: enterprise.name,
+      status,
+      error_message: errorMessage,
+    });
+  }
 }
 
 export async function createMarker(
@@ -200,7 +341,7 @@ export async function createMarker(
 
   const { data: visit, error: visitError } = await supabase
     .from("visits")
-    .select("phase_id")
+    .select("phase_id, checklist_item_id")
     .eq("id", visitId)
     .single();
 
@@ -233,6 +374,7 @@ export async function createMarker(
       x_percent: xPercent,
       y_percent: yPercent,
       marker_number: markerNumber,
+      checklist_item_id: visit.checklist_item_id ?? null,
     })
     .select("*")
     .single();
@@ -324,15 +466,12 @@ export async function updateMarker(
 async function refreshVisitControlSummary(
   supabase: Awaited<ReturnType<typeof createClient>>,
   visitId: string,
-  phaseId: string | null
+  _phaseId: string | null
 ) {
-  let markersQuery = supabase.from("markers").select("checklist_item_id, control_result");
-  if (phaseId) {
-    markersQuery = markersQuery.eq("phase_id", phaseId);
-  } else {
-    markersQuery = markersQuery.eq("visit_id", visitId);
-  }
-  const { data: markers } = await markersQuery;
+  const { data: markers } = await supabase
+    .from("markers")
+    .select("checklist_item_id, control_result")
+    .eq("visit_id", visitId);
   const control_summary = computeVisitControlSummary(markers ?? []);
   await supabase.from("visits").update({ control_summary }).eq("id", visitId);
 }

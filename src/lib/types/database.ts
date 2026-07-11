@@ -174,12 +174,31 @@ export type VisitPhase = {
   created_at: string;
 };
 
+export type PhaseZone = {
+  id: string;
+  phase_id: string;
+  name: string;
+  sort_order: number;
+  created_at: string;
+};
+
+export type ControlLibraryItem = {
+  id: string;
+  phase_name: string;
+  zone_name: string;
+  label: string;
+  sort_order: number;
+  created_at: string;
+};
+
 export type VisitStatus = "in_progress" | "completed";
 
 export type Visit = {
   id: string;
   project_id: string;
   phase_id: string | null;
+  zone_id: string | null;
+  checklist_item_id: string | null;
   title: string | null;
   visit_date: string;
   status: VisitStatus;
@@ -291,6 +310,7 @@ export const CHECKLIST_STATUS_LABELS: Record<ChecklistItemStatus, string> = {
 export type PhaseChecklistItem = {
   id: string;
   phase_id: string;
+  zone_id: string | null;
   zone_name: string | null;
   label: string;
   sort_order: number;
@@ -419,6 +439,8 @@ export type VisitFormData = {
   visit_date?: string;
   notes?: string;
   phase_id?: string;
+  zone_id?: string;
+  checklist_item_id?: string;
 };
 
 export type MarkerFormData = {

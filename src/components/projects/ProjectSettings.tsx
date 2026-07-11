@@ -13,7 +13,7 @@ import {
   deleteEnterprise,
   updateProject,
 } from "@/lib/actions/projects";
-import type { Enterprise, Plan, PlanFolder, PhaseChecklistItem, Project, ProjectFormData, ProjectLocation, VisitPhase } from "@/lib/types/database";
+import type { Enterprise, Plan, PlanFolder, PhaseChecklistItem, Project, ProjectFormData, ProjectLocation, PhaseZone, VisitPhase } from "@/lib/types/database";
 
 type PlanWithUrl = Plan & { pdf_url: string };
 
@@ -23,6 +23,7 @@ type ProjectSettingsProps = {
   plans: PlanWithUrl[];
   planFolders?: PlanFolder[];
   phases?: VisitPhase[];
+  zones?: PhaseZone[];
   checklistItems?: PhaseChecklistItem[];
   locations: ProjectLocation[];
   members: ProjectMemberWithProfile[];
@@ -41,6 +42,7 @@ export function ProjectSettings({
   plans,
   planFolders = [],
   phases = [],
+  zones = [],
   checklistItems = [],
   locations,
   members,
@@ -140,10 +142,11 @@ export function ProjectSettings({
         />
       )}
 
-      {canEditPlans && phases.length > 0 && (
+      {canEditPlans && (
         <PhaseManager
           projectId={project.id}
           phases={phases}
+          zones={zones}
           checklistItems={checklistItems}
           canEdit={canEdit}
         />

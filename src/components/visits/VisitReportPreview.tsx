@@ -10,6 +10,7 @@ import type {
 } from "@/lib/types/database";
 import {
   CONTROL_RESULT_LABELS,
+  MARKER_STATUS_LABELS,
   VISIT_CONTROL_SUMMARY_LABELS,
 } from "@/lib/types/database";
 import { computeVisitControlSummary } from "@/lib/control-summary";
@@ -17,6 +18,9 @@ import { computeVisitControlSummary } from "@/lib/control-summary";
 type VisitReportPreviewProps = {
   visit: Visit;
   phaseName: string | null;
+  zoneName?: string | null;
+  controlLabel?: string | null;
+  reportUrl?: string | null;
   checklistItems: PhaseChecklistItem[];
   markers: MarkerWithLinks[];
   enterprises: Enterprise[];
@@ -33,12 +37,17 @@ const SUMMARY_COLORS: Record<VisitControlSummary, string> = {
 export function VisitReportPreview({
   visit,
   phaseName,
+  zoneName,
+  controlLabel,
+  reportUrl,
   checklistItems,
   markers,
   enterprises,
   onClose,
 }: VisitReportPreviewProps) {
-  const summary = visit.control_summary ?? computeVisitControlSummary(markers);
+  const visitMarkers = markers.filter((m) => m.visit_id === visit.id);
+  const summary =
+    visit.control_summary ?? computeVisitControlSummary(visitMarkers);
   const visitDate = new Date(visit.visit_date).toLocaleDateString("fr-FR", {
     weekday: "long",
     day: "numeric",
@@ -49,9 +58,12 @@ export function VisitReportPreview({
   const enterpriseMap = new Map(enterprises.map((e) => [e.id, e.name]));
   const itemMap = new Map(checklistItems.map((i) => [i.id, i]));
 
-  const controlMarkers = markers.filter((m) => m.checklist_item_id);
-
-  const zones = [...new Set(checklistItems.map((i) => i.zone_name || "Général"))];
+  const controlMarkers = visitMarkers.filter((m) => m.checklist_item_id);
+  const zones = [
+    ...new Set(
+      checklistItems.map((i) => i.zone_name || zoneName || "Général")
+    ),
+  ];
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
@@ -65,29 +77,45 @@ export function VisitReportPreview({
             <p className="text-sm text-zinc-500">
               {visitDate}
               {phaseName ? ` · ${phaseName}` : ""}
+              {zoneName ? ` · ${zoneName}` : ""}
+              {controlLabel ? ` · ${controlLabel}` : ""}
             </p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-lg px-3 py-1.5 text-sm font-medium text-zinc-500 hover:bg-zinc-100"
-          >
-            Fermer
-          </button>
+          <div className="flex gap-2">
+            {reportUrl && (
+              <a
+                href={reportUrl}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="rounded-lg bg-emerald-100 px-3 py-1.5 text-sm font-semibold text-emerald-800"
+              >
+                PDF
+              </a>
+            )}
+            <button
+              type="button"
+              onClick={onClose}
+              className="rounded-lg px-3 py-1.5 text-sm font-medium text-zinc-500 hover:bg-zinc-100"
+            >
+              Fermer
+            </button>
+          </div>
         </div>
 
         <div className="overflow-y-auto px-5 py-4">
-          <div className={`mb-4 inline-flex rounded-full px-3 py-1 text-sm font-semibold ${SUMMARY_COLORS[summary]}`}>
+          <div
+            className={`mb-4 inline-flex rounded-full px-3 py-1 text-sm font-semibold ${SUMMARY_COLORS[summary]}`}
+          >
             Synthèse : {VISIT_CONTROL_SUMMARY_LABELS[summary]}
           </div>
 
           {zones.map((zone) => {
             const zoneItems = checklistItems.filter(
-              (i) => (i.zone_name || "Général") === zone
+              (i) => (i.zone_name || zoneName || "Général") === zone
             );
             const zoneMarkers = controlMarkers.filter((m) => {
               const item = itemMap.get(m.checklist_item_id!);
-              return item && (item.zone_name || "Général") === zone;
+              return item && (item.zone_name || zoneName || "Général") === zone;
             });
 
             return (
@@ -130,9 +158,36 @@ export function VisitReportPreview({
             );
           })}
 
-          {controlMarkers.length === 0 && (
+          <section className="mb-4">
+            <h3 className="mb-2 border-b border-zinc-200 pb-1 text-sm font-bold uppercase tracking-wide text-zinc-700">
+              Réserves
+            </h3>
+            {visitMarkers.length === 0 ? (
+              <p className="text-sm text-zinc-500">Aucune réserve sur cette visite.</p>
+            ) : (
+              <ul className="space-y-2 text-sm">
+                {visitMarkers.map((marker) => (
+                  <li key={marker.id} className="rounded-lg bg-zinc-50 px-3 py-2">
+                    <p className="font-semibold text-zinc-900">
+                      #{marker.marker_number} — {MARKER_STATUS_LABELS[marker.status]}
+                    </p>
+                    {marker.remark && (
+                      <p className="text-zinc-600">{marker.remark}</p>
+                    )}
+                    {marker.enterprise_id && (
+                      <p className="text-xs text-zinc-500">
+                        {enterpriseMap.get(marker.enterprise_id)}
+                      </p>
+                    )}
+                  </li>
+                ))}
+              </ul>
+            )}
+          </section>
+
+          {controlMarkers.length === 0 && checklistItems.length === 0 && (
             <p className="text-sm text-zinc-500">
-              Aucun point de contrôle renseigné via les réserves pour cette visite.
+              Aucun point de contrôle renseigné pour cette visite.
             </p>
           )}
         </div>
