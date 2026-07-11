@@ -3,31 +3,47 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
 
-export async function signIn(formData: FormData) {
+type AuthResult = { error?: string };
+
+function safeRedirectPath(value: FormDataEntryValue | null) {
+  const path = typeof value === "string" ? value.trim() : "";
+  if (path.startsWith("/pc") || path.startsWith("/tablette") || path === "/") {
+    return path;
+  }
+  return "/";
+}
+
+export async function signIn(formData: FormData): Promise<AuthResult> {
   const email = (formData.get("email") as string)?.trim();
   const password = formData.get("password") as string;
+  const redirectTo = safeRedirectPath(formData.get("redirect"));
 
   if (!email || !password) {
-    throw new Error("Email et mot de passe requis.");
+    return { error: "Email et mot de passe requis." };
   }
 
   const supabase = await createClient();
   const { error } = await supabase.auth.signInWithPassword({ email, password });
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    return { error: error.message };
+  }
+
+  redirect(redirectTo);
 }
 
-export async function signUp(formData: FormData) {
+export async function signUp(formData: FormData): Promise<AuthResult> {
   const email = (formData.get("email") as string)?.trim();
   const password = formData.get("password") as string;
   const fullName = (formData.get("full_name") as string)?.trim();
+  const redirectTo = safeRedirectPath(formData.get("redirect"));
 
   if (!email || !password) {
-    throw new Error("Email et mot de passe requis.");
+    return { error: "Email et mot de passe requis." };
   }
 
   if (password.length < 8) {
-    throw new Error("Le mot de passe doit contenir au moins 8 caractères.");
+    return { error: "Le mot de passe doit contenir au moins 8 caractères." };
   }
 
   const supabase = await createClient();
@@ -39,7 +55,11 @@ export async function signUp(formData: FormData) {
     },
   });
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    return { error: error.message };
+  }
+
+  redirect(redirectTo);
 }
 
 export async function signOut() {

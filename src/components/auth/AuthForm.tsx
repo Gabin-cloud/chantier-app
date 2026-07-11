@@ -26,14 +26,26 @@ export function AuthForm({ redirectTo }: AuthFormProps) {
 
     startTransition(async () => {
       try {
-        if (mode === "login") {
-          await signIn(formData);
-        } else {
-          await signUp(formData);
+        const result =
+          mode === "login" ? await signIn(formData) : await signUp(formData);
+
+        if (result?.error) {
+          setError(result.error);
+          return;
         }
-        router.push(redirectTo);
+
         router.refresh();
       } catch (err) {
+        const digest =
+          err && typeof err === "object" && "digest" in err
+            ? String((err as { digest?: string }).digest ?? "")
+            : "";
+        if (
+          err instanceof Error &&
+          (err.message.includes("NEXT_REDIRECT") || digest.startsWith("NEXT_REDIRECT"))
+        ) {
+          return;
+        }
         setError(err instanceof Error ? err.message : "Une erreur est survenue.");
       }
     });

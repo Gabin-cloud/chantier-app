@@ -38,7 +38,33 @@ export async function getProfileSettings(): Promise<ProfileSettingsData> {
     .eq("id", user.id)
     .single();
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    const fallback = await supabase
+      .from("profiles")
+      .select("id, email, full_name")
+      .eq("id", user.id)
+      .single();
+
+    if (fallback.error) throw new Error(fallback.error.message);
+
+    return {
+      id: fallback.data.id,
+      email: fallback.data.email,
+      full_name: fallback.data.full_name,
+      notify_new_projects: true,
+      m365: {
+        connected: false,
+        msEmail: null,
+        connectedAt: null,
+      },
+      capabilities: {
+        microsoftOAuth: isMicrosoftOAuthConfigured(),
+        notifications: isNotificationEmailConfigured(),
+        tokenStorage:
+          isAdminClientConfigured() && isTokenEncryptionConfigured(),
+      },
+    };
+  }
 
   let m365Public = null;
   if (isAdminClientConfigured() && isTokenEncryptionConfigured()) {
