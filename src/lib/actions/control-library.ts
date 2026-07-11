@@ -71,6 +71,7 @@ export async function importControlLibraryToProject(projectId: string) {
 
   revalidatePath(`/tablette/projets/${projectId}/parametres`);
   revalidatePath(`/pc/projets/${projectId}/parametres`);
+  revalidatePath(`/pc/projets/${projectId}/controles`);
 
   return { imported, total: library.length };
 }

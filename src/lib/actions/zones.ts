@@ -89,6 +89,7 @@ export async function addPhaseZone(
 
   revalidatePath(`/tablette/projets/${projectId}/parametres`);
   revalidatePath(`/pc/projets/${projectId}/parametres`);
+  revalidatePath(`/pc/projets/${projectId}/controles`);
   return data;
 }
 
@@ -101,6 +102,7 @@ export async function deletePhaseZone(projectId: string, zoneId: string) {
 
   revalidatePath(`/tablette/projets/${projectId}/parametres`);
   revalidatePath(`/pc/projets/${projectId}/parametres`);
+  revalidatePath(`/pc/projets/${projectId}/controles`);
 }
 
 export async function findOrCreatePhaseZone(

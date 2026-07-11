@@ -70,6 +70,7 @@ export async function addVisitPhase(projectId: string, name: string) {
 
   revalidatePath(`/tablette/projets/${projectId}/parametres`);
   revalidatePath(`/pc/projets/${projectId}/parametres`);
+  revalidatePath(`/pc/projets/${projectId}/controles`);
 
   return data;
 }
@@ -94,6 +95,7 @@ export async function updateVisitPhase(
 
   revalidatePath(`/tablette/projets/${projectId}/parametres`);
   revalidatePath(`/pc/projets/${projectId}/parametres`);
+  revalidatePath(`/pc/projets/${projectId}/controles`);
 }
 
 export async function deleteVisitPhase(projectId: string, phaseId: string) {
@@ -119,4 +121,5 @@ export async function deleteVisitPhase(projectId: string, phaseId: string) {
 
   revalidatePath(`/tablette/projets/${projectId}/parametres`);
   revalidatePath(`/pc/projets/${projectId}/parametres`);
+  revalidatePath(`/pc/projets/${projectId}/controles`);
 }

@@ -118,7 +118,8 @@ export async function generateAndStoreVisitReport(
   const { data: urlData } = supabase.storage.from(REPORTS_BUCKET).getPublicUrl(filePath);
 
   revalidatePath(`/tablette/projets/${projectId}/visites/${visitId}`);
-  revalidatePath(`/pc/projets/${projectId}`);
+  revalidatePath(`/pc/projets/${projectId}/controles`);
+  revalidatePath(`/pc/projets/${projectId}/controles?tab=rapports`);
 
   return { filePath, publicUrl: urlData.publicUrl };
 }
