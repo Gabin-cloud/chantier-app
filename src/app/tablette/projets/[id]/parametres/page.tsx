@@ -12,7 +12,8 @@ import {
 } from "@/lib/auth/permissions";
 import { getProjectMembers } from "@/lib/actions/members";
 import { getProjectLocations } from "@/lib/actions/locations";
-import { getPlansWithUrls } from "@/lib/actions/plans";
+import { getPlanFolders, getPlansWithUrls } from "@/lib/actions/plans";
+import { getProjectPhases } from "@/lib/actions/phases";
 import { getProject } from "@/lib/actions/projects";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
@@ -28,9 +29,11 @@ export default async function ParametresPage({ params }: PageProps) {
   const { id } = await params;
 
   try {
-    const [project, plans, members, locations, projectRole] = await Promise.all([
+    const [project, plans, planFolders, phases, members, locations, projectRole] = await Promise.all([
       getProject(id),
       getPlansWithUrls(id),
+      getPlanFolders(id),
+      getProjectPhases(id),
       getProjectMembers(id),
       getProjectLocations(id).catch(() => []),
       getProjectRole(id),
@@ -67,6 +70,8 @@ export default async function ParametresPage({ params }: PageProps) {
             project={project}
             enterprises={project.enterprises}
             plans={plans}
+            planFolders={planFolders}
+            phases={phases}
             locations={locations}
             members={members}
             basePath="tablette"

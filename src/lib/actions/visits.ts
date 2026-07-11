@@ -4,18 +4,32 @@ import { revalidatePath } from "next/cache";
 import { requireProjectAccess, requireProjectRoles } from "@/lib/auth/permissions";
 import { createClient } from "@/lib/supabase/server";
 import type { MarkerUpdateData, MarkerWithLinks, VisitFormData } from "@/lib/types/database";
+import { ensureDefaultPhases } from "@/lib/actions/phases";
 
 const PHOTOS_BUCKET = "visit-photos";
 
-async function getMarkerLinks(supabase: Awaited<ReturnType<typeof createClient>>, visitId: string) {
-  const { data: markers } = await supabase
-    .from("markers")
-    .select("id")
-    .eq("visit_id", visitId);
+async function getMarkerLinks(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  phaseId: string | null,
+  visitId: string
+) {
+  let markerIds: string[] = [];
 
-  if (!markers?.length) return new Map<string, string[]>();
+  if (phaseId) {
+    const { data: markers } = await supabase
+      .from("markers")
+      .select("id")
+      .eq("phase_id", phaseId);
+    markerIds = markers?.map((m) => m.id) ?? [];
+  } else {
+    const { data: markers } = await supabase
+      .from("markers")
+      .select("id")
+      .eq("visit_id", visitId);
+    markerIds = markers?.map((m) => m.id) ?? [];
+  }
 
-  const markerIds = markers.map((m) => m.id);
+  if (!markerIds.length) return new Map<string, string[]>();
 
   const [{ data: linksFrom }, { data: linksTo }] = await Promise.all([
     supabase.from("marker_links").select("*").in("from_marker_id", markerIds),
@@ -77,18 +91,25 @@ export async function getVisit(visitId: string): Promise<{
 
   await requireProjectAccess(visit.project_id);
 
-  const { data: markers, error: markersError } = await supabase
-    .from("markers")
-    .select("*")
-    .eq("visit_id", visitId)
-    .order("marker_number", { ascending: true });
+  let markersQuery = supabase.from("markers").select("*").order("marker_number", {
+    ascending: true,
+  });
+
+  if (visit.phase_id) {
+    markersQuery = markersQuery.eq("phase_id", visit.phase_id);
+  } else {
+    markersQuery = markersQuery.eq("visit_id", visitId);
+  }
+
+  const { data: markers, error: markersError } = await markersQuery;
 
   if (markersError) throw new Error(markersError.message);
 
-  const linkMap = await getMarkerLinks(supabase, visitId);
+  const linkMap = await getMarkerLinks(supabase, visit.phase_id, visitId);
 
   const markersWithLinks: MarkerWithLinks[] = (markers ?? []).map((marker) => ({
     ...marker,
+    phase_id: marker.phase_id ?? visit.phase_id ?? null,
     status: marker.status ?? "a_traiter",
     enterprise_id: marker.enterprise_id ?? null,
     trade: marker.trade ?? null,
@@ -104,6 +125,12 @@ export async function createVisit(projectId: string, formData: VisitFormData) {
   await requireProjectRoles(projectId, ["admin", "gestionnaire", "terrain"]);
   const supabase = await createClient();
 
+  let phaseId = formData.phase_id;
+  if (!phaseId) {
+    const phases = await ensureDefaultPhases(projectId);
+    phaseId = phases[0]?.id;
+  }
+
   const title =
     formData.title?.trim() ||
     `Visite du ${new Date(formData.visit_date ?? Date.now()).toLocaleDateString("fr-FR")}`;
@@ -112,6 +139,7 @@ export async function createVisit(projectId: string, formData: VisitFormData) {
     .from("visits")
     .insert({
       project_id: projectId,
+      phase_id: phaseId ?? null,
       title,
       visit_date: formData.visit_date || new Date().toISOString().slice(0, 10),
       notes: formData.notes?.trim() || null,
@@ -150,10 +178,27 @@ export async function createMarker(
   await requireProjectRoles(projectId, ["admin", "gestionnaire", "terrain"]);
   const supabase = await createClient();
 
-  const { count, error: countError } = await supabase
+  const { data: visit, error: visitError } = await supabase
+    .from("visits")
+    .select("phase_id")
+    .eq("id", visitId)
+    .single();
+
+  if (visitError) throw new Error(visitError.message);
+
+  const phaseId = visit.phase_id;
+
+  let countQuery = supabase
     .from("markers")
-    .select("*", { count: "exact", head: true })
-    .eq("visit_id", visitId);
+    .select("*", { count: "exact", head: true });
+
+  if (phaseId) {
+    countQuery = countQuery.eq("phase_id", phaseId);
+  } else {
+    countQuery = countQuery.eq("visit_id", visitId);
+  }
+
+  const { count, error: countError } = await countQuery;
 
   if (countError) throw new Error(countError.message);
 
@@ -163,6 +208,7 @@ export async function createMarker(
     .from("markers")
     .insert({
       visit_id: visitId,
+      phase_id: phaseId,
       plan_id: planId,
       x_percent: xPercent,
       y_percent: yPercent,

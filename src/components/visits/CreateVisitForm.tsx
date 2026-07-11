@@ -3,8 +3,15 @@
 import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { createVisit } from "@/lib/actions/visits";
+import type { VisitPhase } from "@/lib/types/database";
 
-export function CreateVisitForm({ projectId }: { projectId: string }) {
+export function CreateVisitForm({
+  projectId,
+  phases,
+}: {
+  projectId: string;
+  phases: VisitPhase[];
+}) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -23,6 +30,7 @@ export function CreateVisitForm({ projectId }: { projectId: string }) {
           title: (form.get("title") as string).trim() || undefined,
           visit_date: (form.get("visit_date") as string) || today,
           notes: (form.get("notes") as string).trim() || undefined,
+          phase_id: (form.get("phase_id") as string) || undefined,
         });
         router.push(`/tablette/projets/${projectId}/visites/${visitId}`);
         router.refresh();
@@ -34,6 +42,28 @@ export function CreateVisitForm({ projectId }: { projectId: string }) {
 
   return (
     <form onSubmit={handleSubmit} className="space-y-5">
+      <div>
+        <label htmlFor="phase_id" className="mb-2 block font-semibold text-zinc-800">
+          Phase de chantier *
+        </label>
+        <select
+          id="phase_id"
+          name="phase_id"
+          required
+          defaultValue={phases[0]?.id ?? ""}
+          className="w-full rounded-xl border-2 border-zinc-200 bg-zinc-50 px-4 py-3 text-base focus:border-zinc-400 focus:bg-white focus:outline-none"
+        >
+          {phases.map((phase) => (
+            <option key={phase.id} value={phase.id}>
+              {phase.name}
+            </option>
+          ))}
+        </select>
+        <p className="mt-1 text-xs text-zinc-500">
+          Les réserves sont partagées entre toutes les visites de la même phase.
+        </p>
+      </div>
+
       <div>
         <label htmlFor="title" className="mb-2 block font-semibold text-zinc-800">
           Titre de la visite
@@ -81,7 +111,7 @@ export function CreateVisitForm({ projectId }: { projectId: string }) {
 
       <button
         type="submit"
-        disabled={isPending}
+        disabled={isPending || phases.length === 0}
         className="min-h-14 w-full rounded-2xl bg-emerald-600 py-4 text-lg font-bold text-white hover:bg-emerald-500 disabled:cursor-not-allowed disabled:bg-emerald-300"
       >
         {isPending ? "Création…" : "Démarrer la visite"}

@@ -8,13 +8,15 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { getPlanPdfData } from "@/lib/actions/plans";
-import type { DrawingStroke } from "@/lib/types/database";
+import type { DrawingStroke, MarkerStatus } from "@/lib/types/database";
+import { MARKER_STATUS_HEX } from "@/lib/types/database";
 
 export type PlanViewerMarker = {
   id: string;
   x_percent: number;
   y_percent: number;
   marker_number: number;
+  status?: MarkerStatus;
 };
 
 type Size = { width: number; height: number };
@@ -25,6 +27,8 @@ type PlanViewerProps = {
   planId: string;
   addMode?: boolean;
   drawMode?: boolean;
+  drawColor?: string;
+  drawWidth?: number;
   markers: PlanViewerMarker[];
   strokes?: DrawingStroke[];
   onStrokesChange?: (strokes: DrawingStroke[]) => void;
@@ -36,9 +40,8 @@ type PlanViewerProps = {
 
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 8;
-const MAX_CANVAS_SIDE = 4096;
-const DRAW_COLOR = "#f59e0b";
-const DRAW_WIDTH = 2.5;
+const MAX_CANVAS_SIDE = 8192;
+const ZOOM_RENDER_DEBOUNCE_MS = 350;
 const PDF_WORKER_SRC = "/pdf.worker.legacy.min.mjs";
 
 function clamp(value: number, min: number, max: number) {
@@ -95,6 +98,8 @@ export function PlanViewer({
   planId,
   addMode = false,
   drawMode = false,
+  drawColor = "#f59e0b",
+  drawWidth = 2.5,
   markers,
   strokes = [],
   onStrokesChange,
@@ -109,6 +114,7 @@ export function PlanViewer({
   const pageRef = useRef<import("pdfjs-dist").PDFPageProxy | null>(null);
   const renderTaskRef = useRef<import("pdfjs-dist").RenderTask | null>(null);
   const renderGenerationRef = useRef(0);
+  const pinchActiveRef = useRef(false);
 
   const basePageSizeRef = useRef<Size>({ width: 0, height: 0 });
   const zoomRef = useRef(1);
@@ -131,7 +137,7 @@ export function PlanViewer({
     null
   );
   const tapMovedRef = useRef(false);
-  const interactionLocked = addMode || drawMode;
+  const interactionLocked = addMode;
 
   const applyZoom = useCallback((nextZoom: number) => {
     const clamped = clamp(nextZoom, MIN_ZOOM, MAX_ZOOM);
@@ -188,7 +194,7 @@ export function PlanViewer({
       setRendering(true);
 
       try {
-        const dpr = Math.min(window.devicePixelRatio || 1, 3);
+        const dpr = Math.min(window.devicePixelRatio || 1, 4);
         let renderScale = targetZoom * dpr;
         const maxBaseSide = Math.max(base.width, base.height);
         if (maxBaseSide * renderScale > MAX_CANVAS_SIDE) {
@@ -290,10 +296,11 @@ export function PlanViewer({
 
   useEffect(() => {
     if (!pdfReady || zoom <= 0) return;
+    if (pinchActiveRef.current) return;
 
     const timer = window.setTimeout(() => {
       void renderPdf(zoom);
-    }, 120);
+    }, ZOOM_RENDER_DEBOUNCE_MS);
 
     return () => window.clearTimeout(timer);
   }, [pdfReady, zoom, renderPdf]);
@@ -358,19 +365,19 @@ export function PlanViewer({
     });
     tapMovedRef.current = false;
 
-    if (drawMode && !readOnly) {
+    if (drawMode && !readOnly && pointersRef.current.size === 1) {
       const coords = clientToPercent(e.clientX, e.clientY);
       if (coords) {
         setLiveStroke({
           points: [{ x: coords.xPercent, y: coords.yPercent }],
-          color: DRAW_COLOR,
-          width: DRAW_WIDTH,
+          color: drawColor,
+          width: drawWidth,
         });
       }
       return;
     }
 
-    if (pointersRef.current.size === 1 && !interactionLocked) {
+    if (pointersRef.current.size === 1 && !interactionLocked && !drawMode) {
       panStartRef.current = {
         x: e.clientX,
         y: e.clientY,
@@ -380,6 +387,7 @@ export function PlanViewer({
     }
 
     if (pointersRef.current.size === 2) {
+      pinchActiveRef.current = true;
       const pts = [...pointersRef.current.values()];
       pinchRef.current = {
         distance: Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y),
@@ -402,7 +410,7 @@ export function PlanViewer({
 
     pointersRef.current.set(e.pointerId, { ...pointer, x: e.clientX, y: e.clientY });
 
-    if (drawMode && liveStroke && !readOnly) {
+    if (drawMode && liveStroke && !readOnly && pointersRef.current.size === 1) {
       const coords = clientToPercent(e.clientX, e.clientY);
       if (coords) {
         setLiveStroke({
@@ -462,7 +470,13 @@ export function PlanViewer({
     }
 
     pointersRef.current.delete(e.pointerId);
-    if (pointersRef.current.size < 2) pinchRef.current = null;
+    if (pointersRef.current.size < 2) {
+      pinchRef.current = null;
+      if (pinchActiveRef.current) {
+        pinchActiveRef.current = false;
+        void renderPdf(zoomRef.current);
+      }
+    }
     if (pointersRef.current.size === 0) panStartRef.current = null;
 
     try {
@@ -577,7 +591,10 @@ export function PlanViewer({
                 ))}
               </svg>
               <div className="pointer-events-none absolute inset-0">
-                {markers.map((marker) => (
+                {markers.map((marker) => {
+                  const status = marker.status ?? "a_traiter";
+                  const isSelected = selectedMarkerId === marker.id;
+                  return (
                   <button
                     key={marker.id}
                     type="button"
@@ -585,20 +602,22 @@ export function PlanViewer({
                     style={{
                       left: `${marker.x_percent}%`,
                       top: `${marker.y_percent}%`,
+                      backgroundColor: MARKER_STATUS_HEX[status],
                     }}
                     onClick={(e) => {
                       e.stopPropagation();
                       onMarkerClick?.(marker.id);
                     }}
                     className={`pointer-events-auto absolute flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 text-sm font-bold text-white shadow-lg transition-transform active:scale-110 ${
-                      selectedMarkerId === marker.id
-                        ? "border-white bg-amber-500 ring-4 ring-amber-300"
-                        : "border-white bg-red-600"
+                      isSelected
+                        ? "border-white ring-4 ring-amber-300"
+                        : "border-white"
                     }`}
                   >
                     {marker.marker_number}
                   </button>
-                ))}
+                );
+                })}
               </div>
             </div>
           </div>

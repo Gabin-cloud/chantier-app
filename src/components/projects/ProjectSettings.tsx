@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useState, useTransition } from "react";
 import { LocationManager } from "@/components/projects/LocationManager";
+import { PhaseManager } from "@/components/projects/PhaseManager";
 import { PlanManager } from "@/components/projects/PlanManager";
 import { ProjectForm } from "@/components/projects/ProjectForm";
 import { ProjectMembersManager } from "@/components/auth/ProjectMembersManager";
@@ -12,7 +13,7 @@ import {
   deleteEnterprise,
   updateProject,
 } from "@/lib/actions/projects";
-import type { Enterprise, Plan, Project, ProjectFormData, ProjectLocation } from "@/lib/types/database";
+import type { Enterprise, Plan, PlanFolder, Project, ProjectFormData, ProjectLocation, VisitPhase } from "@/lib/types/database";
 
 type PlanWithUrl = Plan & { pdf_url: string };
 
@@ -20,6 +21,8 @@ type ProjectSettingsProps = {
   project: Project;
   enterprises: Enterprise[];
   plans: PlanWithUrl[];
+  planFolders?: PlanFolder[];
+  phases?: VisitPhase[];
   locations: ProjectLocation[];
   members: ProjectMemberWithProfile[];
   basePath: "tablette" | "pc";
@@ -35,6 +38,8 @@ export function ProjectSettings({
   project,
   enterprises,
   plans,
+  planFolders = [],
+  phases = [],
   locations,
   members,
   basePath,
@@ -126,7 +131,15 @@ export function ProjectSettings({
       </section>
 
       {canEditPlans && (
-        <PlanManager projectId={project.id} initialPlans={plans} />
+        <PlanManager
+          projectId={project.id}
+          initialPlans={plans}
+          initialFolders={planFolders}
+        />
+      )}
+
+      {canEditPlans && phases.length > 0 && (
+        <PhaseManager projectId={project.id} phases={phases} canEdit={canEdit} />
       )}
 
       {canEditPlans && (
@@ -213,7 +226,11 @@ export function ProjectSettings({
       )}
 
       {!canEdit && canEditPlans && (
-        <PlanManager projectId={project.id} initialPlans={plans} />
+        <PlanManager
+          projectId={project.id}
+          initialPlans={plans}
+          initialFolders={planFolders}
+        />
       )}
 
       {error && (

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireProjectAccess, requireProjectRoles } from "@/lib/auth/permissions";
 import { createAdminClient, isAdminClientConfigured } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
+import type { Plan, PlanFolder } from "@/lib/types/database";
 
 const PLANS_BUCKET = "plans";
 
@@ -128,6 +129,101 @@ export async function getPlanPageImage(
   };
 }
 
+export async function getPlanFolders(projectId: string): Promise<PlanFolder[]> {
+  try {
+    await requireProjectAccess(projectId);
+    const supabase = await createClient();
+    const { data, error } = await supabase
+      .from("plan_folders")
+      .select("*")
+      .eq("project_id", projectId)
+      .order("sort_order", { ascending: true })
+      .order("name", { ascending: true });
+
+    if (error) throw new Error(error.message);
+    return data ?? [];
+  } catch {
+    return [];
+  }
+}
+
+export async function createPlanFolder(
+  projectId: string,
+  name: string,
+  parentId?: string | null
+) {
+  await requireProjectRoles(projectId, ["admin", "gestionnaire", "terrain"]);
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Le nom du dossier est obligatoire.");
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("plan_folders")
+    .insert({
+      project_id: projectId,
+      name: trimmed,
+      parent_id: parentId || null,
+    })
+    .select("*")
+    .single();
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/tablette/projets/${projectId}/parametres`);
+  revalidatePath(`/tablette/projets/${projectId}/plans`);
+  revalidatePath(`/pc/projets/${projectId}/parametres`);
+
+  return data;
+}
+
+export async function deletePlanFolder(projectId: string, folderId: string) {
+  await requireProjectRoles(projectId, ["admin", "gestionnaire", "terrain"]);
+  const supabase = await createClient();
+
+  await supabase
+    .from("plans")
+    .update({ folder_id: null })
+    .eq("folder_id", folderId)
+    .eq("project_id", projectId);
+
+  await supabase
+    .from("plan_folders")
+    .update({ parent_id: null })
+    .eq("parent_id", folderId)
+    .eq("project_id", projectId);
+
+  const { error } = await supabase
+    .from("plan_folders")
+    .delete()
+    .eq("id", folderId)
+    .eq("project_id", projectId);
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/tablette/projets/${projectId}/parametres`);
+  revalidatePath(`/tablette/projets/${projectId}/plans`);
+  revalidatePath(`/pc/projets/${projectId}/parametres`);
+}
+
+export async function movePlanToFolder(
+  projectId: string,
+  planId: string,
+  folderId: string | null
+) {
+  await requireProjectRoles(projectId, ["admin", "gestionnaire", "terrain"]);
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("plans")
+    .update({ folder_id: folderId })
+    .eq("id", planId)
+    .eq("project_id", projectId);
+
+  if (error) throw new Error(error.message);
+
+  revalidatePath(`/tablette/projets/${projectId}/parametres`);
+  revalidatePath(`/tablette/projets/${projectId}/plans`);
+}
+
 export async function getPlans(projectId: string) {
   await requireProjectAccess(projectId);
   const supabase = await createClient();
@@ -148,7 +244,11 @@ export async function getPlanPublicUrl(filePath: string) {
   return data.publicUrl;
 }
 
-export async function uploadPlan(projectId: string, formData: FormData) {
+export async function uploadPlan(
+  projectId: string,
+  formData: FormData,
+  folderId?: string | null
+) {
   await requireProjectRoles(projectId, ["admin", "gestionnaire", "terrain"]);
   const file = formData.get("file") as File | null;
   const nameInput = (formData.get("name") as string | null)?.trim();
@@ -176,6 +276,7 @@ export async function uploadPlan(projectId: string, formData: FormData) {
     .from("plans")
     .insert({
       project_id: projectId,
+      folder_id: folderId || null,
       name: nameInput || file.name.replace(/\.pdf$/i, ""),
       file_path: filePath,
       file_size: file.size,
@@ -222,6 +323,20 @@ export async function getPlansWithUrls(projectId: string) {
 
   return plans.map((plan) => ({
     ...plan,
+    folder_id: plan.folder_id ?? null,
     pdf_url: `/api/plans/${plan.id}/pdf?projectId=${projectId}`,
   }));
+}
+
+export type PlanLibrary = {
+  folders: PlanFolder[];
+  plans: (Plan & { pdf_url: string })[];
+};
+
+export async function getPlanLibrary(projectId: string): Promise<PlanLibrary> {
+  const [folders, plans] = await Promise.all([
+    getPlanFolders(projectId),
+    getPlansWithUrls(projectId),
+  ]);
+  return { folders, plans };
 }

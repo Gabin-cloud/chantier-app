@@ -38,6 +38,13 @@ export function ProjectHub({ project, basePath, projectRole }: ProjectHubProps) 
       visible: canOpenSettings,
     },
     {
+      href: `/tablette/projets/${project.id}/plans`,
+      label: "Bibliothèque de plans",
+      description: "Parcourir les plans par dossiers",
+      color: "bg-violet-600 text-white",
+      visible: canAccessField(projectRole),
+    },
+    {
       href: `/tablette/projets/${project.id}/visites`,
       label: "Visites de chantier",
       description: "Nouvelle visite, plans et pastilles",

@@ -6,7 +6,8 @@ import {
 import { VisitEditor } from "@/components/visits/VisitEditor";
 import { getPlanDrawings } from "@/lib/actions/drawings";
 import { getProjectLocations } from "@/lib/actions/locations";
-import { getPlansWithUrls } from "@/lib/actions/plans";
+import { getPlanFolders, getPlansWithUrls } from "@/lib/actions/plans";
+import { getProjectPhases } from "@/lib/actions/phases";
 import { getProject } from "@/lib/actions/projects";
 import { getMarkerPhotoUrl, getVisit } from "@/lib/actions/visits";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
@@ -23,11 +24,15 @@ export default async function VisitePage({ params }: PageProps) {
   const { id, visiteId } = await params;
 
   try {
-    const [{ visit, markers }, plans, project] = await Promise.all([
+    const [{ visit, markers }, plans, planFolders, phases, project] = await Promise.all([
       getVisit(visiteId),
       getPlansWithUrls(id),
+      getPlanFolders(id),
+      getProjectPhases(id),
       getProject(id),
     ]);
+
+    const phaseName = phases.find((p) => p.id === visit.phase_id)?.name ?? null;
 
     const [locations, drawings] = await Promise.all([
       getProjectLocations(id).catch(() => []),
@@ -63,14 +68,19 @@ export default async function VisitePage({ params }: PageProps) {
             <h1 className="truncate text-base font-bold text-zinc-900 sm:text-lg">
               {visit.title}
             </h1>
-            <p className="truncate text-xs text-zinc-500 sm:text-sm">{visitDate}</p>
+            <p className="truncate text-xs text-zinc-500 sm:text-sm">
+              {visitDate}
+              {phaseName ? ` · ${phaseName}` : ""}
+            </p>
           </div>
         </header>
 
         <VisitEditor
           projectId={id}
           visit={visit}
+          phaseName={phaseName}
           plans={plans}
+          planFolders={planFolders}
           enterprises={project.enterprises}
           locations={locations}
           initialMarkers={markersWithPhotos}

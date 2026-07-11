@@ -146,12 +146,30 @@ export type ProjectFinancialData = Project & {
   bank_guarantees?: FinancialBankGuarantee[];
 };
 
+export type PlanFolder = {
+  id: string;
+  project_id: string;
+  parent_id: string | null;
+  name: string;
+  sort_order: number;
+  created_at: string;
+};
+
 export type Plan = {
   id: string;
   project_id: string;
+  folder_id: string | null;
   name: string;
   file_path: string;
   file_size: number | null;
+  sort_order: number;
+  created_at: string;
+};
+
+export type VisitPhase = {
+  id: string;
+  project_id: string;
+  name: string;
   sort_order: number;
   created_at: string;
 };
@@ -161,6 +179,7 @@ export type VisitStatus = "in_progress" | "completed";
 export type Visit = {
   id: string;
   project_id: string;
+  phase_id: string | null;
   title: string | null;
   visit_date: string;
   status: VisitStatus;
@@ -191,6 +210,25 @@ export const MARKER_STATUS_COLORS: Record<MarkerStatus, string> = {
   levee: "bg-emerald-600",
   constat: "bg-blue-500",
 };
+
+export const MARKER_STATUS_HEX: Record<MarkerStatus, string> = {
+  a_traiter: "#dc2626",
+  en_cours: "#f59e0b",
+  rejetee: "#71717a",
+  levee: "#059669",
+  constat: "#2563eb",
+};
+
+export const DRAW_COLOR_PRESETS = [
+  "#ef4444",
+  "#f59e0b",
+  "#22c55e",
+  "#3b82f6",
+  "#a855f7",
+  "#000000",
+] as const;
+
+export const DRAW_WIDTH_PRESETS = [1.5, 2.5, 4, 6, 8] as const;
 
 export type ProjectLocation = {
   id: string;
@@ -225,6 +263,7 @@ export type PlanDrawing = {
 export type Marker = {
   id: string;
   visit_id: string;
+  phase_id: string | null;
   plan_id: string;
   page_number: number;
   x_percent: number;
@@ -330,6 +369,7 @@ export type VisitFormData = {
   title?: string;
   visit_date?: string;
   notes?: string;
+  phase_id?: string;
 };
 
 export type MarkerFormData = {

@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { PlanViewer } from "@/components/visits/PlanViewer";
+import { PlanPicker } from "@/components/plans/PlanPicker";
 import { savePlanDrawings } from "@/lib/actions/drawings";
 import { addCustomLocation } from "@/lib/actions/locations";
 import {
@@ -20,10 +21,13 @@ import type {
   MarkerWithLinks,
   Plan,
   PlanDrawing,
+  PlanFolder,
   ProjectLocation,
   Visit,
 } from "@/lib/types/database";
 import {
+  DRAW_COLOR_PRESETS,
+  DRAW_WIDTH_PRESETS,
   MARKER_STATUS_COLORS,
   MARKER_STATUS_LABELS,
 } from "@/lib/types/database";
@@ -42,7 +46,9 @@ type MarkerWithPhoto = MarkerWithLinks & {
 type VisitEditorProps = {
   projectId: string;
   visit: Visit;
+  phaseName?: string | null;
   plans: PlanWithUrl[];
+  planFolders?: PlanFolder[];
   enterprises: Enterprise[];
   locations: ProjectLocation[];
   initialMarkers: MarkerWithPhoto[];
@@ -60,7 +66,9 @@ const STATUS_OPTIONS: MarkerStatus[] = [
 export function VisitEditor({
   projectId,
   visit,
+  phaseName,
   plans,
+  planFolders = [],
   enterprises,
   locations: initialLocations,
   initialMarkers,
@@ -81,6 +89,9 @@ export function VisitEditor({
   const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
   const [addMode, setAddMode] = useState(false);
   const [drawMode, setDrawMode] = useState(false);
+  const [showPlanPicker, setShowPlanPicker] = useState(false);
+  const [drawColor, setDrawColor] = useState<string>(DRAW_COLOR_PRESETS[1]);
+  const [drawWidth, setDrawWidth] = useState<number>(DRAW_WIDTH_PRESETS[1]);
   const [remarkDraft, setRemarkDraft] = useState("");
   const [linkDraft, setLinkDraft] = useState<string[]>([]);
   const [statusDraft, setStatusDraft] = useState<MarkerStatus>("a_traiter");
@@ -101,6 +112,11 @@ export function VisitEditor({
   const otherMarkers = useMemo(
     () => markers.filter((m) => m.id !== selectedMarkerId),
     [markers, selectedMarkerId]
+  );
+
+  const selectedEnterprise = useMemo(
+    () => enterprises.find((e) => e.id === enterpriseDraft) ?? null,
+    [enterprises, enterpriseDraft]
   );
 
   const scheduleSaveDrawings = useCallback(
@@ -206,7 +222,7 @@ export function VisitEditor({
           linked_marker_ids: linkDraft,
           status: statusDraft,
           enterprise_id: enterpriseDraft || null,
-          trade: tradeDraft || null,
+          trade: (selectedEnterprise?.trade ?? tradeDraft) || null,
           location_label: locationLabelDraft || null,
           location_preset_id: locationPresetId,
         });
@@ -220,7 +236,7 @@ export function VisitEditor({
                   linked_marker_ids: linkDraft,
                   status: statusDraft,
                   enterprise_id: enterpriseDraft || null,
-                  trade: tradeDraft || null,
+                  trade: (selectedEnterprise?.trade ?? tradeDraft) || null,
                   location_label: locationLabelDraft || null,
                   location_preset_id: locationPresetId,
                 }
@@ -326,7 +342,10 @@ export function VisitEditor({
       <aside className="flex w-full shrink-0 flex-col border-r border-zinc-200 bg-white md:w-72 lg:w-80">
         <div className="border-b border-zinc-100 px-4 py-3">
           <h2 className="text-base font-bold text-zinc-900">Réserves</h2>
-          <p className="text-xs text-zinc-500">{planMarkers.length} sur ce plan</p>
+          <p className="text-xs text-zinc-500">
+            {planMarkers.length} sur ce plan
+            {phaseName ? ` · Phase : ${phaseName}` : ""}
+          </p>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
@@ -405,25 +424,28 @@ export function VisitEditor({
             </label>
             <select
               value={enterpriseDraft}
-              onChange={(e) => setEnterpriseDraft(e.target.value)}
+              onChange={(e) => {
+                const id = e.target.value;
+                setEnterpriseDraft(id);
+                const ent = enterprises.find((x) => x.id === id);
+                setTradeDraft(ent?.trade ?? "");
+              }}
               disabled={isCompleted}
-              className="mb-3 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm disabled:opacity-60"
+              className="mb-2 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm disabled:opacity-60"
             >
               <option value="">— Non assignée —</option>
               {enterprises.map((e) => (
                 <option key={e.id} value={e.id}>
                   {e.name}
+                  {e.trade ? ` (${e.trade})` : ""}
                 </option>
               ))}
             </select>
-
-            <input
-              value={tradeDraft}
-              onChange={(e) => setTradeDraft(e.target.value)}
-              placeholder="Corps de métier"
-              disabled={isCompleted}
-              className="mb-3 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm disabled:opacity-60"
-            />
+            {selectedEnterprise?.trade && (
+              <p className="mb-3 text-xs text-zinc-500">
+                Corps de métier : {selectedEnterprise.trade}
+              </p>
+            )}
 
             <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-zinc-500">
               Localisation
@@ -532,6 +554,16 @@ export function VisitEditor({
 
       <div className="flex min-h-0 min-w-0 flex-1 flex-col bg-zinc-100">
         <div className="flex shrink-0 flex-wrap items-center gap-2 border-b border-zinc-200 bg-white px-3 py-2">
+          <button
+            type="button"
+            onClick={() => setShowPlanPicker((v) => !v)}
+            className={`shrink-0 rounded-lg px-3 py-2 text-sm font-bold ${
+              showPlanPicker ? "bg-emerald-600 text-white" : "bg-zinc-100 text-zinc-800"
+            }`}
+          >
+            📁 Plans
+          </button>
+
           <div className="flex min-w-0 flex-1 gap-1.5 overflow-x-auto pb-0.5">
             {plans.map((plan) => (
               <button
@@ -590,6 +622,33 @@ export function VisitEditor({
                 Annuler trait
               </button>
             )}
+            {!isCompleted && drawMode && (
+              <div className="flex items-center gap-1.5 rounded-lg bg-zinc-50 px-2 py-1">
+                {DRAW_COLOR_PRESETS.map((color) => (
+                  <button
+                    key={color}
+                    type="button"
+                    onClick={() => setDrawColor(color)}
+                    style={{ backgroundColor: color }}
+                    className={`h-7 w-7 rounded-full border-2 ${
+                      drawColor === color ? "border-zinc-900" : "border-white"
+                    }`}
+                    aria-label={`Couleur ${color}`}
+                  />
+                ))}
+                <select
+                  value={drawWidth}
+                  onChange={(e) => setDrawWidth(Number(e.target.value))}
+                  className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold"
+                >
+                  {DRAW_WIDTH_PRESETS.map((w) => (
+                    <option key={w} value={w}>
+                      {w}px
+                    </option>
+                  ))}
+                </select>
+              </div>
+            )}
             {!isCompleted && (
               <button
                 type="button"
@@ -608,6 +667,31 @@ export function VisitEditor({
           </div>
         </div>
 
+        <div className="relative flex min-h-0 flex-1">
+          {showPlanPicker && (
+            <aside className="absolute left-0 top-0 z-30 flex h-full w-64 flex-col border-r border-zinc-200 bg-white shadow-lg">
+              <div className="flex items-center justify-between border-b border-zinc-100 px-3 py-2">
+                <p className="text-sm font-bold text-zinc-900">Bibliothèque de plans</p>
+                <button
+                  type="button"
+                  onClick={() => setShowPlanPicker(false)}
+                  className="rounded-lg px-2 py-1 text-xs text-zinc-500 hover:bg-zinc-100"
+                >
+                  Fermer
+                </button>
+              </div>
+              <PlanPicker
+                folders={planFolders}
+                plans={plans}
+                selectedPlanId={selectedPlanId}
+                onSelect={(id) => {
+                  setSelectedPlanId(id);
+                  setSelectedMarkerId(null);
+                }}
+              />
+            </aside>
+          )}
+
         <div
           className={`relative min-h-0 flex-1 ${
             addMode ? "ring-2 ring-inset ring-amber-400" : drawMode ? "ring-2 ring-inset ring-orange-400" : ""
@@ -620,12 +704,15 @@ export function VisitEditor({
               planId={selectedPlan.id}
               addMode={addMode && !isCompleted}
               drawMode={drawMode && !isCompleted}
+              drawColor={drawColor}
+              drawWidth={drawWidth}
               readOnly={isCompleted}
               markers={planMarkers.map((m) => ({
                 id: m.id,
                 x_percent: m.x_percent,
                 y_percent: m.y_percent,
                 marker_number: m.marker_number,
+                status: m.status ?? "a_traiter",
               }))}
               strokes={currentStrokes}
               onStrokesChange={handleStrokesChange}
@@ -637,6 +724,7 @@ export function VisitEditor({
               }}
             />
           )}
+        </div>
         </div>
       </div>
     </div>

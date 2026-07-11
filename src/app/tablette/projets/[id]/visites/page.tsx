@@ -4,6 +4,7 @@ import {
   SupabaseSetupNotice,
 } from "@/components/SupabaseSetupNotice";
 import { getVisits } from "@/lib/actions/visits";
+import { getProjectPhases } from "@/lib/actions/phases";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
 type PageProps = {
@@ -18,7 +19,12 @@ export default async function VisitesPage({ params }: PageProps) {
   const { id } = await params;
 
   try {
-    const visits = await getVisits(id);
+    const [visits, phases] = await Promise.all([
+      getVisits(id),
+      getProjectPhases(id),
+    ]);
+
+    const phaseMap = new Map(phases.map((p) => [p.id, p.name]));
 
     return (
       <main className="min-h-full bg-zinc-100 px-4 py-6 sm:px-6">
@@ -75,6 +81,9 @@ export default async function VisitesPage({ params }: PageProps) {
                             month: "long",
                             year: "numeric",
                           })}
+                          {visit.phase_id && phaseMap.get(visit.phase_id)
+                            ? ` · ${phaseMap.get(visit.phase_id)}`
+                            : ""}
                         </p>
                       </div>
                       <span
