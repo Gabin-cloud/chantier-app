@@ -7,7 +7,7 @@ import {
   useState,
   type PointerEvent as ReactPointerEvent,
 } from "react";
-import { getPlanPageImage } from "@/lib/actions/plans";
+import { getPlanPdfData } from "@/lib/actions/plans";
 import type { DrawingStroke } from "@/lib/types/database";
 
 export type PlanViewerMarker = {
@@ -17,11 +17,8 @@ export type PlanViewerMarker = {
   marker_number: number;
 };
 
-type Transform = {
-  scale: number;
-  x: number;
-  y: number;
-};
+type Size = { width: number; height: number };
+type Pan = { x: number; y: number };
 
 type PlanViewerProps = {
   projectId: string;
@@ -37,10 +34,11 @@ type PlanViewerProps = {
   readOnly?: boolean;
 };
 
-const MIN_SCALE = 0.25;
-const MAX_SCALE = 6;
+const MIN_ZOOM = 0.25;
+const MAX_ZOOM = 8;
 const DRAW_COLOR = "#f59e0b";
 const DRAW_WIDTH = 2.5;
+const PDF_WORKER_SRC = "/pdf.worker.legacy.min.mjs";
 
 function clamp(value: number, min: number, max: number) {
   return Math.min(max, Math.max(min, value));
@@ -54,20 +52,28 @@ function strokeToPath(stroke: DrawingStroke) {
 
 function formatPlanError(err: unknown) {
   if (!(err instanceof Error)) {
-    return "Impossible d'afficher le plan pour le moment.";
+    return "Impossible d'afficher le plan PDF.";
   }
 
   const message = err.message.trim();
   if (
     message.length > 180 ||
     message.includes("=>") ||
-    message.includes("this.#") ||
-    message.includes("worker")
+    message.includes("this.#")
   ) {
-    return "Le rendu du plan a échoué sur cet appareil. Réessayez dans quelques instants.";
+    return "Le lecteur PDF n'a pas pu démarrer sur cet appareil.";
   }
 
   return message;
+}
+
+function base64ToBytes(base64: string) {
+  const binary = atob(base64);
+  const bytes = new Uint8Array(binary.length);
+  for (let i = 0; i < binary.length; i++) {
+    bytes[i] = binary.charCodeAt(i);
+  }
+  return bytes;
 }
 
 export function PlanViewer({
@@ -84,65 +90,134 @@ export function PlanViewer({
   readOnly = false,
 }: PlanViewerProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
+  const canvasRef = useRef<HTMLCanvasElement>(null);
   const layerRef = useRef<HTMLDivElement>(null);
-  const transformRef = useRef<Transform>({ scale: 1, x: 0, y: 0 });
-  const [transform, setTransform] = useState<Transform>({ scale: 1, x: 0, y: 0 });
-  const [pageSize, setPageSize] = useState({ width: 0, height: 0 });
-  const [imageSrc, setImageSrc] = useState<string | null>(null);
+  const pageRef = useRef<import("pdfjs-dist").PDFPageProxy | null>(null);
+  const renderGenerationRef = useRef(0);
+
+  const basePageSizeRef = useRef<Size>({ width: 0, height: 0 });
+  const zoomRef = useRef(1);
+  const panRef = useRef<Pan>({ x: 0, y: 0 });
+
+  const [basePageSize, setBasePageSize] = useState<Size>({ width: 0, height: 0 });
+  const [zoom, setZoom] = useState(1);
+  const [pan, setPan] = useState<Pan>({ x: 0, y: 0 });
   const [loading, setLoading] = useState(true);
+  const [rendering, setRendering] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pdfReady, setPdfReady] = useState(false);
   const [liveStroke, setLiveStroke] = useState<DrawingStroke | null>(null);
 
   const pointersRef = useRef(
     new Map<number, { x: number; y: number; startX: number; startY: number }>()
   );
-  const pinchRef = useRef<{ distance: number; scale: number } | null>(null);
-  const panStartRef = useRef<{ x: number; y: number; tx: number; ty: number } | null>(
+  const pinchRef = useRef<{ distance: number; zoom: number } | null>(null);
+  const panStartRef = useRef<{ x: number; y: number; px: number; py: number } | null>(
     null
   );
   const tapMovedRef = useRef(false);
   const interactionLocked = addMode || drawMode;
 
-  const applyTransform = useCallback((next: Transform) => {
-    transformRef.current = next;
-    setTransform(next);
+  const applyZoom = useCallback((nextZoom: number) => {
+    const clamped = clamp(nextZoom, MIN_ZOOM, MAX_ZOOM);
+    zoomRef.current = clamped;
+    setZoom(clamped);
   }, []);
 
-  const fitToViewport = useCallback(
-    (size: { width: number; height: number }) => {
-      const viewport = viewportRef.current;
-      if (!viewport || size.width === 0) return;
+  const applyPan = useCallback((nextPan: Pan) => {
+    panRef.current = nextPan;
+    setPan(nextPan);
+  }, []);
 
-      const padding = 12;
-      const vw = viewport.clientWidth - padding * 2;
-      const vh = viewport.clientHeight - padding * 2;
-      const scale = clamp(Math.min(vw / size.width, vh / size.height), MIN_SCALE, MAX_SCALE);
-      applyTransform({
-        scale,
-        x: (viewport.clientWidth - size.width * scale) / 2,
-        y: (viewport.clientHeight - size.height * scale) / 2,
-      });
-    },
-    [applyTransform]
-  );
+  const fitToViewport = useCallback(() => {
+    const viewport = viewportRef.current;
+    const base = basePageSizeRef.current;
+    if (!viewport || base.width === 0) return;
+
+    const padding = 12;
+    const vw = viewport.clientWidth - padding * 2;
+    const vh = viewport.clientHeight - padding * 2;
+    const nextZoom = clamp(Math.min(vw / base.width, vh / base.height), MIN_ZOOM, MAX_ZOOM);
+
+    applyZoom(nextZoom);
+    applyPan({
+      x: (viewport.clientWidth - base.width * nextZoom) / 2,
+      y: (viewport.clientHeight - base.height * nextZoom) / 2,
+    });
+  }, [applyPan, applyZoom]);
+
+  const renderPdf = useCallback(async (targetZoom: number) => {
+    const page = pageRef.current;
+    const canvas = canvasRef.current;
+    const base = basePageSizeRef.current;
+    if (!page || !canvas || base.width === 0) return;
+
+    const generation = ++renderGenerationRef.current;
+    setRendering(true);
+
+    try {
+      const dpr = Math.min(window.devicePixelRatio || 1, 3);
+      const renderScale = targetZoom * dpr;
+      const viewport = page.getViewport({ scale: renderScale });
+
+      canvas.width = Math.floor(viewport.width);
+      canvas.height = Math.floor(viewport.height);
+      canvas.style.width = `${base.width * targetZoom}px`;
+      canvas.style.height = `${base.height * targetZoom}px`;
+
+      const context = canvas.getContext("2d");
+      if (!context) throw new Error("Canvas 2D indisponible.");
+
+      await page.render({
+        canvasContext: context,
+        viewport,
+        canvas,
+      }).promise;
+
+      if (generation === renderGenerationRef.current) {
+        setRendering(false);
+      }
+    } catch (err) {
+      if (generation === renderGenerationRef.current) {
+        setRendering(false);
+        setError(formatPlanError(err));
+      }
+    }
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
+    pageRef.current = null;
+    setPdfReady(false);
     setLoading(true);
     setError(null);
-    setImageSrc(null);
-    setPageSize({ width: 0, height: 0 });
+    setBasePageSize({ width: 0, height: 0 });
+    basePageSizeRef.current = { width: 0, height: 0 };
 
-    async function loadPlanImage() {
+    async function loadPdf() {
       try {
-        const pageImage = await getPlanPageImage(projectId, planId);
+        const base64 = await getPlanPdfData(projectId, planId);
         if (cancelled) return;
 
-        const size = { width: pageImage.width, height: pageImage.height };
-        setPageSize(size);
-        setImageSrc(`data:image/png;base64,${pageImage.imageBase64}`);
+        const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+        pdfjs.GlobalWorkerOptions.workerSrc = PDF_WORKER_SRC;
+
+        const pdf = await pdfjs.getDocument({
+          data: base64ToBytes(base64),
+          useSystemFonts: true,
+        }).promise;
+        if (cancelled) return;
+
+        const page = await pdf.getPage(1);
+        if (cancelled) return;
+
+        const viewport = page.getViewport({ scale: 1 });
+        pageRef.current = page;
+        const size = { width: viewport.width, height: viewport.height };
+        basePageSizeRef.current = size;
+        setBasePageSize(size);
+        setPdfReady(true);
         setLoading(false);
-        requestAnimationFrame(() => fitToViewport(size));
       } catch (err) {
         if (!cancelled) {
           setError(formatPlanError(err));
@@ -151,35 +226,54 @@ export function PlanViewer({
       }
     }
 
-    loadPlanImage();
+    loadPdf();
     return () => {
       cancelled = true;
+      renderGenerationRef.current += 1;
     };
-  }, [projectId, planId, fitToViewport]);
+  }, [projectId, planId]);
 
   useEffect(() => {
-    if (pageSize.width === 0) return;
+    if (!pdfReady) return;
+    fitToViewport();
+  }, [pdfReady, fitToViewport]);
+
+  useEffect(() => {
+    if (!pdfReady || zoom <= 0) return;
+
+    const timer = window.setTimeout(() => {
+      void renderPdf(zoom);
+    }, 120);
+
+    return () => window.clearTimeout(timer);
+  }, [pdfReady, zoom, renderPdf]);
+
+  useEffect(() => {
+    if (!pdfReady) return;
     const viewport = viewportRef.current;
     if (!viewport) return;
 
-    const observer = new ResizeObserver(() => fitToViewport(pageSize));
+    const observer = new ResizeObserver(() => fitToViewport());
     observer.observe(viewport);
     return () => observer.disconnect();
-  }, [pageSize, fitToViewport]);
+  }, [pdfReady, fitToViewport]);
 
   function zoomBy(factor: number) {
     const viewport = viewportRef.current;
-    if (!viewport || pageSize.width === 0) return;
+    const base = basePageSizeRef.current;
+    if (!viewport || base.width === 0) return;
 
-    const current = transformRef.current;
     const centerX = viewport.clientWidth / 2;
     const centerY = viewport.clientHeight / 2;
-    const nextScale = clamp(current.scale * factor, MIN_SCALE, MAX_SCALE);
-    const ratio = nextScale / current.scale;
-    applyTransform({
-      scale: nextScale,
-      x: centerX - (centerX - current.x) * ratio,
-      y: centerY - (centerY - current.y) * ratio,
+    const currentZoom = zoomRef.current;
+    const currentPan = panRef.current;
+    const nextZoom = clamp(currentZoom * factor, MIN_ZOOM, MAX_ZOOM);
+    const ratio = nextZoom / currentZoom;
+
+    applyZoom(nextZoom);
+    applyPan({
+      x: centerX - (centerX - currentPan.x) * ratio,
+      y: centerY - (centerY - currentPan.y) * ratio,
     });
   }
 
@@ -227,12 +321,11 @@ export function PlanViewer({
     }
 
     if (pointersRef.current.size === 1 && !interactionLocked) {
-      const current = transformRef.current;
       panStartRef.current = {
         x: e.clientX,
         y: e.clientY,
-        tx: current.x,
-        ty: current.y,
+        px: panRef.current.x,
+        py: panRef.current.y,
       };
     }
 
@@ -240,7 +333,7 @@ export function PlanViewer({
       const pts = [...pointersRef.current.values()];
       pinchRef.current = {
         distance: Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y),
-        scale: transformRef.current.scale,
+        zoom: zoomRef.current,
       };
       panStartRef.current = null;
       setLiveStroke(null);
@@ -274,29 +367,30 @@ export function PlanViewer({
       const pts = [...pointersRef.current.values()];
       const distance = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
       if (pinchRef.current.distance > 0) {
-        const nextScale = clamp(
-          pinchRef.current.scale * (distance / pinchRef.current.distance),
-          MIN_SCALE,
-          MAX_SCALE
+        const nextZoom = clamp(
+          pinchRef.current.zoom * (distance / pinchRef.current.distance),
+          MIN_ZOOM,
+          MAX_ZOOM
         );
         const midX = (pts[0].x + pts[1].x) / 2;
         const midY = (pts[0].y + pts[1].y) / 2;
-        const current = transformRef.current;
-        const ratio = nextScale / current.scale;
-        applyTransform({
-          scale: nextScale,
-          x: midX - (midX - current.x) * ratio,
-          y: midY - (midY - current.y) * ratio,
+        const currentZoom = zoomRef.current;
+        const currentPan = panRef.current;
+        const ratio = nextZoom / currentZoom;
+
+        applyZoom(nextZoom);
+        applyPan({
+          x: midX - (midX - currentPan.x) * ratio,
+          y: midY - (midY - currentPan.y) * ratio,
         });
       }
       return;
     }
 
     if (pointersRef.current.size === 1 && panStartRef.current && !interactionLocked) {
-      applyTransform({
-        ...transformRef.current,
-        x: panStartRef.current.tx + (e.clientX - panStartRef.current.x),
-        y: panStartRef.current.ty + (e.clientY - panStartRef.current.y),
+      applyPan({
+        x: panStartRef.current.px + (e.clientX - panStartRef.current.x),
+        y: panStartRef.current.py + (e.clientY - panStartRef.current.y),
       });
     }
   }
@@ -329,6 +423,8 @@ export function PlanViewer({
   }
 
   const displayStrokes = liveStroke ? [...strokes, liveStroke] : strokes;
+  const layerWidth = basePageSize.width * zoom;
+  const layerHeight = basePageSize.height * zoom;
 
   return (
     <div className="relative flex h-full min-h-0 flex-1 flex-col">
@@ -351,7 +447,7 @@ export function PlanViewer({
         </button>
         <button
           type="button"
-          onClick={() => fitToViewport(pageSize)}
+          onClick={fitToViewport}
           className="flex h-11 items-center justify-center rounded-xl bg-white/95 px-3 text-xs font-semibold text-zinc-700 shadow-md backdrop-blur active:scale-95"
         >
           Ajuster
@@ -375,7 +471,7 @@ export function PlanViewer({
         {loading && (
           <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-zinc-100/90">
             <div className="h-8 w-8 animate-spin rounded-full border-2 border-emerald-600 border-t-transparent" />
-            <p className="text-sm font-medium text-zinc-600">Chargement du plan…</p>
+            <p className="text-sm font-medium text-zinc-600">Chargement du PDF…</p>
           </div>
         )}
 
@@ -386,22 +482,23 @@ export function PlanViewer({
           </div>
         )}
 
-        {pageSize.width > 0 && imageSrc && (
+        {rendering && !loading && !error && (
+          <div className="absolute right-3 bottom-3 z-20 rounded-lg bg-white/90 px-3 py-1.5 text-xs font-medium text-zinc-600 shadow">
+            Affinage du zoom…
+          </div>
+        )}
+
+        {basePageSize.width > 0 && !error && (
           <div
-            className="absolute left-0 top-0 origin-top-left will-change-transform"
+            className="absolute left-0 top-0 will-change-transform"
             style={{
-              width: pageSize.width,
-              height: pageSize.height,
-              transform: `translate(${transform.x}px, ${transform.y}px) scale(${transform.scale})`,
+              width: layerWidth,
+              height: layerHeight,
+              transform: `translate(${pan.x}px, ${pan.y}px)`,
             }}
           >
             <div ref={layerRef} className="relative h-full w-full">
-              <img
-                src={imageSrc}
-                alt="Plan de chantier"
-                draggable={false}
-                className="block h-full w-full select-none"
-              />
+              <canvas ref={canvasRef} className="block h-full w-full" />
               <svg
                 className="pointer-events-none absolute inset-0 h-full w-full"
                 viewBox="0 0 100 100"
