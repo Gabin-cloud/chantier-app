@@ -2,9 +2,75 @@
 
 import { revalidatePath } from "next/cache";
 import { requireProjectAccess, requireProjectRoles } from "@/lib/auth/permissions";
+import { createAdminClient, isAdminClientConfigured } from "@/lib/supabase/admin";
 import { createClient } from "@/lib/supabase/server";
 
 const PLANS_BUCKET = "plans";
+
+async function downloadPlanBlob(filePath: string) {
+  const supabase = await createClient();
+  const userResult = await supabase.storage.from(PLANS_BUCKET).download(filePath);
+
+  if (!userResult.error && userResult.data) {
+    return userResult.data;
+  }
+
+  if (isAdminClientConfigured()) {
+    const admin = createAdminClient();
+    const adminResult = await admin.storage.from(PLANS_BUCKET).download(filePath);
+    if (!adminResult.error && adminResult.data) {
+      return adminResult.data;
+    }
+  }
+
+  const { data: signed, error: signError } = await supabase.storage
+    .from(PLANS_BUCKET)
+    .createSignedUrl(filePath, 3600);
+
+  if (!signError && signed?.signedUrl) {
+    const response = await fetch(signed.signedUrl);
+    if (response.ok) {
+      return await response.blob();
+    }
+  }
+
+  throw new Error(
+    userResult.error?.message ??
+      "Impossible de lire le fichier PDF dans le stockage Supabase."
+  );
+}
+
+async function getPlanRecord(projectId: string, planId: string) {
+  const supabase = await createClient();
+  const { data: plan, error } = await supabase
+    .from("plans")
+    .select("file_path, project_id, name")
+    .eq("id", planId)
+    .eq("project_id", projectId)
+    .single();
+
+  if (error || !plan) {
+    throw new Error("Plan introuvable.");
+  }
+
+  return plan;
+}
+
+export async function getPlanPdfData(
+  projectId: string,
+  planId: string
+): Promise<string> {
+  await requireProjectAccess(projectId);
+  const plan = await getPlanRecord(projectId, planId);
+  const blob = await downloadPlanBlob(plan.file_path);
+  const buffer = Buffer.from(await blob.arrayBuffer());
+
+  if (buffer.length < 4 || buffer.subarray(0, 4).toString("utf8") !== "%PDF") {
+    throw new Error("Le fichier stocké n'est pas un PDF valide.");
+  }
+
+  return buffer.toString("base64");
+}
 
 export async function getPlans(projectId: string) {
   await requireProjectAccess(projectId);

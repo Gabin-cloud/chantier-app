@@ -8,6 +8,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import type { DrawingStroke } from "@/lib/types/database";
+import { getPlanPdfData } from "@/lib/actions/plans";
 
 export type PlanViewerMarker = {
   id: string;
@@ -23,7 +24,8 @@ type Transform = {
 };
 
 type PlanViewerProps = {
-  pdfUrl: string;
+  projectId: string;
+  planId: string;
   addMode?: boolean;
   drawMode?: boolean;
   markers: PlanViewerMarker[];
@@ -51,7 +53,8 @@ function strokeToPath(stroke: DrawingStroke) {
 }
 
 export function PlanViewer({
-  pdfUrl,
+  projectId,
+  planId,
   addMode = false,
   drawMode = false,
   markers,
@@ -117,31 +120,17 @@ export function PlanViewer({
 
     async function loadPdf() {
       try {
-        const response = await fetch(pdfUrl, { credentials: "include" });
-        if (!response.ok) {
-          let message = `Erreur serveur (${response.status})`;
-          try {
-            const payload = (await response.json()) as { error?: string };
-            if (payload.error) message = payload.error;
-          } catch {
-            // réponse non JSON
-          }
-          throw new Error(message);
+        const base64 = await getPlanPdfData(projectId, planId);
+        const binary = atob(base64);
+        const bytes = new Uint8Array(binary.length);
+        for (let i = 0; i < binary.length; i++) {
+          bytes[i] = binary.charCodeAt(i);
         }
 
-        const contentType = response.headers.get("content-type") ?? "";
-        if (!contentType.includes("pdf")) {
-          throw new Error("Le serveur n'a pas renvoyé un PDF valide.");
-        }
-
-        const pdfData = await response.arrayBuffer();
         const pdfjs = await import("pdfjs-dist");
-        pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-          "pdfjs-dist/build/pdf.worker.min.mjs",
-          import.meta.url
-        ).toString();
+        pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
 
-        const pdf = await pdfjs.getDocument({ data: pdfData }).promise;
+        const pdf = await pdfjs.getDocument({ data: bytes }).promise;
         if (cancelled) return;
 
         const page = await pdf.getPage(1);
@@ -165,7 +154,7 @@ export function PlanViewer({
     return () => {
       cancelled = true;
     };
-  }, [pdfUrl]);
+  }, [projectId, planId]);
 
   useEffect(() => {
     if (!docReady || pageSize.width === 0 || !pageRef.current) return;

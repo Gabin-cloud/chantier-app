@@ -616,7 +616,8 @@ export function VisitEditor({
           {selectedPlan && (
             <PlanViewer
               key={selectedPlan.id}
-              pdfUrl={selectedPlan.pdf_url}
+              projectId={projectId}
+              planId={selectedPlan.id}
               addMode={addMode && !isCompleted}
               drawMode={drawMode && !isCompleted}
               readOnly={isCompleted}
