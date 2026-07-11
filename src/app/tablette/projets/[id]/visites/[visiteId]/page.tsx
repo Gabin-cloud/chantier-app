@@ -23,12 +23,15 @@ export default async function VisitePage({ params }: PageProps) {
   const { id, visiteId } = await params;
 
   try {
-    const [{ visit, markers }, plans, project, locations, drawings] = await Promise.all([
+    const [{ visit, markers }, plans, project] = await Promise.all([
       getVisit(visiteId),
       getPlansWithUrls(id),
       getProject(id),
-      getProjectLocations(id),
-      getPlanDrawings(visiteId),
+    ]);
+
+    const [locations, drawings] = await Promise.all([
+      getProjectLocations(id).catch(() => []),
+      getPlanDrawings(visiteId).catch(() => []),
     ]);
 
     const markersWithPhotos = await Promise.all(

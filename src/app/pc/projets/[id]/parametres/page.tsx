@@ -32,7 +32,7 @@ export default async function PcParametresPage({ params }: PageProps) {
       getProject(id),
       getPlansWithUrls(id),
       getProjectMembers(id),
-      getProjectLocations(id),
+      getProjectLocations(id).catch(() => []),
       getProjectRole(id),
     ]);
 

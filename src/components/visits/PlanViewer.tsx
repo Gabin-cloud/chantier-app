@@ -117,10 +117,31 @@ export function PlanViewer({
 
     async function loadPdf() {
       try {
-        const pdfjs = await import("pdfjs-dist");
-        pdfjs.GlobalWorkerOptions.workerSrc = "/pdf.worker.min.mjs";
+        const response = await fetch(pdfUrl, { credentials: "include" });
+        if (!response.ok) {
+          let message = `Erreur serveur (${response.status})`;
+          try {
+            const payload = (await response.json()) as { error?: string };
+            if (payload.error) message = payload.error;
+          } catch {
+            // réponse non JSON
+          }
+          throw new Error(message);
+        }
 
-        const pdf = await pdfjs.getDocument({ url: pdfUrl, withCredentials: true }).promise;
+        const contentType = response.headers.get("content-type") ?? "";
+        if (!contentType.includes("pdf")) {
+          throw new Error("Le serveur n'a pas renvoyé un PDF valide.");
+        }
+
+        const pdfData = await response.arrayBuffer();
+        const pdfjs = await import("pdfjs-dist");
+        pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+          "pdfjs-dist/build/pdf.worker.min.mjs",
+          import.meta.url
+        ).toString();
+
+        const pdf = await pdfjs.getDocument({ data: pdfData }).promise;
         if (cancelled) return;
 
         const page = await pdf.getPage(1);
@@ -419,8 +440,9 @@ export function PlanViewer({
         )}
 
         {error && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-red-50 p-6 text-center">
-            <p className="text-sm font-medium text-red-700">{error}</p>
+          <div className="absolute inset-0 z-10 flex flex-col items-center justify-center gap-2 bg-red-50 p-6 text-center">
+            <p className="text-sm font-semibold text-red-800">Plan indisponible</p>
+            <p className="max-w-sm text-sm font-medium text-red-700">{error}</p>
           </div>
         )}
 
