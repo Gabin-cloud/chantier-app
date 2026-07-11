@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
+import { VisitChecklist } from "@/components/visits/VisitChecklist";
 import { PlanViewer } from "@/components/visits/PlanViewer";
 import { PlanPicker } from "@/components/plans/PlanPicker";
 import { savePlanDrawings } from "@/lib/actions/drawings";
@@ -19,11 +20,13 @@ import type {
   Enterprise,
   MarkerStatus,
   MarkerWithLinks,
+  PhaseChecklistItem,
   Plan,
   PlanDrawing,
   PlanFolder,
   ProjectLocation,
   Visit,
+  VisitChecklistResponse,
 } from "@/lib/types/database";
 import {
   DRAW_COLOR_PRESETS,
@@ -49,6 +52,8 @@ type VisitEditorProps = {
   phaseName?: string | null;
   plans: PlanWithUrl[];
   planFolders?: PlanFolder[];
+  checklistItems?: PhaseChecklistItem[];
+  checklistResponses?: VisitChecklistResponse[];
   enterprises: Enterprise[];
   locations: ProjectLocation[];
   initialMarkers: MarkerWithPhoto[];
@@ -69,6 +74,8 @@ export function VisitEditor({
   phaseName,
   plans,
   planFolders = [],
+  checklistItems = [],
+  checklistResponses = [],
   enterprises,
   locations: initialLocations,
   initialMarkers,
@@ -340,6 +347,14 @@ export function VisitEditor({
   return (
     <div className="tablette-visit-editor flex min-h-0 flex-col md:flex-row">
       <aside className="flex w-full shrink-0 flex-col border-r border-zinc-200 bg-white md:w-72 lg:w-80">
+        <VisitChecklist
+          projectId={projectId}
+          visitId={visit.id}
+          items={checklistItems}
+          initialResponses={checklistResponses}
+          readOnly={isCompleted}
+        />
+
         <div className="border-b border-zinc-100 px-4 py-3">
           <h2 className="text-base font-bold text-zinc-900">Réserves</h2>
           <p className="text-xs text-zinc-500">

@@ -41,7 +41,8 @@ type PlanViewerProps = {
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 8;
 const MAX_CANVAS_SIDE = 8192;
-const ZOOM_RENDER_DEBOUNCE_MS = 350;
+const ZOOM_RENDER_DEBOUNCE_MS = 180;
+const PINCH_ZOOM_SENSITIVITY = 0.38;
 const PDF_WORKER_SRC = "/pdf.worker.legacy.min.mjs";
 
 function clamp(value: number, min: number, max: number) {
@@ -115,6 +116,8 @@ export function PlanViewer({
   const renderTaskRef = useRef<import("pdfjs-dist").RenderTask | null>(null);
   const renderGenerationRef = useRef(0);
   const pinchActiveRef = useRef(false);
+  const initialFitDoneRef = useRef(false);
+  const viewportSizeRef = useRef({ width: 0, height: 0 });
 
   const basePageSizeRef = useRef<Size>({ width: 0, height: 0 });
   const zoomRef = useRef(1);
@@ -132,12 +135,15 @@ export function PlanViewer({
   const pointersRef = useRef(
     new Map<number, { x: number; y: number; startX: number; startY: number }>()
   );
-  const pinchRef = useRef<{ distance: number; zoom: number } | null>(null);
+  const pinchRef = useRef<{
+    distance: number;
+    midX: number;
+    midY: number;
+  } | null>(null);
   const panStartRef = useRef<{ x: number; y: number; px: number; py: number } | null>(
     null
   );
   const tapMovedRef = useRef(false);
-  const interactionLocked = addMode;
 
   const applyZoom = useCallback((nextZoom: number) => {
     const clamped = clamp(nextZoom, MIN_ZOOM, MAX_ZOOM);
@@ -243,6 +249,7 @@ export function PlanViewer({
   useEffect(() => {
     let cancelled = false;
     pageRef.current = null;
+    initialFitDoneRef.current = false;
     setPdfReady(false);
     setLoading(true);
     setError(null);
@@ -290,8 +297,9 @@ export function PlanViewer({
   }, [projectId, planId, cancelActiveRender]);
 
   useEffect(() => {
-    if (!pdfReady) return;
+    if (!pdfReady || initialFitDoneRef.current) return;
     fitToViewport();
+    initialFitDoneRef.current = true;
   }, [pdfReady, fitToViewport]);
 
   useEffect(() => {
@@ -310,7 +318,25 @@ export function PlanViewer({
     const viewport = viewportRef.current;
     if (!viewport) return;
 
-    const observer = new ResizeObserver(() => fitToViewport());
+    const observer = new ResizeObserver(() => {
+      const width = viewport.clientWidth;
+      const height = viewport.clientHeight;
+      const prev = viewportSizeRef.current;
+
+      if (prev.width === 0 && prev.height === 0) {
+        viewportSizeRef.current = { width, height };
+        return;
+      }
+
+      const widthDelta = Math.abs(width - prev.width);
+      const heightDelta = Math.abs(height - prev.height);
+      viewportSizeRef.current = { width, height };
+
+      if (widthDelta > 120 || heightDelta > 120) {
+        fitToViewport();
+      }
+    });
+
     observer.observe(viewport);
     return () => observer.disconnect();
   }, [pdfReady, fitToViewport]);
@@ -377,7 +403,7 @@ export function PlanViewer({
       return;
     }
 
-    if (pointersRef.current.size === 1 && !interactionLocked && !drawMode) {
+    if (pointersRef.current.size === 1 && !drawMode) {
       panStartRef.current = {
         x: e.clientX,
         y: e.clientY,
@@ -389,9 +415,12 @@ export function PlanViewer({
     if (pointersRef.current.size === 2) {
       pinchActiveRef.current = true;
       const pts = [...pointersRef.current.values()];
+      const midX = (pts[0].x + pts[1].x) / 2;
+      const midY = (pts[0].y + pts[1].y) / 2;
       pinchRef.current = {
         distance: Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y),
-        zoom: zoomRef.current,
+        midX,
+        midY,
       };
       panStartRef.current = null;
       setLiveStroke(null);
@@ -424,28 +453,27 @@ export function PlanViewer({
     if (pointersRef.current.size === 2 && pinchRef.current) {
       const pts = [...pointersRef.current.values()];
       const distance = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
+      const midX = (pts[0].x + pts[1].x) / 2;
+      const midY = (pts[0].y + pts[1].y) / 2;
+
       if (pinchRef.current.distance > 0) {
-        const nextZoom = clamp(
-          pinchRef.current.zoom * (distance / pinchRef.current.distance),
-          MIN_ZOOM,
-          MAX_ZOOM
-        );
-        const midX = (pts[0].x + pts[1].x) / 2;
-        const midY = (pts[0].y + pts[1].y) / 2;
-        const currentZoom = zoomRef.current;
-        const currentPan = panRef.current;
-        const ratio = nextZoom / currentZoom;
+        const distRatio = distance / pinchRef.current.distance;
+        const zoomFactor = 1 + (distRatio - 1) * PINCH_ZOOM_SENSITIVITY;
+        const nextZoom = clamp(zoomRef.current * zoomFactor, MIN_ZOOM, MAX_ZOOM);
+        const ratio = nextZoom / zoomRef.current;
 
         applyZoom(nextZoom);
         applyPan({
-          x: midX - (midX - currentPan.x) * ratio,
-          y: midY - (midY - currentPan.y) * ratio,
+          x: midX - (midX - panRef.current.x) * ratio,
+          y: midY - (midY - panRef.current.y) * ratio,
         });
       }
+
+      pinchRef.current = { distance, midX, midY };
       return;
     }
 
-    if (pointersRef.current.size === 1 && panStartRef.current && !interactionLocked) {
+    if (pointersRef.current.size === 1 && panStartRef.current) {
       applyPan({
         x: panStartRef.current.px + (e.clientX - panStartRef.current.x),
         y: panStartRef.current.py + (e.clientY - panStartRef.current.y),
@@ -459,17 +487,14 @@ export function PlanViewer({
     }
     setLiveStroke(null);
 
-    if (
-      pointersRef.current.size === 1 &&
-      !tapMovedRef.current &&
-      addMode &&
-      onPlanClick
-    ) {
+    const wasTap = !tapMovedRef.current;
+    pointersRef.current.delete(e.pointerId);
+
+    if (pointersRef.current.size === 0 && wasTap && addMode && onPlanClick) {
       const coords = clientToPercent(e.clientX, e.clientY);
       if (coords) onPlanClick(coords.xPercent, coords.yPercent);
     }
 
-    pointersRef.current.delete(e.pointerId);
     if (pointersRef.current.size < 2) {
       pinchRef.current = null;
       if (pinchActiveRef.current) {

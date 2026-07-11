@@ -253,9 +253,37 @@ export type DrawingStroke = {
 export type PlanDrawing = {
   id: string;
   visit_id: string;
+  phase_id: string | null;
   plan_id: string;
   page_number: number;
   strokes: DrawingStroke[];
+  created_at: string;
+  updated_at: string;
+};
+
+export type ChecklistItemStatus = "pending" | "ok" | "partial" | "ko";
+
+export const CHECKLIST_STATUS_LABELS: Record<ChecklistItemStatus, string> = {
+  pending: "À contrôler",
+  ok: "Conforme",
+  partial: "Partiel",
+  ko: "Non conforme",
+};
+
+export type PhaseChecklistItem = {
+  id: string;
+  phase_id: string;
+  label: string;
+  sort_order: number;
+  created_at: string;
+};
+
+export type VisitChecklistResponse = {
+  id: string;
+  visit_id: string;
+  checklist_item_id: string;
+  status: ChecklistItemStatus;
+  notes: string | null;
   created_at: string;
   updated_at: string;
 };
