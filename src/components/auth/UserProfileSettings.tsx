@@ -260,13 +260,27 @@ export function UserProfileSettings({
             d&apos;Outlook pour trier les pièces jointes du mail ouvert.
           </p>
           <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm text-zinc-600">
-            <li>Outlook → Fichier → Obtenir des compléments</li>
-            <li>Mes compléments → + Ajouter un complément personnalisé</li>
-            <li>Ajouter à partir d&apos;une URL → collez l&apos;URL ci-dessous</li>
+            <li>Outlook → Fichier → Obtenir des compléments → Mes compléments</li>
+            <li>+ Ajouter un complément personnalisé → Ajouter à partir d&apos;un fichier</li>
+            <li>Sélectionnez le fichier manifeste téléchargé ci-dessous</li>
+            <li>
+              Ouvrez un mail en <strong>lecture</strong> : le bouton est dans le
+              menu <strong>Applications</strong> (⋯) ou épinglable à côté de
+              Répondre
+            </li>
           </ol>
-          <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-700 break-all">
-            {outlookManifestUrl}
+          <div className="mt-3 flex flex-wrap gap-2">
+            <a
+              href="/outlook/chantier-app-manifest.xml"
+              download="chantier-app-manifest.xml"
+              className={`inline-flex rounded-xl px-4 py-2.5 text-sm font-semibold ${accentButton}`}
+            >
+              Télécharger le manifeste (.xml)
+            </a>
           </div>
+          <p className="mt-3 text-xs text-zinc-400">
+            Alternative URL : {outlookManifestUrl}
+          </p>
         </section>
       )}
 

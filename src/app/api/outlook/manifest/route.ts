@@ -1,105 +1,10 @@
 import { NextResponse } from "next/server";
 import { getAppBaseUrl } from "@/lib/outlook/app-url";
-
-const ADDIN_ID = "8f3c2a1b-7d4e-5f6a-9b0c-1d2e3f4a5b6c";
+import { buildOutlookManifestXml } from "@/lib/outlook/manifest-xml";
 
 export async function GET() {
   const base = getAppBaseUrl();
-
-  const manifest = `<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
-<OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
-  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
-  xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
-  xmlns:mailappor="http://schemas.microsoft.com/office/mailappversionoverrides/1.0"
-  xsi:type="MailApp">
-  <Id>${ADDIN_ID}</Id>
-  <Version>1.0.0.0</Version>
-  <ProviderName>Chantier App</ProviderName>
-  <DefaultLocale>fr-FR</DefaultLocale>
-  <DisplayName DefaultValue="Chantier App — Tri fichiers"/>
-  <Description DefaultValue="Classer les pièces jointes du mail ouvert vers le suivi chantier."/>
-  <IconUrl DefaultValue="${base}/icons/icon-192.png"/>
-  <HighResolutionIconUrl DefaultValue="${base}/icons/icon-512.png"/>
-  <SupportUrl DefaultValue="${base}/pc"/>
-  <AppDomains>
-    <AppDomain>${base.replace(/^https?:\/\//, "")}</AppDomain>
-  </AppDomains>
-  <Hosts>
-    <Host Name="Mailbox"/>
-  </Hosts>
-  <Requirements>
-    <Sets>
-      <Set Name="Mailbox" MinVersion="1.1"/>
-    </Sets>
-  </Requirements>
-  <FormSettings>
-    <Form xsi:type="ItemRead">
-      <DesktopSettings>
-        <SourceLocation DefaultValue="${base}/outlook/taskpane"/>
-        <RequestedHeight>450</RequestedHeight>
-      </DesktopSettings>
-    </Form>
-  </FormSettings>
-  <Permissions>ReadItem</Permissions>
-  <Rule xsi:type="RuleCollection" Mode="Or">
-    <Rule xsi:type="ItemIs" ItemType="Message" FormType="Read"/>
-  </Rule>
-  <VersionOverrides xmlns="http://schemas.microsoft.com/office/mailappversionoverrides" xsi:type="VersionOverridesV1_0">
-    <VersionOverrides xmlns="http://schemas.microsoft.com/office/mailappversionoverrides/1.1" xsi:type="VersionOverridesV1_1">
-      <Requirements>
-        <bt:Sets DefaultMinVersion="1.3">
-          <bt:Set Name="Mailbox"/>
-        </bt:Sets>
-      </Requirements>
-      <Hosts>
-        <Host xsi:type="MailHost">
-          <DesktopFormFactor>
-            <ExtensionPoint xsi:type="MessageReadCommandSurface">
-              <OfficeTab id="TabDefault">
-                <Group id="ChantierAppGroup">
-                  <Label resid="Group.Label"/>
-                  <Control xsi:type="Button" id="TriFichiersButton">
-                    <Label resid="TaskpaneButton.Label"/>
-                    <Supertip>
-                      <Title resid="TaskpaneButton.Title"/>
-                      <Description resid="TaskpaneButton.Description"/>
-                    </Supertip>
-                    <Icon>
-                      <bt:Image size="16" resid="Icon.16"/>
-                      <bt:Image size="32" resid="Icon.32"/>
-                      <bt:Image size="80" resid="Icon.80"/>
-                    </Icon>
-                    <Action xsi:type="ShowTaskpane">
-                      <SourceLocation resid="Taskpane.Url"/>
-                    </Action>
-                  </Control>
-                </Group>
-              </OfficeTab>
-            </ExtensionPoint>
-          </DesktopFormFactor>
-        </Host>
-      </Hosts>
-      <Resources>
-        <bt:Images>
-          <bt:Image id="Icon.16" DefaultValue="${base}/icons/icon-192.png"/>
-          <bt:Image id="Icon.32" DefaultValue="${base}/icons/icon-192.png"/>
-          <bt:Image id="Icon.80" DefaultValue="${base}/icons/icon-512.png"/>
-        </bt:Images>
-        <bt:Urls>
-          <bt:Url id="Taskpane.Url" DefaultValue="${base}/outlook/taskpane"/>
-        </bt:Urls>
-        <bt:ShortStrings>
-          <bt:String id="Group.Label" DefaultValue="Chantier App"/>
-          <bt:String id="TaskpaneButton.Label" DefaultValue="Classer"/>
-          <bt:String id="TaskpaneButton.Title" DefaultValue="Classer les pièces jointes"/>
-        </bt:ShortStrings>
-        <bt:LongStrings>
-          <bt:String id="TaskpaneButton.Description" DefaultValue="Ranger les fichiers du mail ouvert dans le suivi financier du chantier."/>
-        </bt:LongStrings>
-      </Resources>
-    </VersionOverrides>
-  </VersionOverrides>
-</OfficeApp>`;
+  const manifest = buildOutlookManifestXml(base);
 
   return new NextResponse(manifest, {
     headers: {
