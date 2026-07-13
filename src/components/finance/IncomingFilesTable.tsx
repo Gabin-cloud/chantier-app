@@ -15,6 +15,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   devis: "bg-amber-100 text-amber-800",
   administratif: "bg-slate-100 text-slate-700",
   chantier: "bg-emerald-100 text-emerald-800",
+  plan_exe: "bg-violet-100 text-violet-800",
   autre: "bg-violet-100 text-violet-800",
 };
 

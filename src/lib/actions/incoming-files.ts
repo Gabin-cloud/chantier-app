@@ -4,11 +4,19 @@ import { revalidatePath } from "next/cache";
 import { requireFinanceAccess } from "@/lib/actions/members";
 import { canAccessFinance } from "@/lib/auth/permissions";
 import { requireUser } from "@/lib/auth/permissions";
+import {
+  buildEnterpriseFolderName,
+  buildPlanExeFileName,
+  normalizeSharePointPath,
+  uploadToSharePoint,
+} from "@/lib/microsoft/sharepoint";
 import { createClient } from "@/lib/supabase/server";
 import type {
+  IncomingFile,
   IncomingFileCategory,
   IncomingFileWithDetails,
 } from "@/lib/types/database";
+import { INCOMING_FILE_CATEGORY_LABELS } from "@/lib/types/database";
 
 const FINANCIAL_BUCKET = "financial-files";
 
@@ -174,6 +182,9 @@ export async function getIncomingFiles(
     category: row.category,
     file_path: row.file_path,
     file_name: row.file_name,
+    storage_provider: row.storage_provider ?? "supabase",
+    external_url: row.external_url ?? null,
+    external_item_id: row.external_item_id ?? null,
     source_email: row.source_email,
     notes: row.notes,
     created_by: row.created_by,
@@ -210,36 +221,99 @@ export async function classifyIncomingFile(
     throw new Error("Veuillez sélectionner une situation pour une facture.");
   }
 
+  const lowerName = file.name.toLowerCase();
   const isPdf =
-    file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+    file.type === "application/pdf" || lowerName.endsWith(".pdf");
   const isImage = file.type.startsWith("image/");
   const isOffice =
-    file.name.toLowerCase().endsWith(".doc") ||
-    file.name.toLowerCase().endsWith(".docx") ||
-    file.name.toLowerCase().endsWith(".xls") ||
-    file.name.toLowerCase().endsWith(".xlsx");
+    lowerName.endsWith(".doc") ||
+    lowerName.endsWith(".docx") ||
+    lowerName.endsWith(".xls") ||
+    lowerName.endsWith(".xlsx");
+  const isPlanCad =
+    lowerName.endsWith(".dwg") ||
+    lowerName.endsWith(".dxf") ||
+    lowerName.endsWith(".ifc");
 
-  if (!isPdf && !isImage && !isOffice) {
+  if (category === "plan_exe") {
+    if (!isPdf && !isPlanCad) {
+      throw new Error(
+        "Plans d'exé : formats acceptés PDF, DWG, DXF, IFC."
+      );
+    }
+  } else if (!isPdf && !isImage && !isOffice) {
     throw new Error("Formats acceptés : PDF, images, Word, Excel.");
   }
 
   const supabase = await createClient();
-  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-  const filePath = `${projectId}/incoming/${category}/${enterpriseId}/${Date.now()}_${safeName}`;
   const buffer = Buffer.from(await file.arrayBuffer());
-
-  const { error: uploadError } = await supabase.storage
-    .from(FINANCIAL_BUCKET)
-    .upload(filePath, buffer, {
-      contentType: file.type || "application/octet-stream",
-      upsert: false,
-    });
-
-  if (uploadError) throw new Error(uploadError.message);
-
   const {
     data: { user },
   } = await supabase.auth.getUser();
+
+  let filePath: string;
+  let fileName = file.name;
+  let storageProvider: IncomingFile["storage_provider"] = "supabase";
+  let externalUrl: string | null = null;
+  let externalItemId: string | null = null;
+
+  if (category === "plan_exe") {
+    const { data: project, error: projectError } = await supabase
+      .from("projects")
+      .select("sharepoint_plan_exe_path")
+      .eq("id", projectId)
+      .single();
+
+    if (projectError) throw new Error(projectError.message);
+    if (!project?.sharepoint_plan_exe_path?.trim()) {
+      throw new Error(
+        "Chemin SharePoint des plans d'exé non configuré pour ce chantier. Renseignez-le dans Paramètres du projet."
+      );
+    }
+
+    const { data: enterprise, error: enterpriseError } = await supabase
+      .from("enterprises")
+      .select("name, lot_number, designation, sharepoint_folder_name")
+      .eq("id", enterpriseId)
+      .eq("project_id", projectId)
+      .single();
+
+    if (enterpriseError || !enterprise) {
+      throw new Error("Lot / entreprise introuvable.");
+    }
+
+    const enterpriseFolder = buildEnterpriseFolderName(enterprise);
+    const folderPath = normalizeSharePointPath(
+      project.sharepoint_plan_exe_path.trim(),
+      enterpriseFolder
+    );
+    const targetFileName = buildPlanExeFileName(file.name);
+
+    const upload = await uploadToSharePoint({
+      folderPath,
+      fileName: targetFileName,
+      content: buffer,
+      contentType: file.type || "application/octet-stream",
+    });
+
+    filePath = upload.relativePath;
+    fileName = upload.fileName;
+    storageProvider = "sharepoint";
+    externalUrl = upload.webUrl;
+    externalItemId = upload.itemId;
+  } else {
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    filePath = `${projectId}/incoming/${category}/${enterpriseId}/${Date.now()}_${safeName}`;
+
+    const { error: uploadError } = await supabase.storage
+      .from(FINANCIAL_BUCKET)
+      .upload(filePath, buffer, {
+        contentType: file.type || "application/octet-stream",
+        upsert: false,
+      });
+
+    if (uploadError) throw new Error(uploadError.message);
+  }
 
   const { data: inserted, error: insertError } = await supabase
     .from("incoming_files")
@@ -249,7 +323,10 @@ export async function classifyIncomingFile(
       situation_id: situationId,
       category,
       file_path: filePath,
-      file_name: file.name,
+      file_name: fileName,
+      storage_provider: storageProvider,
+      external_url: externalUrl,
+      external_item_id: externalItemId,
       source_email: sourceEmail,
       notes,
       created_by: user?.id ?? null,
@@ -272,15 +349,16 @@ export async function classifyIncomingFile(
     if (situationError) throw new Error(situationError.message);
   }
 
-  const categoryLabel =
-    category.charAt(0).toUpperCase() + category.slice(1);
+  const categoryLabel = INCOMING_FILE_CATEGORY_LABELS[category];
   await logAudit(
     projectId,
     enterpriseId,
     "incoming_file",
     inserted.id,
     "create",
-    `Fichier classé (${categoryLabel}) : ${file.name}`
+    category === "plan_exe"
+      ? `Plan d'exé rangé sur SharePoint (${categoryLabel}) : ${fileName}`
+      : `Fichier classé (${categoryLabel}) : ${fileName}`
   );
 
   revalidateFinance(projectId);
@@ -291,4 +369,16 @@ export async function getIncomingFileUrl(filePath: string) {
   const supabase = await createClient();
   const { data } = supabase.storage.from(FINANCIAL_BUCKET).getPublicUrl(filePath);
   return data.publicUrl;
+}
+
+export async function resolveIncomingFileUrl(
+  file: Pick<
+    IncomingFile,
+    "file_path" | "external_url" | "storage_provider"
+  >
+): Promise<string> {
+  if (file.storage_provider === "sharepoint" && file.external_url) {
+    return file.external_url;
+  }
+  return getIncomingFileUrl(file.file_path);
 }

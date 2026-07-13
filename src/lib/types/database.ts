@@ -12,6 +12,7 @@ export type Project = {
   client_address: string | null;
   default_payment_terms: string | null;
   operation_photo_path: string | null;
+  sharepoint_plan_exe_path: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -36,6 +37,7 @@ export type Enterprise = {
   email_factures: string | null;
   email_administratif: string | null;
   has_bank_guarantee: boolean;
+  sharepoint_folder_name: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -109,6 +111,7 @@ export type IncomingFileCategory =
   | "devis"
   | "administratif"
   | "chantier"
+  | "plan_exe"
   | "autre";
 
 export const INCOMING_FILE_CATEGORY_LABELS: Record<IncomingFileCategory, string> = {
@@ -116,6 +119,7 @@ export const INCOMING_FILE_CATEGORY_LABELS: Record<IncomingFileCategory, string>
   devis: "Devis",
   administratif: "Administratif",
   chantier: "Chantier",
+  plan_exe: "Plan d'exé",
   autre: "Autre",
 };
 
@@ -127,6 +131,9 @@ export type IncomingFile = {
   category: IncomingFileCategory;
   file_path: string;
   file_name: string;
+  storage_provider: "supabase" | "sharepoint";
+  external_url: string | null;
+  external_item_id: string | null;
   source_email: string | null;
   notes: string | null;
   created_by: string | null;

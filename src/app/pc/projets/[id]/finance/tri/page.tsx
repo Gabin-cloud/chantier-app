@@ -5,8 +5,8 @@ import {
   SupabaseSetupNotice,
 } from "@/components/SupabaseSetupNotice";
 import {
-  getIncomingFileUrl,
   getIncomingFiles,
+  resolveIncomingFileUrl,
 } from "@/lib/actions/incoming-files";
 import { getProject } from "@/lib/actions/projects";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
@@ -30,7 +30,7 @@ export default async function TriFichiersPage({ params }: PageProps) {
 
     const fileUrls: Record<string, string> = {};
     for (const file of files) {
-      fileUrls[file.id] = await getIncomingFileUrl(file.file_path);
+      fileUrls[file.id] = await resolveIncomingFileUrl(file);
     }
 
     return (
