@@ -581,7 +581,10 @@ export async function sendVisitEmailsFromPc(
       });
       sentCount++;
     } catch (err) {
-      const msg = err instanceof Error ? err.message : "Erreur inconnue";
+      const raw = err instanceof Error ? err.message : "Erreur inconnue";
+      const msg = raw.includes("ErrorAccessDenied")
+        ? "Microsoft Graph refuse l'envoi. Vérifiez dans Azure : permission Mail.Send (Application) + consentement admin, et que NOTIFICATION_SENDER_EMAIL est une boîte mail du tenant."
+        : raw;
       failures.push(`${enterprise.name} (${email}) : ${msg}`);
       await safeLogVisitEmail(supabase, {
         visit_id: visitId,

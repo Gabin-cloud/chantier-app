@@ -107,13 +107,35 @@ export async function generateAndStoreVisitReport(
       upsert: true,
     });
 
-  if (uploadError) throw new Error(uploadError.message);
+  if (uploadError) {
+    throw new Error(
+      uploadError.message.includes("row-level security")
+        ? "Impossible d'enregistrer le PDF (droits Supabase). Exécutez la migration 013 dans Supabase SQL Editor."
+        : `Upload PDF : ${uploadError.message}`
+    );
+  }
 
-  await supabase.from("visit_reports").delete().eq("visit_id", visitId);
-  await supabase.from("visit_reports").insert({
+  const { error: deleteError } = await supabase
+    .from("visit_reports")
+    .delete()
+    .eq("visit_id", visitId);
+
+  if (deleteError && !deleteError.message.includes("0 rows")) {
+    console.error("[visit_reports delete]", deleteError.message);
+  }
+
+  const { error: insertError } = await supabase.from("visit_reports").insert({
     visit_id: visitId,
     file_path: filePath,
   });
+
+  if (insertError) {
+    throw new Error(
+      insertError.message.includes("row-level security")
+        ? "Impossible d'enregistrer le rapport (droits Supabase). Exécutez la migration 013 dans Supabase SQL Editor."
+        : `Enregistrement rapport : ${insertError.message}`
+    );
+  }
 
   const { data: urlData } = supabase.storage.from(REPORTS_BUCKET).getPublicUrl(filePath);
 
