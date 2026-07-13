@@ -21,8 +21,8 @@ const inputClass =
 
 export function EnterpriseAccessManager({
   projectId,
-  enterprises,
-  accessList,
+  enterprises = [],
+  accessList = [],
   canManage,
 }: EnterpriseAccessManagerProps) {
   const router = useRouter();

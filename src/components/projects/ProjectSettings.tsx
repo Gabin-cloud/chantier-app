@@ -126,14 +126,12 @@ export function ProjectSettings({
         canManage={canManageMembers}
       />
 
-      {(canEdit || canManageMembers) && (
-        <EnterpriseAccessManager
-          projectId={project.id}
-          enterprises={enterprises}
-          accessList={enterpriseAccess}
-          canManage={canManageMembers || canEdit}
-        />
-      )}
+      <EnterpriseAccessManager
+        projectId={project.id}
+        enterprises={enterprises}
+        accessList={enterpriseAccess}
+        canManage={canManageMembers || canEdit}
+      />
 
       {canEdit && (
       <>

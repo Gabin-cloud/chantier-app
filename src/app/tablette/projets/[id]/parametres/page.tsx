@@ -74,7 +74,7 @@ export default async function ParametresPage({ params }: PageProps) {
           </header>
           <ProjectSettings
             project={project}
-            enterprises={project.enterprises}
+            enterprises={project.enterprises ?? []}
             plans={plans}
             planFolders={planFolders}
             phases={phases}
