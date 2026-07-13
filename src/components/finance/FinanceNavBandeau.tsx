@@ -29,6 +29,11 @@ const PRIMARY_SECTIONS = [
     label: "Récap situations",
     segment: "recap-situations",
   },
+  {
+    id: "tri",
+    label: "Boîte de tri",
+    segment: "tri",
+  },
 ] as const;
 
 function getActiveSection(pathname: string, base: string): string {
@@ -40,6 +45,7 @@ function getActiveSection(pathname: string, base: string): string {
   if (first === "recap-situations") return "recap-situations";
   if (first === "recap") return "recap";
   if (first === "situations") return "situations";
+  if (first === "tri") return "tri";
   return "home";
 }
 

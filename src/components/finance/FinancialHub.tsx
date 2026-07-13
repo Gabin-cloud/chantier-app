@@ -31,6 +31,12 @@ const sections = [
     color: "bg-white border border-slate-200 text-slate-900",
   },
   {
+    href: "tri",
+    label: "Boîte de tri",
+    description: "Classer rapidement les fichiers reçus par mail",
+    color: "bg-violet-600 text-white",
+  },
+  {
     href: "#",
     label: "Sous-traitance",
     description: "Bientôt disponible",

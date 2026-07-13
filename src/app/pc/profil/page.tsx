@@ -6,6 +6,7 @@ import {
   SupabaseSetupNotice,
 } from "@/components/SupabaseSetupNotice";
 import { getProfileSettings } from "@/lib/actions/profile";
+import { getAppBaseUrl } from "@/lib/outlook/app-url";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
 export default async function PcProfilPage() {
@@ -32,7 +33,11 @@ export default async function PcProfilPage() {
             </p>
           </header>
           <Suspense fallback={<p className="text-sm text-slate-500">Chargement…</p>}>
-            <UserProfileSettings profile={profile} basePath="pc" />
+            <UserProfileSettings
+              profile={profile}
+              basePath="pc"
+              outlookManifestUrl={`${getAppBaseUrl()}/api/outlook/manifest`}
+            />
           </Suspense>
         </div>
       </main>
