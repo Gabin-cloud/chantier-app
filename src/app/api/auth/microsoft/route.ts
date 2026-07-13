@@ -32,13 +32,16 @@ export async function GET(request: Request) {
 
   const { searchParams, origin } = new URL(request.url);
   const returnTo = searchParams.get("returnTo") ?? "/pc/profil";
+  const requireConsent = searchParams.get("consent") === "1";
   const safeReturnTo =
     returnTo.startsWith("/pc/") || returnTo.startsWith("/tablette/")
       ? returnTo
       : "/pc/profil";
 
   const state = randomBytes(24).toString("base64url");
-  const authorizeUrl = buildMicrosoftAuthorizeUrl(origin, state);
+  const authorizeUrl = buildMicrosoftAuthorizeUrl(origin, state, {
+    requireConsent,
+  });
   const response = NextResponse.redirect(authorizeUrl);
 
   response.cookies.set(STATE_COOKIE, state, {

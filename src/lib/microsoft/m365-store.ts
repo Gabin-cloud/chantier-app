@@ -1,6 +1,7 @@
 import { createAdminClient } from "@/lib/supabase/admin";
 import { decryptSecret, encryptSecret } from "@/lib/microsoft/crypto";
 import { refreshMicrosoftToken } from "@/lib/microsoft/oauth";
+import { MicrosoftConsentRequiredError } from "@/lib/microsoft/errors";
 
 export type M365ConnectionPublic = {
   msEmail: string;
@@ -93,22 +94,30 @@ export async function getValidUserAccessToken(userId: string): Promise<string | 
   }
 
   const refreshToken = decryptSecret(row.refresh_token);
-  const refreshed = await refreshMicrosoftToken(refreshToken);
-  const newExpiresAt = new Date(
-    Date.now() + refreshed.expires_in * 1000
-  ).toISOString();
 
-  const { error: updateError } = await supabase
-    .from("user_m365_connections")
-    .update({
-      access_token: encryptSecret(refreshed.access_token),
-      refresh_token: encryptSecret(
-        refreshed.refresh_token ?? refreshToken
-      ),
-      token_expires_at: newExpiresAt,
-    })
-    .eq("user_id", userId);
+  try {
+    const refreshed = await refreshMicrosoftToken(refreshToken);
+    const newExpiresAt = new Date(
+      Date.now() + refreshed.expires_in * 1000
+    ).toISOString();
 
-  if (updateError) throw new Error(updateError.message);
-  return refreshed.access_token;
+    const { error: updateError } = await supabase
+      .from("user_m365_connections")
+      .update({
+        access_token: encryptSecret(refreshed.access_token),
+        refresh_token: encryptSecret(
+          refreshed.refresh_token ?? refreshToken
+        ),
+        token_expires_at: newExpiresAt,
+      })
+      .eq("user_id", userId);
+
+    if (updateError) throw new Error(updateError.message);
+    return refreshed.access_token;
+  } catch (error) {
+    if (error instanceof MicrosoftConsentRequiredError) {
+      await deleteM365Connection(userId);
+    }
+    throw error;
+  }
 }

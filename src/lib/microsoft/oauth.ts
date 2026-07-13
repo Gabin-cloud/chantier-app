@@ -3,6 +3,11 @@ import {
   getMicrosoftRedirectUri,
   MICROSOFT_SCOPES,
 } from "@/lib/microsoft/config";
+import {
+  formatMicrosoftAuthError,
+  isMicrosoftConsentRequired,
+  MicrosoftConsentRequiredError,
+} from "@/lib/microsoft/errors";
 
 type TokenResponse = {
   access_token: string;
@@ -18,7 +23,11 @@ type MicrosoftUser = {
   userPrincipalName?: string;
 };
 
-export function buildMicrosoftAuthorizeUrl(origin: string, state: string) {
+export function buildMicrosoftAuthorizeUrl(
+  origin: string,
+  state: string,
+  options?: { requireConsent?: boolean }
+) {
   const clientId = process.env.AZURE_CLIENT_ID!;
   const redirectUri = getMicrosoftRedirectUri(origin);
   const params = new URLSearchParams({
@@ -28,7 +37,7 @@ export function buildMicrosoftAuthorizeUrl(origin: string, state: string) {
     response_mode: "query",
     scope: MICROSOFT_SCOPES,
     state,
-    prompt: "select_account",
+    prompt: options?.requireConsent ? "consent" : "select_account",
   });
 
   return `https://login.microsoftonline.com/${getAzureTenantId()}/oauth2/v2.0/authorize?${params.toString()}`;
@@ -86,6 +95,9 @@ export async function refreshMicrosoftToken(
 
   if (!response.ok) {
     const detail = await response.text();
+    if (isMicrosoftConsentRequired(detail)) {
+      throw new MicrosoftConsentRequiredError(formatMicrosoftAuthError(detail));
+    }
     throw new Error(`Impossible de renouveler le token Microsoft : ${detail}`);
   }
 

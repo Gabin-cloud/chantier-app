@@ -4,6 +4,7 @@ import {
   isSharePointConfigured,
 } from "@/lib/microsoft/config";
 import { getValidUserAccessToken } from "@/lib/microsoft/m365-store";
+import { MicrosoftConsentRequiredError } from "@/lib/microsoft/errors";
 import { fetchApplicationAccessToken } from "@/lib/microsoft/oauth";
 
 export type SharePointAuthContext = {
@@ -53,8 +54,14 @@ async function resolveGraphAccessToken(
   context?: SharePointAuthContext
 ): Promise<string> {
   if (context?.userId) {
-    const userToken = await getValidUserAccessToken(context.userId);
-    if (userToken) return userToken;
+    try {
+      const userToken = await getValidUserAccessToken(context.userId);
+      if (userToken) return userToken;
+    } catch (error) {
+      if (error instanceof MicrosoftConsentRequiredError) {
+        throw error;
+      }
+    }
     throw new Error(
       "Compte Microsoft 365 non connecté. Allez dans Profil → Connecter Microsoft 365."
     );

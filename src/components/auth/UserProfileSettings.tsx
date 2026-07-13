@@ -96,6 +96,7 @@ export function UserProfileSettings({
     basePath === "pc" ? "border-slate-200" : "border-zinc-200";
 
   const connectUrl = `/api/auth/microsoft?returnTo=/${basePath}/profil`;
+  const sharePointConsentUrl = `/api/auth/microsoft?consent=1&returnTo=/${basePath}/profil`;
 
   return (
     <div className="space-y-6">
@@ -266,8 +267,8 @@ export function UserProfileSettings({
       <section className={`rounded-2xl border ${cardBorder} bg-white p-5 shadow-sm`}>
         <h2 className="text-lg font-semibold text-zinc-900">Microsoft 365</h2>
         <p className="mt-1 text-sm text-zinc-500">
-          Connectez votre compte pour préparer des brouillons Outlook (mails type avec
-          destinataires et pièces jointes — à relire avant envoi).
+          Connectez votre compte pour préparer des brouillons Outlook et accéder
+          à SharePoint (plans d&apos;exé).
         </p>
 
         {!profile.capabilities.microsoftOAuth && (
@@ -297,6 +298,12 @@ export function UserProfileSettings({
             >
               Déconnecter Microsoft 365
             </button>
+            <Link
+              href={sharePointConsentUrl}
+              className={`inline-flex rounded-xl px-4 py-3 text-sm font-semibold ${accentButton}`}
+            >
+              Autoriser l&apos;accès SharePoint
+            </Link>
           </div>
         ) : (
           profile.capabilities.microsoftOAuth &&

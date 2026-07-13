@@ -1,11 +1,14 @@
 "use client";
 
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import { ModalPanel } from "@/components/ui/ModalPanel";
 import {
   browseSharePointFolderForProject,
   selectSharePointPlanExeFolder,
 } from "@/lib/actions/sharepoint-settings";
+import { needsMicrosoftConsentRenewal } from "@/lib/microsoft/errors";
 
 type SharePointFolderPickerProps = {
   projectId: string;
@@ -30,6 +33,7 @@ export function SharePointFolderPicker({
   onClose,
   onSelected,
 }: SharePointFolderPickerProps) {
+  const pathname = usePathname();
   const [isPending, startTransition] = useTransition();
   const [browsePath, setBrowsePath] = useState("");
   const [browseState, setBrowseState] = useState<BrowseState | null>(null);
@@ -94,6 +98,12 @@ export function SharePointFolderPicker({
       a.name.localeCompare(b.name, "fr", { sensitivity: "base" })
     ) ?? [];
 
+  const displayError = actionError ?? browseState?.error ?? null;
+  const consentRequired = displayError
+    ? needsMicrosoftConsentRenewal(displayError)
+    : false;
+  const consentUrl = `/api/auth/microsoft?consent=1&returnTo=${encodeURIComponent(pathname)}`;
+
   return (
     <ModalPanel
       title="Choisir un dossier SharePoint"
@@ -132,10 +142,18 @@ export function SharePointFolderPicker({
           <p className="text-sm text-slate-500">Chargement des dossiers…</p>
         )}
 
-        {(browseState?.error || actionError) && (
-          <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
-            {actionError ?? browseState?.error}
-          </p>
+        {displayError && (
+          <div className="space-y-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+            <p>{displayError}</p>
+            {consentRequired && (
+              <Link
+                href={consentUrl}
+                className="inline-flex rounded-lg bg-blue-600 px-3 py-2 text-sm font-semibold text-white hover:bg-blue-700"
+              >
+                Autoriser SharePoint
+              </Link>
+            )}
+          </div>
         )}
 
         {browseState?.ok && (
