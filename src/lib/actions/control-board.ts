@@ -705,7 +705,11 @@ export async function previewVisitEmailDraftFromPc(
 
 export async function prepareVisitEmailDraftFromPc(
   projectId: string,
-  visitId: string
+  visitId: string,
+  overrides?: {
+    subject?: string;
+    recipients?: { email: string; name?: string | null }[];
+  }
 ): Promise<PrepareDraftResult> {
   try {
     await requireProjectRoles(projectId, ["admin", "gestionnaire"]);
@@ -731,11 +735,37 @@ export async function prepareVisitEmailDraftFromPc(
   const { subject, htmlBody, recipients, skipped, pdfFileName, pdfBase64 } =
     assembled.data;
 
+  const finalSubject = overrides?.subject?.trim() || subject;
+  const finalRecipients =
+    overrides?.recipients
+      ?.map((r) => ({
+        email: r.email.trim(),
+        name: r.name?.trim() || r.email.trim(),
+      }))
+      .filter((r) => r.email) ?? recipients;
+
+  if (!finalSubject) {
+    return { ok: false, error: "L'objet du mail est obligatoire." };
+  }
+
+  if (!finalRecipients.length) {
+    return { ok: false, error: "Ajoutez au moins un destinataire." };
+  }
+
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const invalidEmail = finalRecipients.find((r) => !emailPattern.test(r.email));
+  if (invalidEmail) {
+    return {
+      ok: false,
+      error: `Adresse e-mail invalide : ${invalidEmail.email}`,
+    };
+  }
+
   try {
     const draft = await createUserMailDraft(user.id, {
-      subject,
+      subject: finalSubject,
       htmlBody,
-      to: recipients,
+      to: finalRecipients,
       attachments: [
         {
           name: pdfFileName,
@@ -745,7 +775,7 @@ export async function prepareVisitEmailDraftFromPc(
       ],
     });
 
-    for (const recipient of recipients) {
+    for (const recipient of finalRecipients) {
       await safeLogVisitEmail(supabase, {
         visit_id: visitId,
         recipient_email: recipient.email,
@@ -759,8 +789,8 @@ export async function prepareVisitEmailDraftFromPc(
     return {
       ok: true,
       webLink: draft.webLink ?? null,
-      subject,
-      recipients: recipients.map((r) => r.email),
+      subject: finalSubject,
+      recipients: finalRecipients.map((r) => r.email),
       skipped,
     };
   } catch (err) {

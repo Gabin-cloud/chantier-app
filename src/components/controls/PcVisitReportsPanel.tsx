@@ -8,7 +8,7 @@ import {
   prepareVisitEmailDraftFromPc,
   previewVisitEmailDraftFromPc,
 } from "@/lib/actions/control-board";
-import { EmailDraftPreviewModal } from "@/components/controls/EmailDraftPreviewModal";
+import { EmailDraftPreviewModal, type DraftConfirmPayload } from "@/components/controls/EmailDraftPreviewModal";
 import { VISIT_CONTROL_SUMMARY_LABELS } from "@/lib/types/database";
 
 export function PcVisitReportsPanel({
@@ -76,12 +76,15 @@ export function PcVisitReportsPanel({
     setPreviewVisitId(null);
   }
 
-  async function handleConfirmDraft() {
+  async function handleConfirmDraft(payload: DraftConfirmPayload) {
     if (!previewVisitId) return;
     setIsCreatingDraft(true);
     setError(null);
     try {
-      const result = await prepareVisitEmailDraftFromPc(projectId, previewVisitId);
+      const result = await prepareVisitEmailDraftFromPc(projectId, previewVisitId, {
+        subject: payload.subject,
+        recipients: payload.recipients,
+      });
       if (!result.ok) {
         setError(result.error);
         return;
