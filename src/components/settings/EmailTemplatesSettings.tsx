@@ -3,6 +3,7 @@
 import { useRef, useState, useTransition } from "react";
 import type { EmailTemplatesSettingsData } from "@/lib/actions/email-templates";
 import { updateVisitReportEmailTemplate } from "@/lib/actions/email-templates";
+import { RichTextEditor, type RichTextEditorHandle } from "@/components/ui/RichTextEditor";
 
 const inputClass =
   "w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200";
@@ -10,16 +11,14 @@ const inputClass =
 export function EmailTemplatesSettings({ data }: { data: EmailTemplatesSettingsData }) {
   const [subjectTemplate, setSubjectTemplate] = useState(data.visitReport.subjectTemplate);
   const [bodyTemplate, setBodyTemplate] = useState(data.visitReport.bodyTemplate);
+  const [defaultCc, setDefaultCc] = useState(data.visitReport.defaultCc);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [isPending, startTransition] = useTransition();
   const subjectRef = useRef<HTMLInputElement>(null);
-  const bodyRef = useRef<HTMLTextAreaElement>(null);
+  const bodyEditorRef = useRef<RichTextEditorHandle>(null);
 
-  function insertTag(
-    field: "subject" | "body",
-    tagKey: string
-  ) {
+  function insertTag(field: "subject" | "body", tagKey: string) {
     const token = `{{${tagKey}}}`;
     if (field === "subject") {
       const input = subjectRef.current;
@@ -39,20 +38,7 @@ export function EmailTemplatesSettings({ data }: { data: EmailTemplatesSettingsD
       return;
     }
 
-    const textarea = bodyRef.current;
-    if (!textarea) {
-      setBodyTemplate((prev) => `${prev}${token}`);
-      return;
-    }
-    const start = textarea.selectionStart ?? bodyTemplate.length;
-    const end = textarea.selectionEnd ?? bodyTemplate.length;
-    const next = `${bodyTemplate.slice(0, start)}${token}${bodyTemplate.slice(end)}`;
-    setBodyTemplate(next);
-    requestAnimationFrame(() => {
-      textarea.focus();
-      const caret = start + token.length;
-      textarea.setSelectionRange(caret, caret);
-    });
+    bodyEditorRef.current?.insertToken(token);
   }
 
   function handleSubmit(event: React.FormEvent) {
@@ -63,6 +49,7 @@ export function EmailTemplatesSettings({ data }: { data: EmailTemplatesSettingsD
       const result = await updateVisitReportEmailTemplate({
         subjectTemplate,
         bodyTemplate,
+        defaultCc,
       });
       if (!result.ok) {
         setError(result.error);
@@ -77,9 +64,8 @@ export function EmailTemplatesSettings({ data }: { data: EmailTemplatesSettingsD
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-lg font-semibold text-slate-900">Mails type — visite de chantier</h2>
         <p className="mt-1 text-sm text-slate-500">
-          Ce modèle est utilisé quand vous cliquez sur <strong>Brouillon Outlook</strong> dans
-          le tableau de contrôle. Insérez des étiquettes pour remplir automatiquement les
-          informations de la visite.
+          Rédigez le mail comme dans un traitement de texte. Les étiquettes se remplissent
+          automatiquement lors de la préparation du brouillon.
         </p>
 
         {!data.canEdit && (
@@ -105,15 +91,29 @@ export function EmailTemplatesSettings({ data }: { data: EmailTemplatesSettingsD
 
           <div>
             <label className="mb-1.5 block text-sm font-medium text-slate-700">
-              Corps du mail (HTML)
+              Copie carbone par défaut (Cc)
             </label>
-            <textarea
-              ref={bodyRef}
-              value={bodyTemplate}
-              onChange={(e) => setBodyTemplate(e.target.value)}
+            <input
+              type="text"
+              value={defaultCc}
+              onChange={(e) => setDefaultCc(e.target.value)}
               disabled={!data.canEdit || isPending}
-              rows={16}
-              className={`${inputClass} font-mono text-xs leading-relaxed`}
+              placeholder="email1@entreprise.fr, email2@entreprise.fr"
+              className={inputClass}
+            />
+          </div>
+
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">
+              Corps du mail
+            </label>
+            <RichTextEditor
+              ref={bodyEditorRef}
+              value={bodyTemplate}
+              onChange={setBodyTemplate}
+              disabled={!data.canEdit || isPending}
+              minHeight="260px"
+              placeholder="Rédigez le contenu du mail type…"
             />
           </div>
 

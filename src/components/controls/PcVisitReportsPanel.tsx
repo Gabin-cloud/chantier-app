@@ -7,8 +7,12 @@ import {
   generateVisitReportFromPc,
   prepareVisitEmailDraftFromPc,
   previewVisitEmailDraftFromPc,
+  sendVisitEmailFromPc,
 } from "@/lib/actions/control-board";
-import { EmailDraftPreviewModal, type DraftConfirmPayload } from "@/components/controls/EmailDraftPreviewModal";
+import {
+  EmailDraftPreviewModal,
+  type EmailConfirmPayload,
+} from "@/components/controls/EmailDraftPreviewModal";
 import { VISIT_CONTROL_SUMMARY_LABELS } from "@/lib/types/database";
 
 export function PcVisitReportsPanel({
@@ -35,7 +39,7 @@ export function PcVisitReportsPanel({
     null
   );
   const [previewVisitId, setPreviewVisitId] = useState<string | null>(null);
-  const [isCreatingDraft, setIsCreatingDraft] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
 
   function handleGenerate(visitId: string) {
     setError(null);
@@ -71,37 +75,61 @@ export function PcVisitReportsPanel({
   }
 
   function handleClosePreview() {
-    if (isCreatingDraft) return;
+    if (isSubmitting) return;
     setPreview(null);
     setPreviewVisitId(null);
   }
 
-  async function handleConfirmDraft(payload: DraftConfirmPayload) {
+  async function runEmailAction(
+    payload: EmailConfirmPayload,
+    mode: "draft" | "send"
+  ) {
     if (!previewVisitId) return;
-    setIsCreatingDraft(true);
+    setIsSubmitting(true);
     setError(null);
     try {
-      const result = await prepareVisitEmailDraftFromPc(projectId, previewVisitId, {
+      const overrides = {
         subject: payload.subject,
+        htmlBody: payload.htmlBody,
         recipients: payload.recipients,
-      });
-      if (!result.ok) {
-        setError(result.error);
-        return;
-      }
-      let msg = "Brouillon créé dans Outlook bureau → dossier Brouillons.";
-      if (result.skipped.length > 0) {
-        msg += ` Ignorés : ${result.skipped.join(" · ")}`;
-      }
-      setSuccess(msg);
-      if (result.webLink) {
+        cc: payload.cc,
+      };
+
+      if (mode === "draft") {
+        const result = await prepareVisitEmailDraftFromPc(
+          projectId,
+          previewVisitId,
+          overrides
+        );
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
+        let msg = "Brouillon créé dans Outlook bureau → dossier Brouillons.";
+        if (result.skipped.length > 0) {
+          msg += ` Ignorés : ${result.skipped.join(" · ")}`;
+        }
+        setSuccess(msg);
         setDraftLink(result.webLink);
+      } else {
+        const result = await sendVisitEmailFromPc(projectId, previewVisitId, overrides);
+        if (!result.ok) {
+          setError(result.error);
+          return;
+        }
+        let msg = `Mail envoyé à ${result.recipients.length} destinataire(s).`;
+        if (result.skipped.length > 0) {
+          msg += ` Ignorés : ${result.skipped.join(" · ")}`;
+        }
+        setSuccess(msg);
+        setDraftLink(null);
       }
+
       setPreview(null);
       setPreviewVisitId(null);
       router.refresh();
     } finally {
-      setIsCreatingDraft(false);
+      setIsSubmitting(false);
     }
   }
 
@@ -116,9 +144,8 @@ export function PcVisitReportsPanel({
   return (
     <div className="space-y-4">
       <p className="text-sm text-slate-600">
-        Générez le rapport PDF, puis prévisualisez le <strong>brouillon</strong> directement
-        dans l&apos;application avant de l&apos;envoyer dans Outlook (destinataires, objet,
-        corps et PDF joint).
+        Générez le PDF, composez le mail dans l&apos;application (objet, destinataires, copie,
+        corps), puis <strong>envoyez</strong> ou enregistrez en <strong>brouillon Outlook</strong>.
       </p>
 
       {!m365Ready && m365Message && (
@@ -133,7 +160,7 @@ export function PcVisitReportsPanel({
 
       {m365Ready && m365Email && (
         <p className="text-sm text-emerald-700">
-          Brouillons créés dans la boîte <strong>{m365Email}</strong>
+          Mails envoyés depuis <strong>{m365Email}</strong>
         </p>
       )}
 
@@ -210,7 +237,7 @@ export function PcVisitReportsPanel({
                         onClick={() => handleOpenPreview(visit.id)}
                         className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
                       >
-                        Aperçu brouillon
+                        Composer le mail
                       </button>
                     </div>
                   </td>
@@ -244,9 +271,10 @@ export function PcVisitReportsPanel({
         <EmailDraftPreviewModal
           preview={preview}
           m365Ready={m365Ready}
-          isCreating={isCreatingDraft}
+          isSubmitting={isSubmitting}
           onClose={handleClosePreview}
-          onConfirm={handleConfirmDraft}
+          onCreateDraft={(payload) => runEmailAction(payload, "draft")}
+          onSend={(payload) => runEmailAction(payload, "send")}
         />
       )}
     </div>

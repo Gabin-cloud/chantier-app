@@ -11,6 +11,7 @@ type SendEmailInput = {
   subject: string;
   htmlBody: string;
   to: EmailRecipient[];
+  cc?: EmailRecipient[];
 };
 
 export type MailAttachment = {
@@ -19,9 +20,44 @@ export type MailAttachment = {
   contentBytes: string;
 };
 
-type CreateDraftInput = SendEmailInput & {
+type UserMailInput = SendEmailInput & {
   attachments?: MailAttachment[];
 };
+
+function toGraphRecipients(recipients: EmailRecipient[]) {
+  return recipients.map((recipient) => ({
+    emailAddress: {
+      address: recipient.email,
+      name: recipient.name ?? undefined,
+    },
+  }));
+}
+
+function buildGraphMessage(input: UserMailInput) {
+  const message: Record<string, unknown> = {
+    subject: input.subject,
+    body: {
+      contentType: "HTML",
+      content: input.htmlBody,
+    },
+    toRecipients: toGraphRecipients(input.to),
+  };
+
+  if (input.cc?.length) {
+    message.ccRecipients = toGraphRecipients(input.cc);
+  }
+
+  if (input.attachments?.length) {
+    message.attachments = input.attachments.map((att) => ({
+      "@odata.type": "#microsoft.graph.fileAttachment",
+      name: att.name,
+      contentType: att.contentType,
+      contentBytes: att.contentBytes,
+    }));
+  }
+
+  return message;
+}
 
 async function sendViaGraph(
   accessToken: string,
@@ -37,19 +73,7 @@ async function sendViaGraph(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({
-        message: {
-          subject: input.subject,
-          body: {
-            contentType: "HTML",
-            content: input.htmlBody,
-          },
-          toRecipients: input.to.map((recipient) => ({
-            emailAddress: {
-              address: recipient.email,
-              name: recipient.name ?? undefined,
-            },
-          })),
-        },
+        message: buildGraphMessage(input),
         saveToSentItems: true,
       }),
     }
@@ -71,36 +95,34 @@ export async function sendNotificationEmail(input: SendEmailInput) {
   await sendViaGraph(accessToken, senderEmail, input);
 }
 
-export async function createUserMailDraft(
-  userId: string,
-  input: CreateDraftInput
-) {
+export async function sendUserMail(userId: string, input: UserMailInput) {
   const accessToken = await getValidUserAccessToken(userId);
   if (!accessToken) {
     throw new Error("Compte Microsoft 365 non connecté.");
   }
 
-  const message: Record<string, unknown> = {
-    subject: input.subject,
-    body: {
-      contentType: "HTML",
-      content: input.htmlBody,
+  const response = await fetch("https://graph.microsoft.com/v1.0/me/sendMail", {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${accessToken}`,
+      "Content-Type": "application/json",
     },
-    toRecipients: input.to.map((recipient) => ({
-      emailAddress: {
-        address: recipient.email,
-        name: recipient.name ?? undefined,
-      },
-    })),
-  };
+    body: JSON.stringify({
+      message: buildGraphMessage(input),
+      saveToSentItems: true,
+    }),
+  });
 
-  if (input.attachments?.length) {
-    message.attachments = input.attachments.map((att) => ({
-      "@odata.type": "#microsoft.graph.fileAttachment",
-      name: att.name,
-      contentType: att.contentType,
-      contentBytes: att.contentBytes,
-    }));
+  if (!response.ok) {
+    const detail = await response.text();
+    throw new Error(`Envoi du mail échoué : ${detail}`);
+  }
+}
+
+export async function createUserMailDraft(userId: string, input: UserMailInput) {
+  const accessToken = await getValidUserAccessToken(userId);
+  if (!accessToken) {
+    throw new Error("Compte Microsoft 365 non connecté.");
   }
 
   const response = await fetch("https://graph.microsoft.com/v1.0/me/messages", {
@@ -109,7 +131,7 @@ export async function createUserMailDraft(
       Authorization: `Bearer ${accessToken}`,
       "Content-Type": "application/json",
     },
-    body: JSON.stringify(message),
+    body: JSON.stringify(buildGraphMessage(input)),
   });
 
   if (!response.ok) {
