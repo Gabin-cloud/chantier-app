@@ -1,36 +1,46 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Chantier App
 
-## Getting Started
+Application de contrôle de chantier : interface PC, tablette, portail entreprise, complément Outlook.
 
-First, run the development server:
+## Démarrage rapide
 
 ```bash
+npm install
+cp .env.example .env.local   # puis remplir les clés Supabase
 npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+Ouvrir http://localhost:3000 — choix PC / Tablette / Entreprise.
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+## Documentation
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+| Fichier | Contenu |
+|---------|---------|
+| [docs/PROJET.md](docs/PROJET.md) | Carte complète : interfaces, domaines, structure code |
+| [docs/DATABASE.md](docs/DATABASE.md) | Connexion Supabase, MCP Cursor, migrations |
+| [supabase/migrations/README.md](supabase/migrations/README.md) | Ordre des migrations SQL |
 
-## Learn More
+## Commandes utiles
 
-To learn more about Next.js, take a look at the following resources:
+```bash
+npm run dev              # Serveur Next.js
+npm run db:push          # Appliquer migrations Supabase
+npm run db:status        # État des migrations
+npm run desktop:dev      # App Electron + Next.js
+npm run outlook:manifest # URL manifest complément Outlook
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+## GitHub
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Dépôt : https://github.com/Gabin-cloud/chantier-app
 
-## Deploy on Vercel
+**Workflow :** code + migration → `npm run db:push` → commit → push.
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+Ne pas copier-coller du SQL manuellement dans Supabase (voir `docs/DATABASE.md`).
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Stack
+
+- Next.js 16, React 19, TypeScript, Tailwind
+- Supabase (PostgreSQL, auth, storage)
+- Microsoft Graph (Outlook, SharePoint)
+- Electron (client bureau Windows optionnel)
