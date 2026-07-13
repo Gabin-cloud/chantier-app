@@ -10,7 +10,7 @@ export default function OutlookLayout({ children }: { children: ReactNode }) {
     <>
       <Script
         src="https://appsforoffice.microsoft.com/lib/1/hosted/office.js"
-        strategy="beforeInteractive"
+        strategy="afterInteractive"
       />
       <div className="min-h-full bg-white text-slate-900">{children}</div>
     </>

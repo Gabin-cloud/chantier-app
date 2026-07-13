@@ -16,8 +16,8 @@ export function buildOutlookManifestXml(base: string) {
   <DefaultLocale>fr-FR</DefaultLocale>
   <DisplayName DefaultValue="Chantier App - Tri fichiers"/>
   <Description DefaultValue="Classer les pieces jointes du mail ouvert vers le suivi chantier."/>
-  <IconUrl DefaultValue="${base}/outlook/icon-32.png"/>
-  <HighResolutionIconUrl DefaultValue="${base}/outlook/icon-80.png"/>
+  <IconUrl DefaultValue="${base}/icons/icon-192.png"/>
+  <HighResolutionIconUrl DefaultValue="${base}/icons/icon-512.png"/>
   <SupportUrl DefaultValue="${base}/pc"/>
   <AppDomains>
     <AppDomain>${domain}</AppDomain>
@@ -79,9 +79,9 @@ export function buildOutlookManifestXml(base: string) {
       </Hosts>
       <Resources>
         <bt:Images>
-          <bt:Image id="Icon.16" DefaultValue="${base}/outlook/icon-16.png"/>
-          <bt:Image id="Icon.32" DefaultValue="${base}/outlook/icon-32.png"/>
-          <bt:Image id="Icon.80" DefaultValue="${base}/outlook/icon-80.png"/>
+          <bt:Image id="Icon.16" DefaultValue="${base}/icons/icon-192.png"/>
+          <bt:Image id="Icon.32" DefaultValue="${base}/icons/icon-192.png"/>
+          <bt:Image id="Icon.80" DefaultValue="${base}/icons/icon-512.png"/>
         </bt:Images>
         <bt:Urls>
           <bt:Url id="Taskpane.Url" DefaultValue="${base}/outlook/taskpane"/>

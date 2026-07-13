@@ -10,8 +10,8 @@
   <DefaultLocale>fr-FR</DefaultLocale>
   <DisplayName DefaultValue="Chantier App - Tri fichiers"/>
   <Description DefaultValue="Classer les pieces jointes du mail ouvert vers le suivi chantier."/>
-  <IconUrl DefaultValue="https://chantier-app-gab31.vercel.app/outlook/icon-32.png"/>
-  <HighResolutionIconUrl DefaultValue="https://chantier-app-gab31.vercel.app/outlook/icon-80.png"/>
+  <IconUrl DefaultValue="https://chantier-app-gab31.vercel.app/icons/icon-192.png"/>
+  <HighResolutionIconUrl DefaultValue="https://chantier-app-gab31.vercel.app/icons/icon-512.png"/>
   <SupportUrl DefaultValue="https://chantier-app-gab31.vercel.app/pc"/>
   <AppDomains>
     <AppDomain>chantier-app-gab31.vercel.app</AppDomain>
@@ -73,9 +73,9 @@
       </Hosts>
       <Resources>
         <bt:Images>
-          <bt:Image id="Icon.16" DefaultValue="https://chantier-app-gab31.vercel.app/outlook/icon-16.png"/>
-          <bt:Image id="Icon.32" DefaultValue="https://chantier-app-gab31.vercel.app/outlook/icon-32.png"/>
-          <bt:Image id="Icon.80" DefaultValue="https://chantier-app-gab31.vercel.app/outlook/icon-80.png"/>
+          <bt:Image id="Icon.16" DefaultValue="https://chantier-app-gab31.vercel.app/icons/icon-192.png"/>
+          <bt:Image id="Icon.32" DefaultValue="https://chantier-app-gab31.vercel.app/icons/icon-192.png"/>
+          <bt:Image id="Icon.80" DefaultValue="https://chantier-app-gab31.vercel.app/icons/icon-512.png"/>
         </bt:Images>
         <bt:Urls>
           <bt:Url id="Taskpane.Url" DefaultValue="https://chantier-app-gab31.vercel.app/outlook/taskpane"/>
