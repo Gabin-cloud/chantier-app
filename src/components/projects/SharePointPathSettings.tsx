@@ -1,5 +1,6 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { SharePointFolderPicker } from "@/components/projects/SharePointFolderPicker";
 import {
@@ -19,6 +20,7 @@ export function SharePointPathSettings({
   enterprises,
   canEdit,
 }: SharePointPathSettingsProps) {
+  const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [planExePath, setPlanExePath] = useState(
     project.sharepoint_plan_exe_path ?? ""
@@ -38,16 +40,17 @@ export function SharePointPathSettings({
     setMessage(null);
 
     startTransition(async () => {
-      try {
-        await updateEnterpriseSharePointFolder(
-          project.id,
-          enterpriseId,
-          folderNames[enterpriseId] ?? ""
-        );
-        setMessage("Dossier entreprise enregistré.");
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Erreur.");
+      const result = await updateEnterpriseSharePointFolder(
+        project.id,
+        enterpriseId,
+        folderNames[enterpriseId] ?? ""
+      );
+      if (!result.ok) {
+        setError(result.error);
+        return;
       }
+      setMessage("Dossier entreprise enregistré.");
+      router.refresh();
     });
   }
 

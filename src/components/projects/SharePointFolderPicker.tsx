@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useState, useTransition } from "react";
 import { ModalPanel } from "@/components/ui/ModalPanel";
 import {
@@ -34,6 +34,7 @@ export function SharePointFolderPicker({
   onSelected,
 }: SharePointFolderPickerProps) {
   const pathname = usePathname();
+  const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [browsePath, setBrowsePath] = useState("");
   const [browseState, setBrowseState] = useState<BrowseState | null>(null);
@@ -75,18 +76,19 @@ export function SharePointFolderPicker({
   function handleSelectCurrentFolder() {
     setActionError(null);
     startTransition(async () => {
-      try {
-        const savedPath = await selectSharePointPlanExeFolder(
-          projectId,
-          browsePath
-        );
-        onSelected(savedPath);
-        onClose();
-      } catch (err) {
-        setActionError(
-          err instanceof Error ? err.message : "Impossible d'enregistrer le dossier."
-        );
+      const result = await selectSharePointPlanExeFolder(
+        projectId,
+        browsePath
+      );
+
+      if (!result.ok) {
+        setActionError(result.error);
+        return;
       }
+
+      onSelected(result.path);
+      router.refresh();
+      onClose();
     });
   }
 
@@ -99,8 +101,11 @@ export function SharePointFolderPicker({
     ) ?? [];
 
   const displayError = actionError ?? browseState?.error ?? null;
-  const consentRequired = displayError
-    ? needsMicrosoftConsentRenewal(displayError)
+  const normalizedError = displayError?.includes("Server Components render")
+    ? "Enregistrement impossible. Vérifiez que la migration 015_sharepoint_plan_exe.sql est bien appliquée sur Supabase."
+    : displayError;
+  const consentRequired = normalizedError
+    ? needsMicrosoftConsentRenewal(normalizedError)
     : false;
   const consentUrl = `/api/auth/microsoft?consent=1&returnTo=${encodeURIComponent(pathname)}`;
 
@@ -142,9 +147,9 @@ export function SharePointFolderPicker({
           <p className="text-sm text-slate-500">Chargement des dossiers…</p>
         )}
 
-        {displayError && (
+        {normalizedError && (
           <div className="space-y-2 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
-            <p>{displayError}</p>
+            <p>{normalizedError}</p>
             {consentRequired && (
               <Link
                 href={consentUrl}
