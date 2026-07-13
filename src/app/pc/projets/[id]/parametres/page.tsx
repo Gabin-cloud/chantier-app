@@ -40,7 +40,7 @@ export default async function PcParametresPage({ params }: PageProps) {
       getProjectChecklistItems(id),
       getProjectZones(id),
       getProjectMembers(id),
-      getEnterpriseAccessForProject(id),
+      getEnterpriseAccessForProject(id).catch(() => []),
       getProjectLocations(id).catch(() => []),
       getProjectRole(id),
     ]);

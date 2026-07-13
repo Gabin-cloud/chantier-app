@@ -72,9 +72,9 @@ export function EnterpriseAccessManager({
 
   if (enterprises.length === 0) {
     return (
-      <section className="rounded-2xl bg-white p-5 shadow-sm">
+      <section className="rounded-2xl border-2 border-amber-200 bg-amber-50/30 p-5 shadow-sm">
         <h2 className="mb-1 text-lg font-semibold text-zinc-900">
-          Accès entreprises
+          Partage avec les entreprises
         </h2>
         <p className="text-sm text-zinc-500">
           Ajoutez d&apos;abord une entreprise sur le chantier pour créer un
@@ -85,9 +85,9 @@ export function EnterpriseAccessManager({
   }
 
   return (
-    <section className="rounded-2xl bg-white p-5 shadow-sm">
+    <section className="rounded-2xl border-2 border-amber-200 bg-amber-50/30 p-5 shadow-sm">
       <h2 className="mb-1 text-lg font-semibold text-zinc-900">
-        Accès entreprises (sous-traitance)
+        Partage avec les entreprises
       </h2>
       <p className="mb-4 text-sm text-zinc-500">
         Créez un compte pour qu&apos;une entreprise accède à l&apos;interface

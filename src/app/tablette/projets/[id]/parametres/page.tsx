@@ -10,6 +10,7 @@ import {
   canManageMembers,
   getProjectRole,
 } from "@/lib/auth/permissions";
+import { getEnterpriseAccessForProject } from "@/lib/actions/enterprise-access";
 import { getProjectMembers } from "@/lib/actions/members";
 import { getProjectLocations } from "@/lib/actions/locations";
 import { getPlanFolders, getPlansWithUrls } from "@/lib/actions/plans";
@@ -31,7 +32,7 @@ export default async function ParametresPage({ params }: PageProps) {
   const { id } = await params;
 
   try {
-    const [project, plans, planFolders, phases, checklistItems, zones, members, locations, projectRole] = await Promise.all([
+    const [project, plans, planFolders, phases, checklistItems, zones, members, enterpriseAccess, locations, projectRole] = await Promise.all([
       getProject(id),
       getPlansWithUrls(id),
       getPlanFolders(id),
@@ -39,6 +40,7 @@ export default async function ParametresPage({ params }: PageProps) {
       getProjectChecklistItems(id),
       getProjectZones(id),
       getProjectMembers(id),
+      getEnterpriseAccessForProject(id).catch(() => []),
       getProjectLocations(id).catch(() => []),
       getProjectRole(id),
     ]);
@@ -80,6 +82,7 @@ export default async function ParametresPage({ params }: PageProps) {
             checklistItems={checklistItems}
             locations={locations}
             members={members}
+            enterpriseAccess={enterpriseAccess}
             basePath="tablette"
             canEdit={canEdit}
             canManageMembers={canManage}

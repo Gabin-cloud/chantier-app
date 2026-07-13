@@ -126,7 +126,7 @@ export function ProjectSettings({
         canManage={canManageMembers}
       />
 
-      {basePath === "pc" && (canEdit || canManageMembers) && (
+      {(canEdit || canManageMembers) && (
         <EnterpriseAccessManager
           projectId={project.id}
           enterprises={enterprises}

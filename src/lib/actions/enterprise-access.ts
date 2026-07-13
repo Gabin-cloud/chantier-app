@@ -164,6 +164,7 @@ export async function inviteEnterpriseUser(
   }
 
   revalidatePath(`/pc/projets/${projectId}/parametres`);
+  revalidatePath(`/tablette/projets/${projectId}/parametres`);
   revalidatePath("/entreprise");
 }
 
@@ -181,5 +182,6 @@ export async function removeEnterpriseAccess(projectId: string, memberId: string
   if (error) throw new Error(error.message);
 
   revalidatePath(`/pc/projets/${projectId}/parametres`);
+  revalidatePath(`/tablette/projets/${projectId}/parametres`);
   revalidatePath("/entreprise");
 }
