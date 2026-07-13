@@ -13,10 +13,14 @@ export function PcVisitReportsPanel({
   projectId,
   visits,
   canEdit,
+  emailConfigured,
+  emailMissing = [],
 }: {
   projectId: string;
   visits: PcVisitRow[];
   canEdit: boolean;
+  emailConfigured: boolean;
+  emailMissing?: string[];
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -27,13 +31,13 @@ export function PcVisitReportsPanel({
     setError(null);
     setSuccess(null);
     startTransition(async () => {
-      try {
-        await generateVisitReportFromPc(projectId, visitId);
-        setSuccess("Rapport PDF généré.");
-        router.refresh();
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Erreur génération PDF.");
+      const result = await generateVisitReportFromPc(projectId, visitId);
+      if (!result.ok) {
+        setError(result.error);
+        return;
       }
+      setSuccess("Rapport PDF généré.");
+      router.refresh();
     });
   }
 
@@ -41,13 +45,20 @@ export function PcVisitReportsPanel({
     setError(null);
     setSuccess(null);
     startTransition(async () => {
-      try {
-        const result = await sendVisitEmailsFromPc(projectId, visitId);
-        setSuccess(`${result.sentCount} email(s) envoyé(s).`);
-        router.refresh();
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Erreur envoi email.");
+      const result = await sendVisitEmailsFromPc(projectId, visitId);
+      if (!result.ok) {
+        setError(result.error);
+        return;
       }
+      let msg = `${result.sentCount} email(s) envoyé(s).`;
+      if (result.skipped.length > 0) {
+        msg += ` Ignorés : ${result.skipped.join(" · ")}`;
+      }
+      if (result.failures.length > 0) {
+        msg += ` Échecs : ${result.failures.join(" · ")}`;
+      }
+      setSuccess(msg);
+      router.refresh();
     });
   }
 
@@ -65,6 +76,18 @@ export function PcVisitReportsPanel({
         Générez les rapports PDF et envoyez les emails aux entreprises depuis le PC.
         Les emails ne partent plus automatiquement depuis la tablette.
       </p>
+
+      {!emailConfigured && (
+        <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+          <p className="font-semibold">Configuration email manquante sur le serveur</p>
+          <p className="mt-1">
+            Ajoutez ces variables dans Vercel :{" "}
+            <code className="rounded bg-amber-100 px-1">
+              {emailMissing.length > 0 ? emailMissing.join(", ") : "AZURE_* et NOTIFICATION_SENDER_EMAIL"}
+            </code>
+          </p>
+        </div>
+      )}
 
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
         <table className="min-w-full text-left text-sm">
@@ -135,7 +158,11 @@ export function PcVisitReportsPanel({
                       </button>
                       <button
                         type="button"
-                        disabled={isPending || visit.status !== "completed"}
+                        disabled={
+                          isPending ||
+                          visit.status !== "completed" ||
+                          !emailConfigured
+                        }
                         onClick={() => handleSendEmails(visit.id)}
                         className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
                       >

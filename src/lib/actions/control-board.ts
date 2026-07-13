@@ -5,8 +5,34 @@ import { requireProjectAccess, requireProjectRoles } from "@/lib/auth/permission
 import { createClient } from "@/lib/supabase/server";
 import { generateAndStoreVisitReport } from "@/lib/actions/visit-reports";
 import { sendVisitCompletedEmail } from "@/lib/notifications/visit-completed";
-import { getNotificationSenderEmail } from "@/lib/microsoft/config";
+import {
+  getNotificationSenderEmail,
+} from "@/lib/microsoft/config";
 import type { ControlResult, VisitControlSummary } from "@/lib/types/database";
+
+export type ActionResult<T = void> =
+  | ({ ok: true } & (T extends void ? object : T))
+  | { ok: false; error: string };
+
+export type SendEmailsResult =
+  | { ok: true; sentCount: number; skipped: string[]; failures: string[] }
+  | { ok: false; error: string; failures?: string[] };
+
+async function safeLogVisitEmail(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  row: {
+    visit_id: string;
+    recipient_email: string;
+    enterprise_name: string | null;
+    status: "sent" | "failed" | "skipped";
+    error_message?: string | null;
+  }
+) {
+  const { error } = await supabase.from("visit_email_logs").insert(row);
+  if (error) {
+    console.error("[visit_email_logs]", error.message);
+  }
+}
 
 export type ControlBoardRow = {
   phaseId: string;
@@ -313,7 +339,7 @@ export async function getPcVisitReports(projectId: string): Promise<PcVisitRow[]
   const phaseIds = [...new Set(visits.map((v) => v.phase_id).filter(Boolean) as string[])];
   const zoneIds = [...new Set(visits.map((v) => v.zone_id).filter(Boolean) as string[])];
 
-  const [{ data: phases }, { data: zones }, { data: reports }, { data: emailLogs }] =
+  const [{ data: phases }, { data: zones }, { data: reports }, emailLogsResult] =
     await Promise.all([
       phaseIds.length
         ? supabase.from("visit_phases").select("id, name").in("id", phaseIds)
@@ -328,6 +354,8 @@ export async function getPcVisitReports(projectId: string): Promise<PcVisitRow[]
         .in("visit_id", visitIds)
         .eq("status", "sent"),
     ]);
+
+  const emailLogs = emailLogsResult.error ? [] : (emailLogsResult.data ?? []);
 
   const phaseMap = new Map((phases ?? []).map((p) => [p.id, p.name]));
   const zoneMap = new Map((zones ?? []).map((z) => [z.id, z.name]));
@@ -359,21 +387,59 @@ export async function getPcVisitReports(projectId: string): Promise<PcVisitRow[]
   });
 }
 
-export async function generateVisitReportFromPc(projectId: string, visitId: string) {
-  await requireProjectRoles(projectId, ["admin", "gestionnaire"]);
-  const result = await generateAndStoreVisitReport(projectId, visitId);
-  await syncControlBoardFromMarkers(projectId);
-  revalidateControlBoard(projectId);
-  return result;
+export async function getEmailSetupStatus(): Promise<{
+  configured: boolean;
+  missing: string[];
+}> {
+  const missing: string[] = [];
+  if (!process.env.AZURE_CLIENT_ID) missing.push("AZURE_CLIENT_ID");
+  if (!process.env.AZURE_CLIENT_SECRET) missing.push("AZURE_CLIENT_SECRET");
+  if (!process.env.AZURE_TENANT_ID) missing.push("AZURE_TENANT_ID");
+  if (!getNotificationSenderEmail()) missing.push("NOTIFICATION_SENDER_EMAIL");
+  return { configured: missing.length === 0, missing };
 }
 
-export async function sendVisitEmailsFromPc(projectId: string, visitId: string) {
-  await requireProjectRoles(projectId, ["admin", "gestionnaire"]);
+export async function generateVisitReportFromPc(
+  projectId: string,
+  visitId: string
+): Promise<ActionResult<{ publicUrl: string }>> {
+  try {
+    await requireProjectRoles(projectId, ["admin", "gestionnaire"]);
+    const result = await generateAndStoreVisitReport(projectId, visitId);
+    try {
+      await syncControlBoardFromMarkers(projectId);
+    } catch {
+      // migration 012 optionnelle
+    }
+    revalidateControlBoard(projectId);
+    return { ok: true, publicUrl: result.publicUrl };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Impossible de générer le rapport PDF.",
+    };
+  }
+}
 
-  if (!getNotificationSenderEmail()) {
-    throw new Error(
-      "NOTIFICATION_SENDER_EMAIL n'est pas configuré. Les emails ne peuvent pas être envoyés."
-    );
+export async function sendVisitEmailsFromPc(
+  projectId: string,
+  visitId: string
+): Promise<SendEmailsResult> {
+  try {
+    await requireProjectRoles(projectId, ["admin", "gestionnaire"]);
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Accès refusé.",
+    };
+  }
+
+  const setup = await getEmailSetupStatus();
+  if (!setup.configured) {
+    return {
+      ok: false,
+      error: `Configuration email incomplète sur le serveur. Variables manquantes : ${setup.missing.join(", ")}. Ajoutez-les dans Vercel (Settings → Environment Variables).`,
+    };
   }
 
   const supabase = await createClient();
@@ -384,7 +450,16 @@ export async function sendVisitEmailsFromPc(projectId: string, visitId: string) 
     .eq("id", visitId)
     .single();
 
-  if (visitError) throw new Error(visitError.message);
+  if (visitError || !visit) {
+    return { ok: false, error: visitError?.message ?? "Visite introuvable." };
+  }
+
+  if (visit.status !== "completed") {
+    return {
+      ok: false,
+      error: "La visite doit être terminée sur la tablette avant d'envoyer les emails.",
+    };
+  }
 
   const { data: project } = await supabase
     .from("projects")
@@ -418,7 +493,11 @@ export async function sendVisitEmailsFromPc(projectId: string, visitId: string) 
   ];
 
   if (!enterpriseIds.length) {
-    throw new Error("Aucune entreprise associée aux réserves de cette visite.");
+    return {
+      ok: false,
+      error:
+        "Aucune entreprise n'est associée aux réserves de cette visite. Assignez une entreprise sur les pastilles avant d'envoyer.",
+    };
   }
 
   const { data: enterprises } = await supabase
@@ -461,11 +540,14 @@ export async function sendVisitEmailsFromPc(projectId: string, visitId: string) 
   ).length;
 
   let sentCount = 0;
+  const skipped: string[] = [];
+  const failures: string[] = [];
 
   for (const enterprise of enterprises ?? []) {
     const email = enterprise.email_chantier || enterprise.contact_email;
     if (!email) {
-      await supabase.from("visit_email_logs").insert({
+      skipped.push(`${enterprise.name} : pas d'email renseigné`);
+      await safeLogVisitEmail(supabase, {
         visit_id: visitId,
         recipient_email: "—",
         enterprise_name: enterprise.name,
@@ -491,7 +573,7 @@ export async function sendVisitEmailsFromPc(projectId: string, visitId: string) 
         reportUrl,
       });
 
-      await supabase.from("visit_email_logs").insert({
+      await safeLogVisitEmail(supabase, {
         visit_id: visitId,
         recipient_email: email,
         enterprise_name: enterprise.name,
@@ -499,20 +581,29 @@ export async function sendVisitEmailsFromPc(projectId: string, visitId: string) 
       });
       sentCount++;
     } catch (err) {
-      await supabase.from("visit_email_logs").insert({
+      const msg = err instanceof Error ? err.message : "Erreur inconnue";
+      failures.push(`${enterprise.name} (${email}) : ${msg}`);
+      await safeLogVisitEmail(supabase, {
         visit_id: visitId,
         recipient_email: email,
         enterprise_name: enterprise.name,
         status: "failed",
-        error_message: err instanceof Error ? err.message : "Erreur",
+        error_message: msg,
       });
     }
   }
 
   if (sentCount === 0) {
-    throw new Error("Aucun email n'a pu être envoyé. Vérifiez les adresses des entreprises.");
+    const details = [...skipped, ...failures].join(" · ");
+    return {
+      ok: false,
+      error: details
+        ? `Aucun email envoyé. ${details}`
+        : "Aucun email n'a pu être envoyé.",
+      failures: [...skipped, ...failures],
+    };
   }
 
   revalidateControlBoard(projectId);
-  return { sentCount };
+  return { ok: true, sentCount, skipped, failures };
 }

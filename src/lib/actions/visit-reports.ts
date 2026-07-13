@@ -119,7 +119,6 @@ export async function generateAndStoreVisitReport(
 
   revalidatePath(`/tablette/projets/${projectId}/visites/${visitId}`);
   revalidatePath(`/pc/projets/${projectId}/controles`);
-  revalidatePath(`/pc/projets/${projectId}/controles?tab=rapports`);
 
   return { filePath, publicUrl: urlData.publicUrl };
 }

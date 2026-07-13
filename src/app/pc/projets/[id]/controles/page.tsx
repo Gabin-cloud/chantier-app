@@ -6,6 +6,7 @@ import {
   SupabaseSetupNotice,
 } from "@/components/SupabaseSetupNotice";
 import {
+  getEmailSetupStatus,
   getPcVisitReports,
   getProjectControlBoard,
   syncControlBoardFromMarkers,
@@ -50,9 +51,10 @@ export default async function ControlesPage({ params, searchParams }: PageProps)
       }
     }
 
-    const [rows, visits] = await Promise.all([
+    const [rows, visits, emailSetup] = await Promise.all([
       getProjectControlBoard(id).catch(() => []),
       getPcVisitReports(id).catch(() => []),
+      getEmailSetupStatus(),
     ]);
 
     return (
@@ -106,6 +108,8 @@ export default async function ControlesPage({ params, searchParams }: PageProps)
               projectId={id}
               visits={visits}
               canEdit={canEdit}
+              emailConfigured={emailSetup.configured}
+              emailMissing={emailSetup.missing}
             />
           )}
         </div>
