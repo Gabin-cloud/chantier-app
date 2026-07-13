@@ -5,7 +5,7 @@ import { useRouter } from "next/navigation";
 import type { PcVisitRow } from "@/lib/actions/control-board";
 import {
   generateVisitReportFromPc,
-  sendVisitEmailsFromPc,
+  prepareVisitEmailDraftFromPc,
 } from "@/lib/actions/control-board";
 import { VISIT_CONTROL_SUMMARY_LABELS } from "@/lib/types/database";
 
@@ -13,23 +13,27 @@ export function PcVisitReportsPanel({
   projectId,
   visits,
   canEdit,
-  emailConfigured,
-  emailMissing = [],
+  m365Ready,
+  m365Email,
+  m365Message,
 }: {
   projectId: string;
   visits: PcVisitRow[];
   canEdit: boolean;
-  emailConfigured: boolean;
-  emailMissing?: string[];
+  m365Ready: boolean;
+  m365Email: string | null;
+  m365Message: string | null;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
+  const [draftLink, setDraftLink] = useState<string | null>(null);
 
   function handleGenerate(visitId: string) {
     setError(null);
     setSuccess(null);
+    setDraftLink(null);
     startTransition(async () => {
       const result = await generateVisitReportFromPc(projectId, visitId);
       if (!result.ok) {
@@ -41,23 +45,25 @@ export function PcVisitReportsPanel({
     });
   }
 
-  function handleSendEmails(visitId: string) {
+  function handlePrepareDraft(visitId: string) {
     setError(null);
     setSuccess(null);
+    setDraftLink(null);
     startTransition(async () => {
-      const result = await sendVisitEmailsFromPc(projectId, visitId);
+      const result = await prepareVisitEmailDraftFromPc(projectId, visitId);
       if (!result.ok) {
         setError(result.error);
         return;
       }
-      let msg = `${result.sentCount} email(s) envoyé(s).`;
+      let msg = `Brouillon créé dans Outlook (${result.recipients.length} destinataire(s)).`;
       if (result.skipped.length > 0) {
         msg += ` Ignorés : ${result.skipped.join(" · ")}`;
       }
-      if (result.failures.length > 0) {
-        msg += ` Échecs : ${result.failures.join(" · ")}`;
-      }
       setSuccess(msg);
+      if (result.webLink) {
+        setDraftLink(result.webLink);
+        window.open(result.webLink, "_blank", "noopener,noreferrer");
+      }
       router.refresh();
     });
   }
@@ -73,20 +79,25 @@ export function PcVisitReportsPanel({
   return (
     <div className="space-y-4">
       <p className="text-sm text-slate-600">
-        Générez les rapports PDF et envoyez les emails aux entreprises depuis le PC.
-        Les emails ne partent plus automatiquement depuis la tablette.
+        Générez le rapport PDF, puis préparez un <strong>brouillon Outlook</strong> avec
+        les destinataires, l&apos;objet, le corps du message et le PDF en pièce jointe.
+        Rien n&apos;est envoyé automatiquement — vous validez l&apos;envoi depuis Outlook.
       </p>
 
-      {!emailConfigured && (
+      {!m365Ready && m365Message && (
         <div className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
-          <p className="font-semibold">Configuration email manquante sur le serveur</p>
-          <p className="mt-1">
-            Ajoutez ces variables dans Vercel :{" "}
-            <code className="rounded bg-amber-100 px-1">
-              {emailMissing.length > 0 ? emailMissing.join(", ") : "AZURE_* et NOTIFICATION_SENDER_EMAIL"}
-            </code>
-          </p>
+          <p className="font-semibold">Compte Microsoft 365 requis</p>
+          <p className="mt-1">{m365Message}</p>
+          <a href="/pc/profil" className="mt-2 inline-block font-semibold text-amber-800 underline">
+            Aller au profil →
+          </a>
         </div>
+      )}
+
+      {m365Ready && m365Email && (
+        <p className="text-sm text-emerald-700">
+          Brouillons créés dans la boîte <strong>{m365Email}</strong>
+        </p>
       )}
 
       <div className="overflow-x-auto rounded-xl border border-slate-200 bg-white shadow-sm">
@@ -98,7 +109,7 @@ export function PcVisitReportsPanel({
               <th className="px-4 py-3 font-semibold">Phase / Zone</th>
               <th className="px-4 py-3 font-semibold">Synthèse</th>
               <th className="px-4 py-3 font-semibold">Rapport</th>
-              <th className="px-4 py-3 font-semibold">Email</th>
+              <th className="px-4 py-3 font-semibold">Brouillon</th>
               {canEdit && <th className="px-4 py-3 font-semibold">Actions</th>}
             </tr>
           </thead>
@@ -139,10 +150,10 @@ export function PcVisitReportsPanel({
                   )}
                 </td>
                 <td className="px-4 py-3">
-                  {visit.emailSent ? (
-                    <span className="text-emerald-700">Envoyé</span>
+                  {visit.draftPrepared ? (
+                    <span className="text-emerald-700">Préparé</span>
                   ) : (
-                    <span className="text-slate-400">Non envoyé</span>
+                    <span className="text-slate-400">—</span>
                   )}
                 </td>
                 {canEdit && (
@@ -161,12 +172,12 @@ export function PcVisitReportsPanel({
                         disabled={
                           isPending ||
                           visit.status !== "completed" ||
-                          !emailConfigured
+                          !m365Ready
                         }
-                        onClick={() => handleSendEmails(visit.id)}
+                        onClick={() => handlePrepareDraft(visit.id)}
                         className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
                       >
-                        Envoyer emails
+                        Brouillon Outlook
                       </button>
                     </div>
                   </td>
@@ -178,7 +189,19 @@ export function PcVisitReportsPanel({
       </div>
 
       {success && (
-        <p className="rounded-lg bg-emerald-50 px-4 py-2 text-sm text-emerald-800">{success}</p>
+        <div className="rounded-lg bg-emerald-50 px-4 py-2 text-sm text-emerald-800">
+          <p>{success}</p>
+          {draftLink && (
+            <a
+              href={draftLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-1 inline-block font-semibold underline"
+            >
+              Ouvrir le brouillon dans Outlook
+            </a>
+          )}
+        </div>
       )}
       {error && (
         <p className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-700">{error}</p>

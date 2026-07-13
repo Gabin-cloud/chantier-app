@@ -6,7 +6,7 @@ import {
   SupabaseSetupNotice,
 } from "@/components/SupabaseSetupNotice";
 import {
-  getEmailSetupStatus,
+  getM365DraftReadiness,
   getPcVisitReports,
   getProjectControlBoard,
   syncControlBoardFromMarkers,
@@ -51,10 +51,10 @@ export default async function ControlesPage({ params, searchParams }: PageProps)
       }
     }
 
-    const [rows, visits, emailSetup] = await Promise.all([
+    const [rows, visits, m365] = await Promise.all([
       getProjectControlBoard(id).catch(() => []),
       getPcVisitReports(id).catch(() => []),
-      getEmailSetupStatus(),
+      getM365DraftReadiness(),
     ]);
 
     return (
@@ -92,7 +92,7 @@ export default async function ControlesPage({ params, searchParams }: PageProps)
                   : "text-slate-600 hover:text-slate-900"
               }`}
             >
-              Rapports &amp; emails
+              Rapports &amp; brouillons
             </Link>
           </div>
 
@@ -108,8 +108,9 @@ export default async function ControlesPage({ params, searchParams }: PageProps)
               projectId={id}
               visits={visits}
               canEdit={canEdit}
-              emailConfigured={emailSetup.configured}
-              emailMissing={emailSetup.missing}
+              m365Ready={m365.ready}
+              m365Email={m365.msEmail}
+              m365Message={m365.message}
             />
           )}
         </div>
