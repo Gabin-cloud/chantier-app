@@ -104,6 +104,41 @@ export type FinancialAuditLog = {
   created_at: string;
 };
 
+export type IncomingFileCategory =
+  | "facture"
+  | "devis"
+  | "administratif"
+  | "chantier"
+  | "autre";
+
+export const INCOMING_FILE_CATEGORY_LABELS: Record<IncomingFileCategory, string> = {
+  facture: "Facture",
+  devis: "Devis",
+  administratif: "Administratif",
+  chantier: "Chantier",
+  autre: "Autre",
+};
+
+export type IncomingFile = {
+  id: string;
+  project_id: string;
+  enterprise_id: string | null;
+  situation_id: string | null;
+  category: IncomingFileCategory;
+  file_path: string;
+  file_name: string;
+  source_email: string | null;
+  notes: string | null;
+  created_by: string | null;
+  created_at: string;
+};
+
+export type IncomingFileWithDetails = IncomingFile & {
+  enterprise_name: string | null;
+  lot_number: string | null;
+  situation_number: number | null;
+};
+
 export type SituationLine = {
   label: string;
   cumulative: number;

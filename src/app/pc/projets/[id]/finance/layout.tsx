@@ -1,5 +1,6 @@
 import type { ReactNode } from "react";
 import { FinanceNavBandeau } from "@/components/finance/FinanceNavBandeau";
+import { QuickFileSortFab } from "@/components/finance/QuickFileSortFab";
 import {
   DatabaseErrorNotice,
   SupabaseSetupNotice,
@@ -29,6 +30,7 @@ export default async function FinanceRootLayout({
       <div className="min-h-full bg-slate-50">
         <FinanceNavBandeau projectId={id} projectName={project.name} />
         {children}
+        <QuickFileSortFab projectId={id} />
       </div>
     );
   } catch (error) {

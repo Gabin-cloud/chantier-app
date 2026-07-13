@@ -12,12 +12,17 @@ import {
 type UserProfileSettingsProps = {
   profile: ProfileSettingsData;
   basePath: "pc" | "tablette";
+  outlookManifestUrl?: string;
 };
 
 const inputClass =
   "w-full rounded-xl border-2 border-zinc-200 bg-zinc-50 px-4 py-3 text-base text-zinc-800 placeholder:text-zinc-400 focus:border-zinc-400 focus:bg-white focus:outline-none";
 
-export function UserProfileSettings({ profile, basePath }: UserProfileSettingsProps) {
+export function UserProfileSettings({
+  profile,
+  basePath,
+  outlookManifestUrl,
+}: UserProfileSettingsProps) {
   const searchParams = useSearchParams();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -244,6 +249,26 @@ export function UserProfileSettings({ profile, basePath }: UserProfileSettingsPr
           )
         )}
       </section>
+
+      {basePath === "pc" && outlookManifestUrl && (
+        <section className={`rounded-2xl border ${cardBorder} bg-white p-5 shadow-sm`}>
+          <h2 className="text-lg font-semibold text-zinc-900">
+            Complément Outlook
+          </h2>
+          <p className="mt-1 text-sm text-zinc-500">
+            Ajoutez le bouton <strong>Classer</strong> dans la barre d&apos;outils
+            d&apos;Outlook pour trier les pièces jointes du mail ouvert.
+          </p>
+          <ol className="mt-3 list-decimal space-y-1 pl-5 text-sm text-zinc-600">
+            <li>Outlook → Fichier → Obtenir des compléments</li>
+            <li>Mes compléments → + Ajouter un complément personnalisé</li>
+            <li>Ajouter à partir d&apos;une URL → collez l&apos;URL ci-dessous</li>
+          </ol>
+          <div className="mt-3 rounded-xl bg-slate-50 px-3 py-2 text-xs text-slate-700 break-all">
+            {outlookManifestUrl}
+          </div>
+        </section>
+      )}
 
       <p className="text-sm">
         <Link href={`/${basePath}`} className={`font-medium ${accentText}`}>
