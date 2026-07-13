@@ -44,6 +44,13 @@ export const FILE_SORT_CATEGORIES: {
     color: "border-emerald-200 bg-emerald-50 text-emerald-800 hover:bg-emerald-100",
     requiresSituation: false,
   },
+  {
+    id: "plan_exe",
+    label: "Plan d'exé",
+    description: "Rangement SharePoint",
+    color: "border-violet-200 bg-violet-50 text-violet-800 hover:bg-violet-100",
+    requiresSituation: false,
+  },
 ];
 
 export function formatLotLabel(lot: QuickSortLot) {

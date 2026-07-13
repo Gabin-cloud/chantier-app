@@ -5,6 +5,7 @@ import { useState, useTransition } from "react";
 import { LocationManager } from "@/components/projects/LocationManager";
 import { PhaseManager } from "@/components/projects/PhaseManager";
 import { PlanManager } from "@/components/projects/PlanManager";
+import { SharePointPathSettings } from "@/components/projects/SharePointPathSettings";
 import { ProjectForm } from "@/components/projects/ProjectForm";
 import { ProjectMembersManager } from "@/components/auth/ProjectMembersManager";
 import type { ProjectMemberWithProfile } from "@/lib/actions/members";
@@ -133,6 +134,14 @@ export function ProjectSettings({
           initialData={initialData}
         />
       </section>
+
+      {canEditPlans && (
+        <SharePointPathSettings
+          project={project}
+          enterprises={enterprises}
+          canEdit={canEdit}
+        />
+      )}
 
       {canEditPlans && (
         <PlanManager

@@ -36,3 +36,20 @@ export function getAzureTenantId() {
 export function getNotificationSenderEmail() {
   return process.env.NOTIFICATION_SENDER_EMAIL ?? "";
 }
+
+/** Ex. https://danobat31770.sharepoint.com/sites/DANOBAT */
+export function getSharePointSiteUrl() {
+  return process.env.SHAREPOINT_SITE_URL ?? "";
+}
+
+/** Bibliothèque documentaire sous le site (ex. SERVEUR). */
+export function getSharePointDriveName() {
+  return process.env.SHAREPOINT_DRIVE_NAME ?? "SERVEUR";
+}
+
+export function isSharePointConfigured() {
+  return Boolean(
+    isMicrosoftOAuthConfigured() &&
+      getSharePointSiteUrl()
+  );
+}
