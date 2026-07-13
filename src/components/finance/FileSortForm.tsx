@@ -9,6 +9,13 @@ import {
 import type { IncomingFileCategory } from "@/lib/types/database";
 import { INCOMING_FILE_CATEGORY_LABELS } from "@/lib/types/database";
 
+function normalizeClassifyError(message: string): string {
+  if (message.includes("Server Components render")) {
+    return "Le fichier a probablement été classé. Actualisez la page pour vérifier.";
+  }
+  return message;
+}
+
 export const FILE_SORT_CATEGORIES: {
   id: IncomingFileCategory;
   label: string;
@@ -129,18 +136,19 @@ export function FileSortForm({
     if (notes) formData.append("notes", notes);
 
     startTransition(async () => {
-      try {
-        await classifyIncomingFile(projectId, formData);
-        const message = `« ${file.name} » classé en ${INCOMING_FILE_CATEGORY_LABELS[category]}.`;
-        setSuccess(message);
-        setCategory(null);
-        setEnterpriseId(null);
-        setSituationId(null);
-        onSuccess?.(message);
-        onClassified?.();
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Erreur lors du classement.");
+      const result = await classifyIncomingFile(projectId, formData);
+      if (!result.ok) {
+        setError(normalizeClassifyError(result.error));
+        return;
       }
+
+      const message = `« ${result.fileName} » classé en ${INCOMING_FILE_CATEGORY_LABELS[category]}.`;
+      setSuccess(message);
+      setCategory(null);
+      setEnterpriseId(null);
+      setSituationId(null);
+      onSuccess?.(message);
+      onClassified?.();
     });
   }
 

@@ -1,6 +1,5 @@
 "use server";
 
-import { revalidatePath } from "next/cache";
 import { requireFinanceAccess } from "@/lib/actions/members";
 import { canAccessFinance } from "@/lib/auth/permissions";
 import { requireUser } from "@/lib/auth/permissions";
@@ -20,6 +19,10 @@ import type {
 import { INCOMING_FILE_CATEGORY_LABELS } from "@/lib/types/database";
 
 const FINANCIAL_BUCKET = "financial-files";
+
+export type ClassifyIncomingFileResult =
+  | { ok: true; id: string; fileName: string; sharepointUrl?: string | null }
+  | { ok: false; error: string };
 
 export type FinanceProjectOption = {
   id: string;
@@ -64,21 +67,6 @@ export async function getFinanceProjects(): Promise<FinanceProjectOption[]> {
   }
 
   return projects.sort((a, b) => a.name.localeCompare(b.name, "fr"));
-}
-
-function financePaths(projectId: string) {
-  return [
-    `/pc/projets/${projectId}/finance`,
-    `/pc/projets/${projectId}/finance/tri`,
-    `/pc/projets/${projectId}/finance/situations`,
-    `/pc/projets/${projectId}/finance/recap-situations`,
-  ];
-}
-
-function revalidateFinance(projectId: string) {
-  for (const path of financePaths(projectId)) {
-    revalidatePath(path);
-  }
 }
 
 async function logAudit(
@@ -199,172 +187,186 @@ export async function getIncomingFiles(
 export async function classifyIncomingFile(
   projectId: string,
   formData: FormData
-) {
-  await requireFinanceAccess(projectId);
+): Promise<ClassifyIncomingFileResult> {
+  try {
+    await requireFinanceAccess(projectId);
 
-  const file = formData.get("file") as File | null;
-  const category = formData.get("category") as IncomingFileCategory | null;
-  const enterpriseId = (formData.get("enterpriseId") as string) || null;
-  const situationId = (formData.get("situationId") as string) || null;
-  const sourceEmail = (formData.get("sourceEmail") as string)?.trim() || null;
-  const notes = (formData.get("notes") as string)?.trim() || null;
+    const file = formData.get("file") as File | null;
+    const category = formData.get("category") as IncomingFileCategory | null;
+    const enterpriseId = (formData.get("enterpriseId") as string) || null;
+    const situationId = (formData.get("situationId") as string) || null;
+    const sourceEmail = (formData.get("sourceEmail") as string)?.trim() || null;
+    const notes = (formData.get("notes") as string)?.trim() || null;
 
-  if (!file || file.size === 0) {
-    throw new Error("Veuillez sélectionner un fichier.");
-  }
-  if (!category) {
-    throw new Error("Veuillez choisir une catégorie.");
-  }
-  if (!enterpriseId) {
-    throw new Error("Veuillez sélectionner un lot.");
-  }
-  if (category === "facture" && !situationId) {
-    throw new Error("Veuillez sélectionner une situation pour une facture.");
-  }
+    if (!file || file.size === 0) {
+      return { ok: false, error: "Veuillez sélectionner un fichier." };
+    }
+    if (!category) {
+      return { ok: false, error: "Veuillez choisir une catégorie." };
+    }
+    if (!enterpriseId) {
+      return { ok: false, error: "Veuillez sélectionner un lot." };
+    }
+    if (category === "facture" && !situationId) {
+      return { ok: false, error: "Veuillez sélectionner une situation pour une facture." };
+    }
 
-  const lowerName = file.name.toLowerCase();
-  const isPdf =
-    file.type === "application/pdf" || lowerName.endsWith(".pdf");
-  const isImage = file.type.startsWith("image/");
-  const isOffice =
-    lowerName.endsWith(".doc") ||
-    lowerName.endsWith(".docx") ||
-    lowerName.endsWith(".xls") ||
-    lowerName.endsWith(".xlsx");
-  const isPlanCad =
-    lowerName.endsWith(".dwg") ||
-    lowerName.endsWith(".dxf") ||
-    lowerName.endsWith(".ifc");
+    const lowerName = file.name.toLowerCase();
+    const isPdf =
+      file.type === "application/pdf" || lowerName.endsWith(".pdf");
+    const isImage = file.type.startsWith("image/");
+    const isOffice =
+      lowerName.endsWith(".doc") ||
+      lowerName.endsWith(".docx") ||
+      lowerName.endsWith(".xls") ||
+      lowerName.endsWith(".xlsx");
+    const isPlanCad =
+      lowerName.endsWith(".dwg") ||
+      lowerName.endsWith(".dxf") ||
+      lowerName.endsWith(".ifc");
 
-  if (category === "plan_exe") {
-    if (!isPdf && !isPlanCad) {
-      throw new Error(
-        "Plans d'exé : formats acceptés PDF, DWG, DXF, IFC."
+    if (category === "plan_exe") {
+      if (!isPdf && !isPlanCad) {
+        return {
+          ok: false,
+          error: "Plans d'exé : formats acceptés PDF, DWG, DXF, IFC.",
+        };
+      }
+    } else if (!isPdf && !isImage && !isOffice) {
+      return { ok: false, error: "Formats acceptés : PDF, images, Word, Excel." };
+    }
+
+    const supabase = await createClient();
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    let filePath: string;
+    let fileName = file.name;
+    let storageProvider: IncomingFile["storage_provider"] = "supabase";
+    let externalUrl: string | null = null;
+    let externalItemId: string | null = null;
+
+    if (category === "plan_exe") {
+      const { data: project, error: projectError } = await supabase
+        .from("projects")
+        .select("sharepoint_plan_exe_path")
+        .eq("id", projectId)
+        .single();
+
+      if (projectError) return { ok: false, error: projectError.message };
+      if (!project?.sharepoint_plan_exe_path?.trim()) {
+        return {
+          ok: false,
+          error:
+            "Chemin SharePoint des plans d'exé non configuré pour ce chantier. Renseignez-le dans Paramètres du projet.",
+        };
+      }
+
+      const { data: enterprise, error: enterpriseError } = await supabase
+        .from("enterprises")
+        .select("name, lot_number, designation, sharepoint_folder_name")
+        .eq("id", enterpriseId)
+        .eq("project_id", projectId)
+        .single();
+
+      if (enterpriseError || !enterprise) {
+        return { ok: false, error: "Lot / entreprise introuvable." };
+      }
+
+      const enterpriseFolder = buildEnterpriseFolderName(enterprise);
+      const folderPath = normalizeSharePointPath(
+        cleanSharePointRelativePath(project.sharepoint_plan_exe_path.trim()),
+        enterpriseFolder
       );
-    }
-  } else if (!isPdf && !isImage && !isOffice) {
-    throw new Error("Formats acceptés : PDF, images, Word, Excel.");
-  }
+      const targetFileName = buildPlanExeFileName(file.name);
 
-  const supabase = await createClient();
-  const buffer = Buffer.from(await file.arrayBuffer());
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  let filePath: string;
-  let fileName = file.name;
-  let storageProvider: IncomingFile["storage_provider"] = "supabase";
-  let externalUrl: string | null = null;
-  let externalItemId: string | null = null;
-
-  if (category === "plan_exe") {
-    const { data: project, error: projectError } = await supabase
-      .from("projects")
-      .select("sharepoint_plan_exe_path")
-      .eq("id", projectId)
-      .single();
-
-    if (projectError) throw new Error(projectError.message);
-    if (!project?.sharepoint_plan_exe_path?.trim()) {
-      throw new Error(
-        "Chemin SharePoint des plans d'exé non configuré pour ce chantier. Renseignez-le dans Paramètres du projet."
-      );
-    }
-
-    const { data: enterprise, error: enterpriseError } = await supabase
-      .from("enterprises")
-      .select("name, lot_number, designation, sharepoint_folder_name")
-      .eq("id", enterpriseId)
-      .eq("project_id", projectId)
-      .single();
-
-    if (enterpriseError || !enterprise) {
-      throw new Error("Lot / entreprise introuvable.");
-    }
-
-    const enterpriseFolder = buildEnterpriseFolderName(enterprise);
-    const folderPath = normalizeSharePointPath(
-      cleanSharePointRelativePath(project.sharepoint_plan_exe_path.trim()),
-      enterpriseFolder
-    );
-    const targetFileName = buildPlanExeFileName(file.name);
-
-    const upload = await uploadToSharePoint({
-      folderPath,
-      fileName: targetFileName,
-      content: buffer,
-      contentType: file.type || "application/octet-stream",
-      userId: user?.id ?? undefined,
-    });
-
-    filePath = upload.relativePath;
-    fileName = upload.fileName;
-    storageProvider = "sharepoint";
-    externalUrl = upload.webUrl;
-    externalItemId = upload.itemId;
-  } else {
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-    filePath = `${projectId}/incoming/${category}/${enterpriseId}/${Date.now()}_${safeName}`;
-
-    const { error: uploadError } = await supabase.storage
-      .from(FINANCIAL_BUCKET)
-      .upload(filePath, buffer, {
+      const upload = await uploadToSharePoint({
+        folderPath,
+        fileName: targetFileName,
+        content: buffer,
         contentType: file.type || "application/octet-stream",
-        upsert: false,
+        userId: user?.id ?? undefined,
       });
 
-    if (uploadError) throw new Error(uploadError.message);
-  }
+      filePath = upload.relativePath;
+      fileName = upload.fileName;
+      storageProvider = "sharepoint";
+      externalUrl = upload.webUrl;
+      externalItemId = upload.itemId;
+    } else {
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      filePath = `${projectId}/incoming/${category}/${enterpriseId}/${Date.now()}_${safeName}`;
 
-  const { data: inserted, error: insertError } = await supabase
-    .from("incoming_files")
-    .insert({
-      project_id: projectId,
-      enterprise_id: enterpriseId,
-      situation_id: situationId,
-      category,
-      file_path: filePath,
-      file_name: fileName,
-      storage_provider: storageProvider,
-      external_url: externalUrl,
-      external_item_id: externalItemId,
-      source_email: sourceEmail,
-      notes,
-      created_by: user?.id ?? null,
-    })
-    .select("id")
-    .single();
+      const { error: uploadError } = await supabase.storage
+        .from(FINANCIAL_BUCKET)
+        .upload(filePath, buffer, {
+          contentType: file.type || "application/octet-stream",
+          upsert: false,
+        });
 
-  if (insertError) throw new Error(insertError.message);
+      if (uploadError) return { ok: false, error: uploadError.message };
+    }
 
-  if (category === "facture" && situationId) {
-    const { error: situationError } = await supabase
-      .from("financial_situations")
-      .update({
-        invoice_file_path: filePath,
-        invoice_file_name: file.name,
+    const { data: inserted, error: insertError } = await supabase
+      .from("incoming_files")
+      .insert({
+        project_id: projectId,
+        enterprise_id: enterpriseId,
+        situation_id: situationId,
+        category,
+        file_path: filePath,
+        file_name: fileName,
+        storage_provider: storageProvider,
+        external_url: externalUrl,
+        external_item_id: externalItemId,
+        source_email: sourceEmail,
+        notes,
+        created_by: user?.id ?? null,
       })
-      .eq("id", situationId)
-      .eq("enterprise_id", enterpriseId);
+      .select("id")
+      .single();
 
-    if (situationError) throw new Error(situationError.message);
+    if (insertError) return { ok: false, error: insertError.message };
+
+    if (category === "facture" && situationId) {
+      const { error: situationError } = await supabase
+        .from("financial_situations")
+        .update({
+          invoice_file_path: filePath,
+          invoice_file_name: file.name,
+        })
+        .eq("id", situationId)
+        .eq("enterprise_id", enterpriseId);
+
+      if (situationError) return { ok: false, error: situationError.message };
+    }
+
+    const categoryLabel = INCOMING_FILE_CATEGORY_LABELS[category];
+    await logAudit(
+      projectId,
+      enterpriseId,
+      "incoming_file",
+      inserted.id,
+      "create",
+      category === "plan_exe"
+        ? `Plan d'exé rangé sur SharePoint (${categoryLabel}) : ${fileName}`
+        : `Fichier classé (${categoryLabel}) : ${fileName}`
+    );
+
+    return {
+      ok: true,
+      id: inserted.id,
+      fileName,
+      sharepointUrl: externalUrl,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Erreur lors du classement.",
+    };
   }
-
-  const categoryLabel = INCOMING_FILE_CATEGORY_LABELS[category];
-  await logAudit(
-    projectId,
-    enterpriseId,
-    "incoming_file",
-    inserted.id,
-    "create",
-    category === "plan_exe"
-      ? `Plan d'exé rangé sur SharePoint (${categoryLabel}) : ${fileName}`
-      : `Fichier classé (${categoryLabel}) : ${fileName}`
-  );
-
-  revalidateFinance(projectId);
-  return inserted.id;
 }
 
 export async function getIncomingFileUrl(filePath: string) {
