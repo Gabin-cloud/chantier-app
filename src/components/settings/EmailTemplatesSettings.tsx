@@ -1,6 +1,7 @@
 "use client";
 
 import { useRef, useState, useTransition } from "react";
+import { useRouter } from "next/navigation";
 import type { EmailTemplatesSettingsData } from "@/lib/actions/email-templates";
 import { updateVisitReportEmailTemplate } from "@/lib/actions/email-templates";
 import { RichTextEditor, type RichTextEditorHandle } from "@/components/ui/RichTextEditor";
@@ -9,6 +10,7 @@ const inputClass =
   "w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200";
 
 export function EmailTemplatesSettings({ data }: { data: EmailTemplatesSettingsData }) {
+  const router = useRouter();
   const [subjectTemplate, setSubjectTemplate] = useState(data.visitReport.subjectTemplate);
   const [bodyTemplate, setBodyTemplate] = useState(data.visitReport.bodyTemplate);
   const [defaultCc, setDefaultCc] = useState(data.visitReport.defaultCc);
@@ -39,23 +41,32 @@ export function EmailTemplatesSettings({ data }: { data: EmailTemplatesSettingsD
     }
 
     bodyEditorRef.current?.insertToken(token);
+    const latestHtml = bodyEditorRef.current?.getHtml();
+    if (latestHtml !== undefined) {
+      setBodyTemplate(latestHtml);
+    }
   }
 
   function handleSubmit(event: React.FormEvent) {
     event.preventDefault();
     setError(null);
     setSuccess(null);
+
+    const latestBody = bodyEditorRef.current?.getHtml() ?? bodyTemplate;
+
     startTransition(async () => {
       const result = await updateVisitReportEmailTemplate({
         subjectTemplate,
-        bodyTemplate,
+        bodyTemplate: latestBody,
         defaultCc,
       });
       if (!result.ok) {
         setError(result.error);
         return;
       }
+      setBodyTemplate(latestBody);
       setSuccess("Modèle enregistré.");
+      router.refresh();
     });
   }
 
@@ -70,7 +81,8 @@ export function EmailTemplatesSettings({ data }: { data: EmailTemplatesSettingsD
 
         {!data.canEdit && (
           <p className="mt-3 rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
-            Lecture seule. Seul un super administrateur peut modifier les mails type.
+            Lecture seule. Seuls les administrateurs ou gestionnaires de projet peuvent modifier
+            les mails type.
           </p>
         )}
 

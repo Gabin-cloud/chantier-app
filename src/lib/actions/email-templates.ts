@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getProfile, requireUser } from "@/lib/auth/permissions";
 import { createClient } from "@/lib/supabase/server";
+import { isMeaningfulHtml } from "@/lib/email/html-content";
 import {
   DEFAULT_VISIT_EMAIL_BODY,
   DEFAULT_VISIT_EMAIL_SUBJECT,
@@ -25,17 +26,31 @@ export type EmailTemplatesSettingsData = {
   mergeTags: typeof VISIT_EMAIL_MERGE_TAGS;
 };
 
-async function requireTemplateEditor() {
+async function canManageEmailTemplates(userId: string): Promise<boolean> {
   const profile = await getProfile();
-  if (profile.global_role !== "super_admin") {
-    throw new Error("Seul un super administrateur peut modifier les mails type.");
+  if (profile.global_role === "super_admin") {
+    return true;
   }
-  return profile;
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("project_members")
+    .select("role")
+    .eq("user_id", userId)
+    .in("role", ["admin", "gestionnaire"])
+    .limit(1);
+
+  if (error) {
+    console.error("[canManageEmailTemplates]", error.message);
+    return false;
+  }
+
+  return (data?.length ?? 0) > 0;
 }
 
 export async function getEmailTemplatesSettings(): Promise<EmailTemplatesSettingsData> {
-  await requireUser();
-  const profile = await getProfile();
+  const user = await requireUser();
+  const canEdit = await canManageEmailTemplates(user.id);
   const supabase = await createClient();
 
   const { data, error } = await supabase
@@ -45,7 +60,40 @@ export async function getEmailTemplatesSettings(): Promise<EmailTemplatesSetting
     .maybeSingle();
 
   if (error) {
-    throw new Error(error.message);
+    const fallback = await supabase
+      .from("email_templates")
+      .select("id, slug, name, subject_template, body_template, updated_at")
+      .eq("slug", "visit_report")
+      .maybeSingle();
+
+    if (fallback.error) {
+      throw new Error(fallback.error.message);
+    }
+
+    const row = fallback.data;
+    return {
+      canEdit,
+      visitReport: row
+        ? {
+            id: row.id,
+            slug: row.slug,
+            name: row.name,
+            subjectTemplate: row.subject_template,
+            bodyTemplate: row.body_template,
+            defaultCc: "",
+            updatedAt: row.updated_at,
+          }
+        : {
+            id: "default",
+            slug: "visit_report",
+            name: "Compte-rendu de visite",
+            subjectTemplate: DEFAULT_VISIT_EMAIL_SUBJECT,
+            bodyTemplate: DEFAULT_VISIT_EMAIL_BODY,
+            defaultCc: "",
+            updatedAt: new Date().toISOString(),
+          },
+      mergeTags: VISIT_EMAIL_MERGE_TAGS,
+    };
   }
 
   const visitReport: EmailTemplateData = data
@@ -69,7 +117,7 @@ export async function getEmailTemplatesSettings(): Promise<EmailTemplatesSetting
       };
 
   return {
-    canEdit: profile.global_role === "super_admin",
+    canEdit,
     visitReport,
     mergeTags: VISIT_EMAIL_MERGE_TAGS,
   };
@@ -88,9 +136,23 @@ export async function getVisitReportEmailTemplate(): Promise<{
     .maybeSingle();
 
   if (error || !data) {
+    const fallback = await supabase
+      .from("email_templates")
+      .select("subject_template, body_template")
+      .eq("slug", "visit_report")
+      .maybeSingle();
+
+    if (fallback.error || !fallback.data) {
+      return {
+        subjectTemplate: DEFAULT_VISIT_EMAIL_SUBJECT,
+        bodyTemplate: DEFAULT_VISIT_EMAIL_BODY,
+        defaultCc: "",
+      };
+    }
+
     return {
-      subjectTemplate: DEFAULT_VISIT_EMAIL_SUBJECT,
-      bodyTemplate: DEFAULT_VISIT_EMAIL_BODY,
+      subjectTemplate: fallback.data.subject_template,
+      bodyTemplate: fallback.data.body_template,
       defaultCc: "",
     };
   }
@@ -108,29 +170,47 @@ export async function updateVisitReportEmailTemplate(input: {
   defaultCc?: string;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
-    await requireTemplateEditor();
     const user = await requireUser();
-    const supabase = await createClient();
+    const allowed = await canManageEmailTemplates(user.id);
+    if (!allowed) {
+      return {
+        ok: false,
+        error:
+          "Droits insuffisants. Seuls les administrateurs ou gestionnaires peuvent modifier le mail type.",
+      };
+    }
 
+    const supabase = await createClient();
     const subjectTemplate = input.subjectTemplate.trim();
     const bodyTemplate = input.bodyTemplate.trim();
     const defaultCc = input.defaultCc?.trim() ?? "";
 
-    if (!subjectTemplate || !bodyTemplate) {
-      return { ok: false, error: "L'objet et le corps du mail sont obligatoires." };
+    if (!subjectTemplate) {
+      return { ok: false, error: "L'objet du mail est obligatoire." };
     }
 
-    const { error } = await supabase.from("email_templates").upsert(
-      {
-        slug: "visit_report",
-        name: "Compte-rendu de visite",
-        subject_template: subjectTemplate,
-        body_template: bodyTemplate,
-        default_cc: defaultCc || null,
-        updated_by: user.id,
-      },
-      { onConflict: "slug" }
-    );
+    if (!isMeaningfulHtml(bodyTemplate)) {
+      return { ok: false, error: "Le corps du mail est obligatoire." };
+    }
+
+    const row = {
+      slug: "visit_report",
+      name: "Compte-rendu de visite",
+      subject_template: subjectTemplate,
+      body_template: bodyTemplate,
+      default_cc: defaultCc || null,
+      updated_by: user.id,
+    };
+
+    const { data: existing } = await supabase
+      .from("email_templates")
+      .select("id")
+      .eq("slug", "visit_report")
+      .maybeSingle();
+
+    const { error } = existing
+      ? await supabase.from("email_templates").update(row).eq("slug", "visit_report")
+      : await supabase.from("email_templates").insert(row);
 
     if (error) {
       return { ok: false, error: error.message };
