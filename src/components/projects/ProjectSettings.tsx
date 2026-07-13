@@ -8,6 +8,8 @@ import { PlanManager } from "@/components/projects/PlanManager";
 import { SharePointPathSettings } from "@/components/projects/SharePointPathSettings";
 import { ProjectForm } from "@/components/projects/ProjectForm";
 import { ProjectMembersManager } from "@/components/auth/ProjectMembersManager";
+import { EnterpriseAccessManager } from "@/components/entreprise/EnterpriseAccessManager";
+import type { EnterpriseAccessWithProfile } from "@/lib/actions/enterprise-access";
 import type { ProjectMemberWithProfile } from "@/lib/actions/members";
 import {
   addEnterprise,
@@ -28,6 +30,7 @@ type ProjectSettingsProps = {
   checklistItems?: PhaseChecklistItem[];
   locations: ProjectLocation[];
   members: ProjectMemberWithProfile[];
+  enterpriseAccess?: EnterpriseAccessWithProfile[];
   basePath: "tablette" | "pc";
   canEdit: boolean;
   canManageMembers: boolean;
@@ -47,6 +50,7 @@ export function ProjectSettings({
   checklistItems = [],
   locations,
   members,
+  enterpriseAccess = [],
   basePath,
   canEdit,
   canManageMembers,
@@ -118,9 +122,18 @@ export function ProjectSettings({
     <div className="space-y-6">
       <ProjectMembersManager
         projectId={project.id}
-        members={members}
+        members={members.filter((m) => m.role !== "entreprise")}
         canManage={canManageMembers}
       />
+
+      {basePath === "pc" && (canEdit || canManageMembers) && (
+        <EnterpriseAccessManager
+          projectId={project.id}
+          enterprises={enterprises}
+          accessList={enterpriseAccess}
+          canManage={canManageMembers || canEdit}
+        />
+      )}
 
       {canEdit && (
       <>

@@ -37,11 +37,10 @@ const sections = [
     color: "bg-violet-600 text-white",
   },
   {
-    href: "#",
+    href: "sous-traitance",
     label: "Sous-traitance",
-    description: "Bientôt disponible",
-    color: "bg-slate-200 text-slate-500 cursor-not-allowed",
-    disabled: true,
+    description: "Demandes déposées par les entreprises sur le chantier",
+    color: "bg-amber-600 text-white",
   },
   {
     href: "#",

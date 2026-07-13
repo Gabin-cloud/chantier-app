@@ -8,7 +8,7 @@ import { signOut } from "@/lib/actions/auth";
 type UserMenuProps = {
   email: string;
   fullName?: string | null;
-  basePath: "pc" | "tablette";
+  basePath: "pc" | "tablette" | "entreprise";
 };
 
 export function UserMenu({ email, fullName, basePath }: UserMenuProps) {
@@ -25,7 +25,9 @@ export function UserMenu({ email, fullName, basePath }: UserMenuProps) {
   const profileLinkClass =
     basePath === "pc"
       ? "text-slate-600 hover:bg-slate-100"
-      : "text-emerald-700 hover:bg-emerald-50";
+      : basePath === "entreprise"
+        ? "text-amber-700 hover:bg-amber-50"
+        : "text-emerald-700 hover:bg-emerald-50";
 
   return (
     <div className="flex items-center justify-between gap-4 rounded-xl bg-white px-4 py-3 shadow-sm">

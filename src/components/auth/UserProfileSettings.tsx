@@ -12,7 +12,7 @@ import { RichTextEditor } from "@/components/ui/RichTextEditor";
 
 type UserProfileSettingsProps = {
   profile: ProfileSettingsData;
-  basePath: "pc" | "tablette";
+  basePath: "pc" | "tablette" | "entreprise";
   outlookManifestUrl?: string;
 };
 
@@ -87,13 +87,23 @@ export function UserProfileSettings({
   }
 
   const accentText =
-    basePath === "pc" ? "text-slate-600 hover:text-slate-800" : "text-emerald-700 hover:text-emerald-900";
+    basePath === "pc"
+      ? "text-slate-600 hover:text-slate-800"
+      : basePath === "entreprise"
+        ? "text-amber-700 hover:text-amber-900"
+        : "text-emerald-700 hover:text-emerald-900";
   const accentButton =
     basePath === "pc"
       ? "bg-slate-900 text-white hover:bg-slate-800"
-      : "bg-emerald-700 text-white hover:bg-emerald-800";
+      : basePath === "entreprise"
+        ? "bg-amber-600 text-white hover:bg-amber-500"
+        : "bg-emerald-700 text-white hover:bg-emerald-800";
   const cardBorder =
-    basePath === "pc" ? "border-slate-200" : "border-zinc-200";
+    basePath === "pc"
+      ? "border-slate-200"
+      : basePath === "entreprise"
+        ? "border-amber-200"
+        : "border-zinc-200";
 
   const connectUrl = `/api/auth/microsoft?returnTo=/${basePath}/profil`;
   const sharePointConsentUrl = `/api/auth/microsoft?consent=1&returnTo=/${basePath}/profil`;

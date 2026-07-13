@@ -7,7 +7,7 @@ export default function Home() {
         Application de contrôle de chantier
       </h1>
       <p className="text-zinc-600">Choisissez une interface :</p>
-      <div className="flex flex-col gap-4 sm:flex-row">
+      <div className="flex flex-col gap-4 sm:flex-row sm:flex-wrap sm:justify-center">
         <Link
           href="/pc"
           className="rounded-lg bg-slate-800 px-6 py-3 text-center font-medium text-white hover:bg-slate-700"
@@ -19,6 +19,12 @@ export default function Home() {
           className="rounded-lg bg-emerald-600 px-6 py-3 text-center font-medium text-white hover:bg-emerald-500"
         >
           Interface Tablette
+        </Link>
+        <Link
+          href="/entreprise"
+          className="rounded-lg bg-amber-600 px-6 py-3 text-center font-medium text-white hover:bg-amber-500"
+        >
+          Interface Entreprise
         </Link>
       </div>
     </main>

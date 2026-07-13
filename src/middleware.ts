@@ -42,7 +42,9 @@ export async function middleware(request: NextRequest) {
   }
 
   const isProtected =
-    pathname.startsWith("/pc") || pathname.startsWith("/tablette");
+    pathname.startsWith("/pc") ||
+    pathname.startsWith("/tablette") ||
+    pathname.startsWith("/entreprise");
   const isAuthPage = pathname.startsWith("/login");
 
   if (!user && isProtected) {
@@ -61,5 +63,5 @@ export async function middleware(request: NextRequest) {
 }
 
 export const config = {
-  matcher: ["/", "/pc/:path*", "/tablette/:path*", "/login"],
+  matcher: ["/", "/pc/:path*", "/tablette/:path*", "/entreprise/:path*", "/login"],
 };

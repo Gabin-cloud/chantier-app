@@ -7,7 +7,7 @@ type AuthResult = { error?: string };
 
 function safeRedirectPath(value: FormDataEntryValue | null) {
   const path = typeof value === "string" ? value.trim() : "";
-  if (path.startsWith("/pc") || path.startsWith("/tablette") || path === "/") {
+  if (path.startsWith("/pc") || path.startsWith("/tablette") || path.startsWith("/entreprise") || path === "/") {
     return path;
   }
   return "/";

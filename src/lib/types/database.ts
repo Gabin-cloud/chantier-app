@@ -512,7 +512,8 @@ export type ProjectRole =
   | "gestionnaire"
   | "financier"
   | "terrain"
-  | "lecture";
+  | "lecture"
+  | "entreprise";
 
 export type Profile = {
   id: string;
@@ -541,6 +542,7 @@ export type ProjectMember = {
   project_id: string;
   user_id: string;
   role: ProjectRole;
+  enterprise_id: string | null;
   created_at: string;
 };
 
@@ -550,6 +552,7 @@ export const PROJECT_ROLE_LABELS: Record<ProjectRole, string> = {
   financier: "Financier",
   terrain: "Terrain",
   lecture: "Lecture seule",
+  entreprise: "Entreprise (sous-traitant)",
 };
 
 export const PROJECT_ROLE_DESCRIPTIONS: Record<ProjectRole, string> = {
@@ -558,4 +561,5 @@ export const PROJECT_ROLE_DESCRIPTIONS: Record<ProjectRole, string> = {
   financier: "Accès au suivi financier uniquement",
   terrain: "Visites, plans et checklist sur le terrain",
   lecture: "Consultation sans modification",
+  entreprise: "Dépôt de demandes de sous-traitance sur le chantier partagé",
 };
