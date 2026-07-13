@@ -1,22 +1,33 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireProjectAccess, requireProjectRoles } from "@/lib/auth/permissions";
+import { requireProjectAccess, requireProjectRoles, requireUser } from "@/lib/auth/permissions";
 import { createClient } from "@/lib/supabase/server";
 import { generateAndStoreVisitReport } from "@/lib/actions/visit-reports";
-import { sendVisitCompletedEmail } from "@/lib/notifications/visit-completed";
 import {
-  getNotificationSenderEmail,
-} from "@/lib/microsoft/config";
+  buildVisitEmailHtml,
+  buildVisitEmailSubject,
+} from "@/lib/notifications/visit-completed";
+import { createUserMailDraft } from "@/lib/microsoft/graph";
+import { getM365ConnectionPublic } from "@/lib/microsoft/m365-store";
+import { isMicrosoftOAuthConfigured } from "@/lib/microsoft/config";
+import { isAdminClientConfigured } from "@/lib/supabase/admin";
+import { isTokenEncryptionConfigured } from "@/lib/microsoft/crypto";
 import type { ControlResult, VisitControlSummary } from "@/lib/types/database";
 
 export type ActionResult<T = void> =
   | ({ ok: true } & (T extends void ? object : T))
   | { ok: false; error: string };
 
-export type SendEmailsResult =
-  | { ok: true; sentCount: number; skipped: string[]; failures: string[] }
-  | { ok: false; error: string; failures?: string[] };
+export type PrepareDraftResult =
+  | {
+      ok: true;
+      webLink: string | null;
+      subject: string;
+      recipients: string[];
+      skipped: string[];
+    }
+  | { ok: false; error: string };
 
 async function safeLogVisitEmail(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -24,7 +35,7 @@ async function safeLogVisitEmail(
     visit_id: string;
     recipient_email: string;
     enterprise_name: string | null;
-    status: "sent" | "failed" | "skipped";
+    status: "sent" | "failed" | "skipped" | "draft";
     error_message?: string | null;
   }
 ) {
@@ -320,7 +331,7 @@ export type PcVisitRow = {
   phaseName: string | null;
   zoneName: string | null;
   reportUrl: string | null;
-  emailSent: boolean;
+  draftPrepared: boolean;
 };
 
 export async function getPcVisitReports(projectId: string): Promise<PcVisitRow[]> {
@@ -352,7 +363,7 @@ export async function getPcVisitReports(projectId: string): Promise<PcVisitRow[]
         .from("visit_email_logs")
         .select("visit_id, status")
         .in("visit_id", visitIds)
-        .eq("status", "sent"),
+        .in("status", ["sent", "draft"]),
     ]);
 
   const emailLogs = emailLogsResult.error ? [] : (emailLogsResult.data ?? []);
@@ -360,8 +371,8 @@ export async function getPcVisitReports(projectId: string): Promise<PcVisitRow[]
   const phaseMap = new Map((phases ?? []).map((p) => [p.id, p.name]));
   const zoneMap = new Map((zones ?? []).map((z) => [z.id, z.name]));
   const reportMap = new Map((reports ?? []).map((r) => [r.visit_id, r.file_path]));
-  const emailedVisits = new Set(
-    (emailLogs ?? []).map((l) => l.visit_id)
+  const draftVisits = new Set(
+    (emailLogs ?? []).filter((l) => l.status === "draft").map((l) => l.visit_id)
   );
 
   return visits.map((visit) => {
@@ -382,21 +393,50 @@ export async function getPcVisitReports(projectId: string): Promise<PcVisitRow[]
       phaseName: visit.phase_id ? phaseMap.get(visit.phase_id) ?? null : null,
       zoneName: visit.zone_id ? zoneMap.get(visit.zone_id) ?? null : null,
       reportUrl,
-      emailSent: emailedVisits.has(visit.id),
+      draftPrepared: draftVisits.has(visit.id),
     };
   });
 }
 
-export async function getEmailSetupStatus(): Promise<{
-  configured: boolean;
-  missing: string[];
+export async function getM365DraftReadiness(): Promise<{
+  ready: boolean;
+  msEmail: string | null;
+  message: string | null;
 }> {
-  const missing: string[] = [];
-  if (!process.env.AZURE_CLIENT_ID) missing.push("AZURE_CLIENT_ID");
-  if (!process.env.AZURE_CLIENT_SECRET) missing.push("AZURE_CLIENT_SECRET");
-  if (!process.env.AZURE_TENANT_ID) missing.push("AZURE_TENANT_ID");
-  if (!getNotificationSenderEmail()) missing.push("NOTIFICATION_SENDER_EMAIL");
-  return { configured: missing.length === 0, missing };
+  if (!isMicrosoftOAuthConfigured()) {
+    return {
+      ready: false,
+      msEmail: null,
+      message: "Microsoft 365 n'est pas configuré sur le serveur (variables Azure).",
+    };
+  }
+
+  if (!isAdminClientConfigured() || !isTokenEncryptionConfigured()) {
+    return {
+      ready: false,
+      msEmail: null,
+      message: "Stockage des tokens M365 non configuré (SUPABASE_SERVICE_ROLE_KEY, TOKEN_ENCRYPTION_KEY).",
+    };
+  }
+
+  try {
+    const user = await requireUser();
+    const connection = await getM365ConnectionPublic(user.id);
+    if (!connection) {
+      return {
+        ready: false,
+        msEmail: null,
+        message: "Connectez votre compte Microsoft 365 dans Profil → Microsoft 365.",
+      };
+    }
+    return { ready: true, msEmail: connection.msEmail, message: null };
+  } catch {
+    return {
+      ready: false,
+      msEmail: null,
+      message: "Connectez-vous et liez votre compte Microsoft 365 dans Profil.",
+    };
+  }
 }
 
 export async function generateVisitReportFromPc(
@@ -421,10 +461,10 @@ export async function generateVisitReportFromPc(
   }
 }
 
-export async function sendVisitEmailsFromPc(
+export async function prepareVisitEmailDraftFromPc(
   projectId: string,
   visitId: string
-): Promise<SendEmailsResult> {
+): Promise<PrepareDraftResult> {
   try {
     await requireProjectRoles(projectId, ["admin", "gestionnaire"]);
   } catch (err) {
@@ -434,14 +474,12 @@ export async function sendVisitEmailsFromPc(
     };
   }
 
-  const setup = await getEmailSetupStatus();
-  if (!setup.configured) {
-    return {
-      ok: false,
-      error: `Configuration email incomplète sur le serveur. Variables manquantes : ${setup.missing.join(", ")}. Ajoutez-les dans Vercel (Settings → Environment Variables).`,
-    };
+  const m365 = await getM365DraftReadiness();
+  if (!m365.ready) {
+    return { ok: false, error: m365.message ?? "Microsoft 365 non connecté." };
   }
 
+  const user = await requireUser();
   const supabase = await createClient();
 
   const { data: visit, error: visitError } = await supabase
@@ -457,7 +495,7 @@ export async function sendVisitEmailsFromPc(
   if (visit.status !== "completed") {
     return {
       ok: false,
-      error: "La visite doit être terminée sur la tablette avant d'envoyer les emails.",
+      error: "La visite doit être terminée sur la tablette avant de préparer le brouillon.",
     };
   }
 
@@ -467,17 +505,43 @@ export async function sendVisitEmailsFromPc(
     .eq("id", projectId)
     .single();
 
-  let reportUrl: string | null = null;
+  let reportPath: string | null = null;
   const { data: report } = await supabase
     .from("visit_reports")
     .select("file_path")
     .eq("visit_id", visitId)
     .maybeSingle();
 
-  if (report?.file_path) {
-    const { data } = supabase.storage.from("visit-photos").getPublicUrl(report.file_path);
-    reportUrl = data.publicUrl;
+  reportPath = report?.file_path ?? null;
+
+  if (!reportPath) {
+    try {
+      const generated = await generateAndStoreVisitReport(projectId, visitId);
+      reportPath = generated.filePath;
+    } catch (err) {
+      return {
+        ok: false,
+        error:
+          err instanceof Error
+            ? err.message
+            : "Générez d'abord le rapport PDF avant le brouillon.",
+      };
+    }
   }
+
+  const { data: pdfFile, error: downloadError } = await supabase.storage
+    .from("visit-photos")
+    .download(reportPath);
+
+  if (downloadError || !pdfFile) {
+    return {
+      ok: false,
+      error: downloadError?.message ?? "Impossible de télécharger le rapport PDF.",
+    };
+  }
+
+  const pdfBase64 = Buffer.from(await pdfFile.arrayBuffer()).toString("base64");
+  const pdfFileName = `Rapport-${(visit.title ?? "visite").replace(/[^\w\-àâäéèêëïîôùûüç ]/gi, "").trim() || visitId}.pdf`;
 
   const { data: visitMarkers } = await supabase
     .from("markers")
@@ -496,7 +560,7 @@ export async function sendVisitEmailsFromPc(
     return {
       ok: false,
       error:
-        "Aucune entreprise n'est associée aux réserves de cette visite. Assignez une entreprise sur les pastilles avant d'envoyer.",
+        "Aucune entreprise associée aux réserves. Assignez une entreprise sur les pastilles.",
     };
   }
 
@@ -504,6 +568,28 @@ export async function sendVisitEmailsFromPc(
     .from("enterprises")
     .select("id, name, contact_email, email_chantier, contact_name")
     .in("id", enterpriseIds);
+
+  const recipients: { email: string; name: string }[] = [];
+  const skipped: string[] = [];
+
+  for (const enterprise of enterprises ?? []) {
+    const email = enterprise.email_chantier || enterprise.contact_email;
+    if (!email) {
+      skipped.push(`${enterprise.name} : pas d'email`);
+      continue;
+    }
+    recipients.push({
+      email,
+      name: enterprise.contact_name || enterprise.name,
+    });
+  }
+
+  if (!recipients.length) {
+    return {
+      ok: false,
+      error: `Aucun destinataire avec email. ${skipped.join(" · ")}`,
+    };
+  }
 
   let phaseName: string | null = null;
   if (visit.phase_id) {
@@ -539,74 +625,58 @@ export async function sendVisitEmailsFromPc(
     (m) => m.control_result === "ko" || m.control_result === "partial"
   ).length;
 
-  let sentCount = 0;
-  const skipped: string[] = [];
-  const failures: string[] = [];
+  const draftInput = {
+    projectName: project?.name ?? "Chantier",
+    visitTitle: visit.title ?? "Visite",
+    visitDate: visit.visit_date,
+    phaseName,
+    zoneName,
+    controlLabel,
+    controlSummary: (visit.control_summary as VisitControlSummary) ?? "pending",
+    recipients,
+    markerCount: visitMarkers?.length ?? 0,
+    nonConformCount,
+  };
 
-  for (const enterprise of enterprises ?? []) {
-    const email = enterprise.email_chantier || enterprise.contact_email;
-    if (!email) {
-      skipped.push(`${enterprise.name} : pas d'email renseigné`);
+  try {
+    const draft = await createUserMailDraft(user.id, {
+      subject: buildVisitEmailSubject(draftInput),
+      htmlBody: buildVisitEmailHtml(draftInput),
+      to: recipients,
+      attachments: [
+        {
+          name: pdfFileName,
+          contentType: "application/pdf",
+          contentBytes: pdfBase64,
+        },
+      ],
+    });
+
+    for (const recipient of recipients) {
       await safeLogVisitEmail(supabase, {
         visit_id: visitId,
-        recipient_email: "—",
-        enterprise_name: enterprise.name,
-        status: "skipped",
-        error_message: "Pas d'email renseigné",
+        recipient_email: recipient.email,
+        enterprise_name: recipient.name,
+        status: "draft",
       });
-      continue;
     }
 
-    try {
-      await sendVisitCompletedEmail({
-        projectName: project?.name ?? "Chantier",
-        visitTitle: visit.title ?? "Visite",
-        visitDate: visit.visit_date,
-        phaseName,
-        zoneName,
-        controlLabel,
-        controlSummary: (visit.control_summary as VisitControlSummary) ?? "pending",
-        recipientEmail: email,
-        recipientName: enterprise.contact_name || enterprise.name,
-        markerCount: visitMarkers?.length ?? 0,
-        nonConformCount,
-        reportUrl,
-      });
+    revalidateControlBoard(projectId);
 
-      await safeLogVisitEmail(supabase, {
-        visit_id: visitId,
-        recipient_email: email,
-        enterprise_name: enterprise.name,
-        status: "sent",
-      });
-      sentCount++;
-    } catch (err) {
-      const raw = err instanceof Error ? err.message : "Erreur inconnue";
-      const msg = raw.includes("ErrorAccessDenied")
-        ? "Microsoft Graph refuse l'envoi. Vérifiez dans Azure : permission Mail.Send (Application) + consentement admin, et que NOTIFICATION_SENDER_EMAIL est une boîte mail du tenant."
-        : raw;
-      failures.push(`${enterprise.name} (${email}) : ${msg}`);
-      await safeLogVisitEmail(supabase, {
-        visit_id: visitId,
-        recipient_email: email,
-        enterprise_name: enterprise.name,
-        status: "failed",
-        error_message: msg,
-      });
-    }
-  }
-
-  if (sentCount === 0) {
-    const details = [...skipped, ...failures].join(" · ");
+    return {
+      ok: true,
+      webLink: draft.webLink ?? null,
+      subject: buildVisitEmailSubject(draftInput),
+      recipients: recipients.map((r) => r.email),
+      skipped,
+    };
+  } catch (err) {
+    const raw = err instanceof Error ? err.message : "Erreur inconnue";
     return {
       ok: false,
-      error: details
-        ? `Aucun email envoyé. ${details}`
-        : "Aucun email n'a pu être envoyé.",
-      failures: [...skipped, ...failures],
+      error: raw.includes("ErrorAccessDenied")
+        ? "Microsoft refuse la création du brouillon. Vérifiez que votre compte M365 a la permission Mail.ReadWrite et reconnectez-le dans Profil."
+        : raw,
     };
   }
-
-  revalidateControlBoard(projectId);
-  return { ok: true, sentCount, skipped, failures };
 }

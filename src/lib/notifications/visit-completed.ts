@@ -1,11 +1,9 @@
-import { sendNotificationEmail } from "@/lib/microsoft/graph";
 import {
-  CONTROL_RESULT_LABELS,
   VISIT_CONTROL_SUMMARY_LABELS,
 } from "@/lib/types/database";
 import type { VisitControlSummary } from "@/lib/types/database";
 
-type VisitEmailInput = {
+export type VisitDraftInput = {
   projectName: string;
   visitTitle: string;
   visitDate: string;
@@ -13,11 +11,9 @@ type VisitEmailInput = {
   zoneName: string | null;
   controlLabel: string | null;
   controlSummary: VisitControlSummary;
-  recipientEmail: string;
-  recipientName: string;
+  recipients: { email: string; name: string }[];
   markerCount: number;
   nonConformCount: number;
-  reportUrl?: string | null;
 };
 
 function formatDate(dateStr: string) {
@@ -29,14 +25,21 @@ function formatDate(dateStr: string) {
   });
 }
 
-function buildVisitEmailHtml(input: VisitEmailInput) {
+export function buildVisitEmailSubject(input: VisitDraftInput) {
   const dateLabel = formatDate(input.visitDate);
   const summaryLabel = VISIT_CONTROL_SUMMARY_LABELS[input.controlSummary];
+  return `[${input.projectName}] Visite du ${dateLabel} — ${summaryLabel}`;
+}
+
+export function buildVisitEmailHtml(input: VisitDraftInput) {
+  const dateLabel = formatDate(input.visitDate);
+  const summaryLabel = VISIT_CONTROL_SUMMARY_LABELS[input.controlSummary];
+  const recipientNames = input.recipients.map((r) => r.name).join(", ");
 
   return `
     <div style="font-family:Segoe UI,Arial,sans-serif;color:#1f2937;line-height:1.5;max-width:640px">
       <h2 style="color:#111827;margin-bottom:8px">Compte-rendu de visite de chantier</h2>
-      <p>Bonjour ${input.recipientName},</p>
+      <p>Bonjour${recipientNames ? ` ${recipientNames}` : ""},</p>
       <p>
         Une visite a été réalisée sur le chantier <strong>${input.projectName}</strong>
         le <strong>${dateLabel}</strong>.
@@ -60,31 +63,9 @@ function buildVisitEmailHtml(input: VisitEmailInput) {
               Aucune non-conformité majeure signalée sur cette visite.
             </p>`
       }
-      ${
-        input.reportUrl
-          ? `<p><a href="${input.reportUrl}" style="color:#059669">Télécharger le rapport PDF</a></p>`
-          : ""
-      }
       <p style="color:#6b7280;font-size:13px;margin-top:24px">
-        Ce message a été envoyé automatiquement par Chantier App.
+        Le rapport PDF est joint à ce message.
       </p>
     </div>
   `;
 }
-
-export async function sendVisitCompletedEmail(input: VisitEmailInput) {
-  const dateLabel = formatDate(input.visitDate);
-  const summaryLabel = VISIT_CONTROL_SUMMARY_LABELS[input.controlSummary];
-
-  await sendNotificationEmail({
-    subject: `[${input.projectName}] Visite du ${dateLabel} — ${summaryLabel}`,
-    htmlBody: buildVisitEmailHtml(input),
-    to: [{ email: input.recipientEmail, name: input.recipientName }],
-  });
-}
-
-export function buildVisitEmailPreviewHtml(input: VisitEmailInput) {
-  return buildVisitEmailHtml(input);
-}
-
-export { CONTROL_RESULT_LABELS };
