@@ -15,6 +15,7 @@ const SIZE_OPTIONS = ["10", "12", "14", "16", "18", "24"];
 export type RichTextEditorHandle = {
   insertToken: (token: string) => void;
   focus: () => void;
+  getHtml: () => string;
 };
 
 type RichTextEditorProps = {
@@ -67,6 +68,7 @@ export const RichTextEditor = forwardRef<RichTextEditorHandle, RichTextEditorPro
     useImperativeHandle(ref, () => ({
       insertToken,
       focus: () => editorRef.current?.focus(),
+      getHtml: () => editorRef.current?.innerHTML ?? "",
     }));
 
     return (
