@@ -62,7 +62,10 @@ export function SharePointPathSettings({
           `Connecté — bibliothèque « ${result.driveName} » accessible.`
         );
       } else {
-        setError(result.error ?? "Connexion SharePoint impossible.");
+        const drivesHint = result.availableDrives?.length
+          ? ` Bibliothèques visibles : ${result.availableDrives.join(", ")}.`
+          : "";
+        setError((result.error ?? "Connexion SharePoint impossible.") + drivesHint);
       }
     });
   }
@@ -85,8 +88,9 @@ export function SharePointPathSettings({
         </h2>
         <p className="mb-4 text-sm text-zinc-500">
           Parcourez le serveur SharePoint et choisissez le dossier de ce
-          chantier. Chaque entreprise aura ensuite son sous-dossier
-          automatiquement.
+          chantier. Connectez d&apos;abord votre compte Microsoft 365 dans{" "}
+          <strong>Profil</strong> (puis reconnectez-le une fois pour valider
+          l&apos;accès SharePoint).
         </p>
 
         {canEdit && (

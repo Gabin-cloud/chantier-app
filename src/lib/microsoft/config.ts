@@ -6,6 +6,7 @@ export const MICROSOFT_SCOPES = [
   "User.Read",
   "Mail.ReadWrite",
   "Mail.Send",
+  "Sites.ReadWrite.All",
 ].join(" ");
 
 export function isMicrosoftOAuthConfigured() {

@@ -3,7 +3,12 @@ import {
   getSharePointSiteUrl,
   isSharePointConfigured,
 } from "@/lib/microsoft/config";
+import { getValidUserAccessToken } from "@/lib/microsoft/m365-store";
 import { fetchApplicationAccessToken } from "@/lib/microsoft/oauth";
+
+export type SharePointAuthContext = {
+  userId?: string;
+};
 
 type GraphSite = { id: string; name: string; webUrl: string };
 type GraphDrive = { id: string; name: string; webUrl: string };
@@ -30,11 +35,40 @@ function parseSharePointSite() {
   };
 }
 
+function formatGraphError(status: number, detail: string): string {
+  if (status === 403) {
+    return (
+      "Accès SharePoint refusé. Connectez votre compte Microsoft 365 dans Profil " +
+      "(puis reconnectez-le pour valider les nouvelles autorisations). " +
+      "Si le problème persiste, l'admin Azure doit accorder Sites.ReadWrite.All à l'application."
+    );
+  }
+  if (status === 404) {
+    return "Dossier SharePoint introuvable. Vérifiez le chemin ou utilisez « Parcourir SharePoint ».";
+  }
+  return `SharePoint Graph (${status}) : ${detail}`;
+}
+
+async function resolveGraphAccessToken(
+  context?: SharePointAuthContext
+): Promise<string> {
+  if (context?.userId) {
+    const userToken = await getValidUserAccessToken(context.userId);
+    if (userToken) return userToken;
+    throw new Error(
+      "Compte Microsoft 365 non connecté. Allez dans Profil → Connecter Microsoft 365."
+    );
+  }
+
+  return fetchApplicationAccessToken();
+}
+
 async function graphFetch<T>(
   path: string,
-  init?: RequestInit
+  init?: RequestInit,
+  context?: SharePointAuthContext
 ): Promise<T> {
-  const accessToken = await fetchApplicationAccessToken();
+  const accessToken = await resolveGraphAccessToken(context);
   const response = await fetch(`https://graph.microsoft.com/v1.0${path}`, {
     ...init,
     headers: {
@@ -45,7 +79,7 @@ async function graphFetch<T>(
 
   if (!response.ok) {
     const detail = await response.text();
-    throw new Error(`SharePoint Graph (${response.status}) : ${detail}`);
+    throw new Error(formatGraphError(response.status, detail));
   }
 
   if (response.status === 204) {
@@ -55,24 +89,44 @@ async function graphFetch<T>(
   return response.json() as Promise<T>;
 }
 
-export async function getSharePointSiteId(): Promise<string> {
-  if (cachedSiteId) return cachedSiteId;
+export async function getSharePointSiteId(
+  context?: SharePointAuthContext
+): Promise<string> {
+  if (!context?.userId && cachedSiteId) return cachedSiteId;
 
   const { hostname, sitePath } = parseSharePointSite();
   const site = await graphFetch<GraphSite>(
-    `/sites/${hostname}:${sitePath}`
+    `/sites/${hostname}:${sitePath}`,
+    undefined,
+    context
   );
-  cachedSiteId = site.id;
+  if (!context?.userId) cachedSiteId = site.id;
   return site.id;
 }
 
-export async function getSharePointDriveId(): Promise<string> {
-  if (cachedDriveId) return cachedDriveId;
+export async function listSharePointDrives(
+  context?: SharePointAuthContext
+): Promise<GraphDrive[]> {
+  const siteId = await getSharePointSiteId(context);
+  const { value } = await graphFetch<{ value: GraphDrive[] }>(
+    `/sites/${siteId}/drives`,
+    undefined,
+    context
+  );
+  return value ?? [];
+}
 
-  const siteId = await getSharePointSiteId();
+export async function getSharePointDriveId(
+  context?: SharePointAuthContext
+): Promise<string> {
+  if (!context?.userId && cachedDriveId) return cachedDriveId;
+
+  const siteId = await getSharePointSiteId(context);
   const driveName = getSharePointDriveName();
   const { value } = await graphFetch<{ value: GraphDrive[] }>(
-    `/sites/${siteId}/drives`
+    `/sites/${siteId}/drives`,
+    undefined,
+    context
   );
 
   const drive = value.find(
@@ -86,7 +140,7 @@ export async function getSharePointDriveId(): Promise<string> {
     );
   }
 
-  cachedDriveId = drive.id;
+  if (!context?.userId) cachedDriveId = drive.id;
   return drive.id;
 }
 
@@ -103,6 +157,21 @@ export function normalizeSharePointPath(...segments: string[]): string {
 export function cleanSharePointRelativePath(raw: string): string {
   const trimmed = raw.trim();
   if (!trimmed) return "";
+
+  if (trimmed.startsWith("\\\\") || trimmed.startsWith("\\")) {
+    const parts = trimmed.replace(/^\\+/, "").split("\\").filter(Boolean);
+    const driveName = getSharePointDriveName().toLowerCase();
+    if (parts[0]?.toLowerCase() === driveName) {
+      return normalizeSharePointPath(...parts.slice(1));
+    }
+    if (
+      parts[0]?.toLowerCase().includes("serveur") ||
+      parts[0]?.toLowerCase().includes("danobat")
+    ) {
+      return normalizeSharePointPath(...parts.slice(1));
+    }
+    return normalizeSharePointPath(...parts);
+  }
 
   if (/^https?:\/\//i.test(trimmed)) {
     try {
@@ -184,15 +253,18 @@ function encodeDrivePath(path: string): string {
 
 async function getDriveItemByPath(
   driveId: string,
-  itemPath: string
+  itemPath: string,
+  context?: SharePointAuthContext
 ): Promise<GraphDriveItem | null> {
   try {
     return await graphFetch<GraphDriveItem>(
-      `/drives/${driveId}/root:/${encodeDrivePath(itemPath)}`
+      `/drives/${driveId}/root:/${encodeDrivePath(itemPath)}`,
+      undefined,
+      context
     );
   } catch (error) {
     const message = error instanceof Error ? error.message : "";
-    if (message.includes("(404)")) return null;
+    if (message.includes("introuvable") || message.includes("(404)")) return null;
     throw error;
   }
 }
@@ -200,40 +272,46 @@ async function getDriveItemByPath(
 async function createFolder(
   driveId: string,
   parentPath: string,
-  folderName: string
+  folderName: string,
+  context?: SharePointAuthContext
 ): Promise<GraphDriveItem> {
   const parentSegment =
     parentPath.length > 0
       ? `/root:/${encodeDrivePath(parentPath)}:/children`
       : "/root/children";
 
-  return graphFetch<GraphDriveItem>(`/drives/${driveId}${parentSegment}`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({
-      name: folderName,
-      folder: {},
-      "@microsoft.graph.conflictBehavior": "fail",
-    }),
-  });
+  return graphFetch<GraphDriveItem>(
+    `/drives/${driveId}${parentSegment}`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        name: folderName,
+        folder: {},
+        "@microsoft.graph.conflictBehavior": "fail",
+      }),
+    },
+    context
+  );
 }
 
 /** Crée récursivement les dossiers manquants le long du chemin. */
 export async function ensureSharePointFolderPath(
-  folderPath: string
+  folderPath: string,
+  context?: SharePointAuthContext
 ): Promise<void> {
   if (!folderPath) return;
 
-  const driveId = await getSharePointDriveId();
+  const driveId = await getSharePointDriveId(context);
   const segments = cleanSharePointRelativePath(folderPath).split("/").filter(Boolean);
   let currentPath = "";
 
   for (const segment of segments) {
     const nextPath = currentPath ? `${currentPath}/${segment}` : segment;
-    const existing = await getDriveItemByPath(driveId, nextPath);
+    const existing = await getDriveItemByPath(driveId, nextPath, context);
 
     if (!existing) {
-      await createFolder(driveId, currentPath, segment);
+      await createFolder(driveId, currentPath, segment, context);
     }
 
     currentPath = nextPath;
@@ -253,6 +331,7 @@ export async function uploadToSharePoint(input: {
   fileName: string;
   content: Buffer;
   contentType: string;
+  userId?: string;
 }): Promise<SharePointUploadResult> {
   if (!isSharePointConfigured()) {
     throw new Error(
@@ -260,11 +339,12 @@ export async function uploadToSharePoint(input: {
     );
   }
 
-  const driveId = await getSharePointDriveId();
+  const context: SharePointAuthContext = { userId: input.userId };
+  const driveId = await getSharePointDriveId(context);
   const folderPath = cleanSharePointRelativePath(input.folderPath);
   const fileName = sanitizeSharePointFileName(input.fileName);
 
-  await ensureSharePointFolderPath(folderPath);
+  await ensureSharePointFolderPath(folderPath, context);
 
   const relativePath = folderPath ? `${folderPath}/${fileName}` : fileName;
 
@@ -276,7 +356,8 @@ export async function uploadToSharePoint(input: {
         "Content-Type": input.contentType || "application/octet-stream",
       },
       body: new Uint8Array(input.content),
-    }
+    },
+    context
   );
 
   return {
@@ -293,12 +374,16 @@ export type SharePointConnectionStatus = {
   siteUrl: string;
   driveName: string;
   driveWebUrl?: string;
+  availableDrives?: string[];
   error?: string;
 };
 
-export async function testSharePointConnection(): Promise<SharePointConnectionStatus> {
+export async function testSharePointConnection(
+  userId?: string
+): Promise<SharePointConnectionStatus> {
   const siteUrl = getSharePointSiteUrl();
   const driveName = getSharePointDriveName();
+  const context: SharePointAuthContext = { userId };
 
   if (!isSharePointConfigured()) {
     return {
@@ -310,8 +395,12 @@ export async function testSharePointConnection(): Promise<SharePointConnectionSt
   }
 
   try {
-    const driveId = await getSharePointDriveId();
-    const drive = await graphFetch<GraphDrive>(`/drives/${driveId}`);
+    const driveId = await getSharePointDriveId(context);
+    const drive = await graphFetch<GraphDrive>(
+      `/drives/${driveId}`,
+      undefined,
+      context
+    );
     return {
       ok: true,
       siteUrl,
@@ -319,19 +408,29 @@ export async function testSharePointConnection(): Promise<SharePointConnectionSt
       driveWebUrl: drive.webUrl,
     };
   } catch (error) {
+    let availableDrives: string[] | undefined;
+    try {
+      const drives = await listSharePointDrives(context);
+      availableDrives = drives.map((drive) => drive.name);
+    } catch {
+      availableDrives = undefined;
+    }
+
     return {
       ok: false,
       siteUrl,
       driveName,
+      availableDrives,
       error: error instanceof Error ? error.message : "Erreur inconnue",
     };
   }
 }
 
 export async function listSharePointFolder(
-  folderPath: string
+  folderPath: string,
+  context?: SharePointAuthContext
 ): Promise<{ name: string; webUrl: string; isFolder: boolean }[]> {
-  const driveId = await getSharePointDriveId();
+  const driveId = await getSharePointDriveId(context);
   const normalized = cleanSharePointRelativePath(folderPath);
 
   const segment =
@@ -341,7 +440,7 @@ export async function listSharePointFolder(
 
   const { value } = await graphFetch<{
     value: { name: string; webUrl: string; folder?: unknown }[];
-  }>(`/drives/${driveId}${segment}`);
+  }>(`/drives/${driveId}${segment}`, undefined, context);
 
   return (value ?? []).map((item) => ({
     name: item.name,
@@ -359,10 +458,12 @@ export type SharePointFolderListing = {
 };
 
 export async function listSharePointFolderSafe(
-  folderPath: string
+  folderPath: string,
+  userId?: string
 ): Promise<SharePointFolderListing> {
   const driveName = getSharePointDriveName();
   const currentPath = cleanSharePointRelativePath(folderPath);
+  const context: SharePointAuthContext = { userId };
 
   if (!isSharePointConfigured()) {
     return {
@@ -375,7 +476,7 @@ export async function listSharePointFolderSafe(
   }
 
   try {
-    const items = await listSharePointFolder(currentPath);
+    const items = await listSharePointFolder(currentPath, context);
     return { ok: true, currentPath, driveName, items };
   } catch (error) {
     return {

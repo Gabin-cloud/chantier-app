@@ -1,7 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireProjectRoles } from "@/lib/auth/permissions";
+import { requireProjectRoles, requireUser } from "@/lib/auth/permissions";
 import { createClient } from "@/lib/supabase/server";
 import {
   cleanSharePointRelativePath,
@@ -61,15 +61,17 @@ export async function updateEnterpriseSharePointFolder(
 }
 
 export async function checkSharePointConnection() {
-  return testSharePointConnection();
+  const user = await requireUser();
+  return testSharePointConnection(user.id);
 }
 
 export async function browseSharePointFolderForProject(
   projectId: string,
   folderPath: string
 ) {
-  await requireProjectRoles(projectId, ["admin", "gestionnaire", "finance"]);
-  const result = await listSharePointFolderSafe(folderPath);
+  await requireProjectRoles(projectId, ["admin", "gestionnaire"]);
+  const user = await requireUser();
+  const result = await listSharePointFolderSafe(folderPath, user.id);
   return {
     ok: result.ok,
     currentPath: result.currentPath,
@@ -84,7 +86,8 @@ export async function browseSharePointFolderForProject(
 
 /** @deprecated Utiliser browseSharePointFolderForProject */
 export async function browseSharePointFolder(folderPath: string) {
-  const result = await listSharePointFolderSafe(folderPath);
+  const user = await requireUser();
+  const result = await listSharePointFolderSafe(folderPath, user.id);
   return result.items.map((item) => ({
     name: item.name,
     isFolder: item.isFolder,

@@ -295,6 +295,7 @@ export async function classifyIncomingFile(
       fileName: targetFileName,
       content: buffer,
       contentType: file.type || "application/octet-stream",
+      userId: user?.id ?? undefined,
     });
 
     filePath = upload.relativePath;
