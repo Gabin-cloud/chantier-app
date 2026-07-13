@@ -4,7 +4,8 @@ import { revalidatePath } from "next/cache";
 import { requireProjectRoles } from "@/lib/auth/permissions";
 import { createClient } from "@/lib/supabase/server";
 import {
-  listSharePointFolder,
+  cleanSharePointRelativePath,
+  listSharePointFolderSafe,
   testSharePointConnection,
 } from "@/lib/microsoft/sharepoint";
 
@@ -20,7 +21,7 @@ export async function updateProjectSharePointPath(
   await requireProjectRoles(projectId, ["admin", "gestionnaire"]);
   const supabase = await createClient();
 
-  const path = sharepointPlanExePath.trim() || null;
+  const path = cleanSharePointRelativePath(sharepointPlanExePath) || null;
 
   const { error } = await supabase
     .from("projects")
@@ -29,6 +30,14 @@ export async function updateProjectSharePointPath(
 
   if (error) throw new Error(error.message);
   revalidateProjectSettings(projectId);
+  return path ?? "";
+}
+
+export async function selectSharePointPlanExeFolder(
+  projectId: string,
+  folderPath: string
+) {
+  return updateProjectSharePointPath(projectId, folderPath);
 }
 
 export async function updateEnterpriseSharePointFolder(
@@ -55,6 +64,29 @@ export async function checkSharePointConnection() {
   return testSharePointConnection();
 }
 
+export async function browseSharePointFolderForProject(
+  projectId: string,
+  folderPath: string
+) {
+  await requireProjectRoles(projectId, ["admin", "gestionnaire", "finance"]);
+  const result = await listSharePointFolderSafe(folderPath);
+  return {
+    ok: result.ok,
+    currentPath: result.currentPath,
+    driveName: result.driveName,
+    items: result.items.map((item) => ({
+      name: item.name,
+      isFolder: item.isFolder,
+    })),
+    error: result.error,
+  };
+}
+
+/** @deprecated Utiliser browseSharePointFolderForProject */
 export async function browseSharePointFolder(folderPath: string) {
-  return listSharePointFolder(folderPath);
+  const result = await listSharePointFolderSafe(folderPath);
+  return result.items.map((item) => ({
+    name: item.name,
+    isFolder: item.isFolder,
+  }));
 }

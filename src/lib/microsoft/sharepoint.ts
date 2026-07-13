@@ -99,6 +99,31 @@ export function normalizeSharePointPath(...segments: string[]): string {
     .join("/");
 }
 
+/** Extrait un chemin relatif si l'utilisateur a collé une URL SharePoint. */
+export function cleanSharePointRelativePath(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+
+  if (/^https?:\/\//i.test(trimmed)) {
+    try {
+      const url = new URL(trimmed);
+      const parts = url.pathname.split("/").filter(Boolean);
+      const driveName = getSharePointDriveName().toLowerCase();
+      const driveIndex = parts.findIndex(
+        (part) => part.toLowerCase() === driveName
+      );
+      if (driveIndex >= 0) {
+        return normalizeSharePointPath(...parts.slice(driveIndex + 1));
+      }
+      return normalizeSharePointPath(...parts);
+    } catch {
+      return normalizeSharePointPath(trimmed);
+    }
+  }
+
+  return normalizeSharePointPath(trimmed.replace(/^\/+/, ""));
+}
+
 export function sanitizeSharePointFolderName(name: string): string {
   return name
     .replace(/[<>:"/\\|?*]/g, "-")
@@ -200,7 +225,7 @@ export async function ensureSharePointFolderPath(
   if (!folderPath) return;
 
   const driveId = await getSharePointDriveId();
-  const segments = folderPath.split("/").filter(Boolean);
+  const segments = cleanSharePointRelativePath(folderPath).split("/").filter(Boolean);
   let currentPath = "";
 
   for (const segment of segments) {
@@ -236,7 +261,7 @@ export async function uploadToSharePoint(input: {
   }
 
   const driveId = await getSharePointDriveId();
-  const folderPath = normalizeSharePointPath(input.folderPath);
+  const folderPath = cleanSharePointRelativePath(input.folderPath);
   const fileName = sanitizeSharePointFileName(input.fileName);
 
   await ensureSharePointFolderPath(folderPath);
@@ -307,7 +332,7 @@ export async function listSharePointFolder(
   folderPath: string
 ): Promise<{ name: string; webUrl: string; isFolder: boolean }[]> {
   const driveId = await getSharePointDriveId();
-  const normalized = normalizeSharePointPath(folderPath);
+  const normalized = cleanSharePointRelativePath(folderPath);
 
   const segment =
     normalized.length > 0
@@ -323,4 +348,45 @@ export async function listSharePointFolder(
     webUrl: item.webUrl,
     isFolder: Boolean(item.folder),
   }));
+}
+
+export type SharePointFolderListing = {
+  ok: boolean;
+  currentPath: string;
+  driveName: string;
+  items: { name: string; webUrl: string; isFolder: boolean }[];
+  error?: string;
+};
+
+export async function listSharePointFolderSafe(
+  folderPath: string
+): Promise<SharePointFolderListing> {
+  const driveName = getSharePointDriveName();
+  const currentPath = cleanSharePointRelativePath(folderPath);
+
+  if (!isSharePointConfigured()) {
+    return {
+      ok: false,
+      currentPath,
+      driveName,
+      items: [],
+      error: "SharePoint n'est pas configuré (Azure + SHAREPOINT_SITE_URL).",
+    };
+  }
+
+  try {
+    const items = await listSharePointFolder(currentPath);
+    return { ok: true, currentPath, driveName, items };
+  } catch (error) {
+    return {
+      ok: false,
+      currentPath,
+      driveName,
+      items: [],
+      error:
+        error instanceof Error
+          ? error.message
+          : "Impossible de lire ce dossier SharePoint.",
+    };
+  }
 }

@@ -7,6 +7,7 @@ import { requireUser } from "@/lib/auth/permissions";
 import {
   buildEnterpriseFolderName,
   buildPlanExeFileName,
+  cleanSharePointRelativePath,
   normalizeSharePointPath,
   uploadToSharePoint,
 } from "@/lib/microsoft/sharepoint";
@@ -284,7 +285,7 @@ export async function classifyIncomingFile(
 
     const enterpriseFolder = buildEnterpriseFolderName(enterprise);
     const folderPath = normalizeSharePointPath(
-      project.sharepoint_plan_exe_path.trim(),
+      cleanSharePointRelativePath(project.sharepoint_plan_exe_path.trim()),
       enterpriseFolder
     );
     const targetFileName = buildPlanExeFileName(file.name);
