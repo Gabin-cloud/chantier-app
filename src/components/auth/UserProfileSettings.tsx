@@ -31,6 +31,9 @@ export function UserProfileSettings({
   const [notifyNewProjects, setNotifyNewProjects] = useState(
     profile.notify_new_projects
   );
+  const [emailSignature, setEmailSignature] = useState(
+    profile.email_signature_html ?? ""
+  );
 
   useEffect(() => {
     const status = searchParams.get("microsoft");
@@ -198,6 +201,70 @@ export function UserProfileSettings({
             className={`rounded-xl px-4 py-3 text-sm font-semibold disabled:opacity-50 ${accentButton}`}
           >
             Enregistrer les notifications
+          </button>
+        </form>
+      </section>
+
+      <section className={`rounded-2xl border ${cardBorder} bg-white p-5 shadow-sm`}>
+        <h2 className="text-lg font-semibold text-zinc-900">Signature e-mail</h2>
+        <p className="mt-1 text-sm text-zinc-500">
+          Votre signature personnelle, ajoutée automatiquement aux brouillons de visite
+          via l&apos;étiquette <code className="text-xs">{"{{signature}}"}</code> dans le
+          mail type.
+        </p>
+
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            setError(null);
+            setSuccess(null);
+            startTransition(async () => {
+              try {
+                await updateProfileSettings({
+                  email_signature_html: emailSignature,
+                });
+                setSuccess("Signature enregistrée.");
+              } catch (saveError) {
+                setError(
+                  saveError instanceof Error ? saveError.message : "Erreur de sauvegarde."
+                );
+              }
+            });
+          }}
+          className="mt-4 space-y-4"
+        >
+          <div>
+            <label htmlFor="email_signature" className="mb-1 block text-sm font-medium text-zinc-700">
+              Signature (HTML)
+            </label>
+            <textarea
+              id="email_signature"
+              value={emailSignature}
+              onChange={(e) => setEmailSignature(e.target.value)}
+              rows={6}
+              className={`${inputClass} font-mono text-xs leading-relaxed`}
+              placeholder={"Cordialement,<br/><strong>Votre nom</strong><br/>Votre poste"}
+            />
+          </div>
+
+          {emailSignature.trim() && (
+            <div className="rounded-xl border border-zinc-100 bg-zinc-50 px-4 py-3">
+              <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">
+                Aperçu
+              </p>
+              <div
+                className="text-sm text-zinc-800"
+                dangerouslySetInnerHTML={{ __html: emailSignature }}
+              />
+            </div>
+          )}
+
+          <button
+            type="submit"
+            disabled={isPending}
+            className={`rounded-xl px-4 py-3 text-sm font-semibold disabled:opacity-50 ${accentButton}`}
+          >
+            Enregistrer la signature
           </button>
         </form>
       </section>

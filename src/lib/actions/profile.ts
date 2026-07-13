@@ -16,6 +16,7 @@ export type ProfileSettingsData = {
   email: string;
   full_name: string | null;
   notify_new_projects: boolean;
+  email_signature_html: string | null;
   m365: {
     connected: boolean;
     msEmail: string | null;
@@ -34,7 +35,7 @@ export async function getProfileSettings(): Promise<ProfileSettingsData> {
 
   const { data, error } = await supabase
     .from("profiles")
-    .select("id, email, full_name, notify_new_projects")
+    .select("id, email, full_name, notify_new_projects, email_signature_html")
     .eq("id", user.id)
     .single();
 
@@ -52,6 +53,7 @@ export async function getProfileSettings(): Promise<ProfileSettingsData> {
       email: fallback.data.email,
       full_name: fallback.data.full_name,
       notify_new_projects: true,
+      email_signature_html: null,
       m365: {
         connected: false,
         msEmail: null,
@@ -80,6 +82,7 @@ export async function getProfileSettings(): Promise<ProfileSettingsData> {
     email: data.email,
     full_name: data.full_name,
     notify_new_projects: data.notify_new_projects ?? true,
+    email_signature_html: data.email_signature_html ?? null,
     m365: {
       connected: Boolean(m365Public),
       msEmail: m365Public?.msEmail ?? null,
@@ -97,6 +100,7 @@ export async function getProfileSettings(): Promise<ProfileSettingsData> {
 export async function updateProfileSettings(input: {
   full_name?: string;
   notify_new_projects?: boolean;
+  email_signature_html?: string | null;
 }) {
   const user = await requireUser();
   const supabase = await createClient();
@@ -107,6 +111,10 @@ export async function updateProfileSettings(input: {
   }
   if (input.notify_new_projects !== undefined) {
     updates.notify_new_projects = input.notify_new_projects;
+  }
+  if (input.email_signature_html !== undefined) {
+    updates.email_signature_html =
+      input.email_signature_html?.trim() || null;
   }
 
   if (Object.keys(updates).length === 0) {

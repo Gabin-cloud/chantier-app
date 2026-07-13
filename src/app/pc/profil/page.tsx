@@ -1,5 +1,5 @@
 import { Suspense } from "react";
-import Link from "next/link";
+import { PcAppNav } from "@/components/pc/PcAppNav";
 import { UserProfileSettings } from "@/components/auth/UserProfileSettings";
 import {
   DatabaseErrorNotice,
@@ -20,13 +20,8 @@ export default async function PcProfilPage() {
     return (
       <main className="min-h-full bg-slate-50 px-6 py-8">
         <div className="mx-auto w-full max-w-2xl">
-          <Link
-            href="/pc"
-            className="text-sm font-medium text-slate-400 hover:text-slate-600"
-          >
-            ← Retour
-          </Link>
-          <header className="mb-6 mt-4 rounded-xl border border-slate-200 bg-white px-6 py-5 shadow-sm">
+          <PcAppNav />
+          <header className="mb-6 rounded-xl border border-slate-200 bg-white px-6 py-5 shadow-sm">
             <h1 className="text-2xl font-semibold text-slate-900">Mon profil</h1>
             <p className="mt-2 text-slate-500">
               Informations personnelles, notifications et connexion Microsoft 365.

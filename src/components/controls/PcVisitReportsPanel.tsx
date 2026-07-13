@@ -2,11 +2,13 @@
 
 import { useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
-import type { PcVisitRow } from "@/lib/actions/control-board";
+import type { PcVisitRow, PreviewDraftResult } from "@/lib/actions/control-board";
 import {
   generateVisitReportFromPc,
   prepareVisitEmailDraftFromPc,
+  previewVisitEmailDraftFromPc,
 } from "@/lib/actions/control-board";
+import { EmailDraftPreviewModal, type DraftConfirmPayload } from "@/components/controls/EmailDraftPreviewModal";
 import { VISIT_CONTROL_SUMMARY_LABELS } from "@/lib/types/database";
 
 export function PcVisitReportsPanel({
@@ -29,11 +31,17 @@ export function PcVisitReportsPanel({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [draftLink, setDraftLink] = useState<string | null>(null);
+  const [preview, setPreview] = useState<Extract<PreviewDraftResult, { ok: true }> | null>(
+    null
+  );
+  const [previewVisitId, setPreviewVisitId] = useState<string | null>(null);
+  const [isCreatingDraft, setIsCreatingDraft] = useState(false);
 
   function handleGenerate(visitId: string) {
     setError(null);
     setSuccess(null);
     setDraftLink(null);
+    setPreview(null);
     startTransition(async () => {
       const result = await generateVisitReportFromPc(projectId, visitId);
       if (!result.ok) {
@@ -45,27 +53,56 @@ export function PcVisitReportsPanel({
     });
   }
 
-  function handlePrepareDraft(visitId: string) {
+  function handleOpenPreview(visitId: string) {
     setError(null);
     setSuccess(null);
     setDraftLink(null);
+    setPreview(null);
+    setPreviewVisitId(visitId);
     startTransition(async () => {
-      const result = await prepareVisitEmailDraftFromPc(projectId, visitId);
+      const result = await previewVisitEmailDraftFromPc(projectId, visitId);
+      if (!result.ok) {
+        setError(result.error);
+        setPreviewVisitId(null);
+        return;
+      }
+      setPreview(result);
+    });
+  }
+
+  function handleClosePreview() {
+    if (isCreatingDraft) return;
+    setPreview(null);
+    setPreviewVisitId(null);
+  }
+
+  async function handleConfirmDraft(payload: DraftConfirmPayload) {
+    if (!previewVisitId) return;
+    setIsCreatingDraft(true);
+    setError(null);
+    try {
+      const result = await prepareVisitEmailDraftFromPc(projectId, previewVisitId, {
+        subject: payload.subject,
+        recipients: payload.recipients,
+      });
       if (!result.ok) {
         setError(result.error);
         return;
       }
-      let msg = `Brouillon créé dans Outlook (${result.recipients.length} destinataire(s)).`;
+      let msg = "Brouillon créé dans Outlook bureau → dossier Brouillons.";
       if (result.skipped.length > 0) {
         msg += ` Ignorés : ${result.skipped.join(" · ")}`;
       }
       setSuccess(msg);
       if (result.webLink) {
         setDraftLink(result.webLink);
-        window.open(result.webLink, "_blank", "noopener,noreferrer");
       }
+      setPreview(null);
+      setPreviewVisitId(null);
       router.refresh();
-    });
+    } finally {
+      setIsCreatingDraft(false);
+    }
   }
 
   if (visits.length === 0) {
@@ -79,9 +116,9 @@ export function PcVisitReportsPanel({
   return (
     <div className="space-y-4">
       <p className="text-sm text-slate-600">
-        Générez le rapport PDF, puis préparez un <strong>brouillon Outlook</strong> avec
-        les destinataires, l&apos;objet, le corps du message et le PDF en pièce jointe.
-        Rien n&apos;est envoyé automatiquement — vous validez l&apos;envoi depuis Outlook.
+        Générez le rapport PDF, puis prévisualisez le <strong>brouillon</strong> directement
+        dans l&apos;application avant de l&apos;envoyer dans Outlook (destinataires, objet,
+        corps et PDF joint).
       </p>
 
       {!m365Ready && m365Message && (
@@ -169,15 +206,11 @@ export function PcVisitReportsPanel({
                       </button>
                       <button
                         type="button"
-                        disabled={
-                          isPending ||
-                          visit.status !== "completed" ||
-                          !m365Ready
-                        }
-                        onClick={() => handlePrepareDraft(visit.id)}
+                        disabled={isPending || visit.status !== "completed"}
+                        onClick={() => handleOpenPreview(visit.id)}
                         className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
                       >
-                        Brouillon Outlook
+                        Aperçu brouillon
                       </button>
                     </div>
                   </td>
@@ -196,15 +229,25 @@ export function PcVisitReportsPanel({
               href={draftLink}
               target="_blank"
               rel="noopener noreferrer"
-              className="mt-1 inline-block font-semibold underline"
+              className="mt-1 inline-block text-emerald-700 underline"
             >
-              Ouvrir le brouillon dans Outlook
+              Ouvrir aussi dans Outlook Web (optionnel)
             </a>
           )}
         </div>
       )}
       {error && (
         <p className="rounded-lg bg-red-50 px-4 py-2 text-sm text-red-700">{error}</p>
+      )}
+
+      {preview && (
+        <EmailDraftPreviewModal
+          preview={preview}
+          m365Ready={m365Ready}
+          isCreating={isCreatingDraft}
+          onClose={handleClosePreview}
+          onConfirm={handleConfirmDraft}
+        />
       )}
     </div>
   );

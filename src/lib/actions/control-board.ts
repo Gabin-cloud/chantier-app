@@ -4,10 +4,8 @@ import { revalidatePath } from "next/cache";
 import { requireProjectAccess, requireProjectRoles, requireUser } from "@/lib/auth/permissions";
 import { createClient } from "@/lib/supabase/server";
 import { generateAndStoreVisitReport } from "@/lib/actions/visit-reports";
-import {
-  buildVisitEmailHtml,
-  buildVisitEmailSubject,
-} from "@/lib/notifications/visit-completed";
+import { getVisitReportEmailTemplate } from "@/lib/actions/email-templates";
+import { buildVisitEmailFromTemplates } from "@/lib/notifications/merge-tags";
 import { createUserMailDraft } from "@/lib/microsoft/graph";
 import { getM365ConnectionPublic } from "@/lib/microsoft/m365-store";
 import { isMicrosoftOAuthConfigured } from "@/lib/microsoft/config";
@@ -28,6 +26,28 @@ export type PrepareDraftResult =
       skipped: string[];
     }
   | { ok: false; error: string };
+
+export type PreviewDraftResult =
+  | {
+      ok: true;
+      subject: string;
+      htmlBody: string;
+      recipients: { email: string; name: string }[];
+      skipped: string[];
+      pdfFileName: string;
+      reportUrl: string | null;
+    }
+  | { ok: false; error: string };
+
+type AssembledVisitDraft = {
+  subject: string;
+  htmlBody: string;
+  recipients: { email: string; name: string }[];
+  skipped: string[];
+  pdfFileName: string;
+  pdfBase64: string;
+  reportUrl: string | null;
+};
 
 async function safeLogVisitEmail(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -461,24 +481,10 @@ export async function generateVisitReportFromPc(
   }
 }
 
-export async function prepareVisitEmailDraftFromPc(
+async function assembleVisitEmailDraft(
   projectId: string,
   visitId: string
-): Promise<PrepareDraftResult> {
-  try {
-    await requireProjectRoles(projectId, ["admin", "gestionnaire"]);
-  } catch (err) {
-    return {
-      ok: false,
-      error: err instanceof Error ? err.message : "Accès refusé.",
-    };
-  }
-
-  const m365 = await getM365DraftReadiness();
-  if (!m365.ready) {
-    return { ok: false, error: m365.message ?? "Microsoft 365 non connecté." };
-  }
-
+): Promise<{ ok: true; data: AssembledVisitDraft } | { ok: false; error: string }> {
   const user = await requireUser();
   const supabase = await createClient();
 
@@ -499,11 +505,14 @@ export async function prepareVisitEmailDraftFromPc(
     };
   }
 
-  const { data: project } = await supabase
-    .from("projects")
-    .select("name")
-    .eq("id", projectId)
-    .single();
+  const [{ data: project }, { data: profile }] = await Promise.all([
+    supabase.from("projects").select("name, client_name").eq("id", projectId).single(),
+    supabase
+      .from("profiles")
+      .select("email_signature_html")
+      .eq("id", user.id)
+      .single(),
+  ]);
 
   let reportPath: string | null = null;
   const { data: report } = await supabase
@@ -542,6 +551,9 @@ export async function prepareVisitEmailDraftFromPc(
 
   const pdfBase64 = Buffer.from(await pdfFile.arrayBuffer()).toString("base64");
   const pdfFileName = `Rapport-${(visit.title ?? "visite").replace(/[^\w\-àâäéèêëïîôùûüç ]/gi, "").trim() || visitId}.pdf`;
+  const { data: publicUrlData } = supabase.storage
+    .from("visit-photos")
+    .getPublicUrl(reportPath);
 
   const { data: visitMarkers } = await supabase
     .from("markers")
@@ -627,6 +639,7 @@ export async function prepareVisitEmailDraftFromPc(
 
   const draftInput = {
     projectName: project?.name ?? "Chantier",
+    clientName: project?.client_name ?? null,
     visitTitle: visit.title ?? "Visite",
     visitDate: visit.visit_date,
     phaseName,
@@ -634,15 +647,125 @@ export async function prepareVisitEmailDraftFromPc(
     controlLabel,
     controlSummary: (visit.control_summary as VisitControlSummary) ?? "pending",
     recipients,
+    enterpriseNames: (enterprises ?? []).map((e) => e.name),
     markerCount: visitMarkers?.length ?? 0,
     nonConformCount,
+    signatureHtml: profile?.email_signature_html ?? null,
   };
+
+  const emailTemplate = await getVisitReportEmailTemplate();
+  const emailContent = buildVisitEmailFromTemplates(
+    emailTemplate.subjectTemplate,
+    emailTemplate.bodyTemplate,
+    draftInput
+  );
+
+  return {
+    ok: true,
+    data: {
+      subject: emailContent.subject,
+      htmlBody: emailContent.htmlBody,
+      recipients,
+      skipped,
+      pdfFileName,
+      pdfBase64,
+      reportUrl: publicUrlData.publicUrl ?? null,
+    },
+  };
+}
+
+export async function previewVisitEmailDraftFromPc(
+  projectId: string,
+  visitId: string
+): Promise<PreviewDraftResult> {
+  try {
+    await requireProjectRoles(projectId, ["admin", "gestionnaire"]);
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Accès refusé.",
+    };
+  }
+
+  const assembled = await assembleVisitEmailDraft(projectId, visitId);
+  if (!assembled.ok) {
+    return assembled;
+  }
+
+  return {
+    ok: true,
+    subject: assembled.data.subject,
+    htmlBody: assembled.data.htmlBody,
+    recipients: assembled.data.recipients,
+    skipped: assembled.data.skipped,
+    pdfFileName: assembled.data.pdfFileName,
+    reportUrl: assembled.data.reportUrl,
+  };
+}
+
+export async function prepareVisitEmailDraftFromPc(
+  projectId: string,
+  visitId: string,
+  overrides?: {
+    subject?: string;
+    recipients?: { email: string; name?: string | null }[];
+  }
+): Promise<PrepareDraftResult> {
+  try {
+    await requireProjectRoles(projectId, ["admin", "gestionnaire"]);
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Accès refusé.",
+    };
+  }
+
+  const m365 = await getM365DraftReadiness();
+  if (!m365.ready) {
+    return { ok: false, error: m365.message ?? "Microsoft 365 non connecté." };
+  }
+
+  const user = await requireUser();
+  const supabase = await createClient();
+  const assembled = await assembleVisitEmailDraft(projectId, visitId);
+  if (!assembled.ok) {
+    return assembled;
+  }
+
+  const { subject, htmlBody, recipients, skipped, pdfFileName, pdfBase64 } =
+    assembled.data;
+
+  const finalSubject = overrides?.subject?.trim() || subject;
+  const finalRecipients =
+    overrides?.recipients
+      ?.map((r) => ({
+        email: r.email.trim(),
+        name: r.name?.trim() || r.email.trim(),
+      }))
+      .filter((r) => r.email) ?? recipients;
+
+  if (!finalSubject) {
+    return { ok: false, error: "L'objet du mail est obligatoire." };
+  }
+
+  if (!finalRecipients.length) {
+    return { ok: false, error: "Ajoutez au moins un destinataire." };
+  }
+
+  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+  const invalidEmail = finalRecipients.find((r) => !emailPattern.test(r.email));
+  if (invalidEmail) {
+    return {
+      ok: false,
+      error: `Adresse e-mail invalide : ${invalidEmail.email}`,
+    };
+  }
 
   try {
     const draft = await createUserMailDraft(user.id, {
-      subject: buildVisitEmailSubject(draftInput),
-      htmlBody: buildVisitEmailHtml(draftInput),
-      to: recipients,
+      subject: finalSubject,
+      htmlBody,
+      to: finalRecipients,
       attachments: [
         {
           name: pdfFileName,
@@ -652,7 +775,7 @@ export async function prepareVisitEmailDraftFromPc(
       ],
     });
 
-    for (const recipient of recipients) {
+    for (const recipient of finalRecipients) {
       await safeLogVisitEmail(supabase, {
         visit_id: visitId,
         recipient_email: recipient.email,
@@ -666,8 +789,8 @@ export async function prepareVisitEmailDraftFromPc(
     return {
       ok: true,
       webLink: draft.webLink ?? null,
-      subject: buildVisitEmailSubject(draftInput),
-      recipients: recipients.map((r) => r.email),
+      subject: finalSubject,
+      recipients: finalRecipients.map((r) => r.email),
       skipped,
     };
   } catch (err) {

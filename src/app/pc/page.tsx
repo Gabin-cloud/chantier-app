@@ -1,4 +1,5 @@
 import { UserMenu } from "@/components/auth/UserMenu";
+import { PcAppNav } from "@/components/pc/PcAppNav";
 import { ProjectList } from "@/components/projects/ProjectList";
 import {
   DatabaseErrorNotice,
@@ -17,14 +18,17 @@ export default async function PcHomePage() {
 
     return (
       <main className="min-h-full bg-slate-50 px-6 py-8">
-        <div className="mx-auto mb-6 max-w-2xl">
+        <div className="mx-auto max-w-2xl">
+          <PcAppNav />
+          <div className="mb-6">
           <UserMenu
             email={profile.email}
             fullName={profile.full_name}
             basePath="pc"
           />
-        </div>
+          </div>
         <ProjectList projects={projects} basePath="pc" />
+        </div>
       </main>
     );
   } catch (error) {
