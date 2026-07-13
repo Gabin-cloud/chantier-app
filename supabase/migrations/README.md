@@ -26,6 +26,19 @@ Ordre d’application (numéros uniques, tri alphabétique) :
 | 020 | `020_email_templates_permissions.sql` | Permissions modèles |
 | 021 | `021_sous_traitance_entreprise_access.sql` | Accès entreprise |
 | 022 | `022_sous_traitance_schema_rls.sql` | Schéma sous-traitance |
+| 023 | `023_perf_security_hardening.sql` | Index FK, search_path, RLS initplan, revoke anon |
+| 024 | `024_fix_rls_gaps.sql` | Policies manquantes (control_library_items, phase_zones) |
+
+## Audit base distante (2026-07)
+
+La base distante n'avait **aucun historique de migration** (`supabase_migrations.schema_migrations` vide) : le schéma avait été créé par copier-coller manuel. Constats principaux :
+
+- Tables avec RLS activé mais **sans policy** (activation manuelle) : `control_library_items`, `phase_zones` → corrigé en `024`.
+- 13 clés étrangères **sans index** → corrigé en `023`.
+- Policies RLS ré-évaluant `auth.uid()` par ligne → optimisé en `023`.
+- Fonctions `SECURITY DEFINER` exécutables par `anon` via RPC → révoqué en `023`.
+- Policies `Allow all` (`USING true`) sur `visit_phases`, `plan_folders`, `phase_checklist_items`, `visit_checklist_responses` : **laissées telles quelles** (conformes aux migrations Git ; durcissement possible dans une future migration à valider).
+- À activer côté dashboard : *Leaked password protection* (Auth).
 
 ## Historique de renommage (2026-07)
 
