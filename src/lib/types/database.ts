@@ -513,6 +513,7 @@ export type Profile = {
   full_name: string | null;
   global_role: GlobalRole;
   notify_new_projects: boolean;
+  email_signature_html: string | null;
   created_at: string;
   updated_at: string;
 };

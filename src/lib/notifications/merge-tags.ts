@@ -14,6 +14,7 @@ export type VisitDraftInput = {
   enterpriseNames: string[];
   markerCount: number;
   nonConformCount: number;
+  signatureHtml: string | null;
 };
 
 export type MergeTagDefinition = {
@@ -108,6 +109,12 @@ export const VISIT_EMAIL_MERGE_TAGS: MergeTagDefinition[] = [
     description: "Pastilles KO ou partielles",
     example: "2",
   },
+  {
+    key: "signature",
+    label: "Signature personnelle",
+    description: "Signature HTML de l'utilisateur (Profil)",
+    example: "Cordialement, Jean Dupont",
+  },
 ];
 
 function formatDate(dateStr: string) {
@@ -153,6 +160,7 @@ export function buildMergeTagValues(input: VisitDraftInput): Record<string, stri
     nom_contact: recipientNames,
     nb_reserves: String(input.markerCount),
     nb_non_conformites: String(input.nonConformCount),
+    signature: input.signatureHtml ?? "",
   };
 }
 
@@ -164,10 +172,15 @@ export function applyMergeTags(template: string, values: Record<string, string>)
 }
 
 export function applyMergeTagsHtml(template: string, values: Record<string, string>) {
-  const escapedValues = Object.fromEntries(
-    Object.entries(values).map(([key, value]) => [key, escapeHtml(value)])
-  );
-  return applyMergeTags(template, escapedValues);
+  const rawHtmlKeys = new Set(["signature"]);
+  return template.replace(/\{\{\s*([a-z0-9_]+)\s*\}\}/gi, (_match, key: string) => {
+    const normalized = key.toLowerCase();
+    const value = values[normalized] ?? "";
+    if (rawHtmlKeys.has(normalized)) {
+      return value;
+    }
+    return escapeHtml(value);
+  });
 }
 
 export const DEFAULT_VISIT_EMAIL_SUBJECT =
@@ -198,6 +211,9 @@ export const DEFAULT_VISIT_EMAIL_BODY = `<div style="font-family:Segoe UI,Arial,
   <p style="color:#6b7280;font-size:13px;margin-top:24px">
     Le rapport PDF est joint à ce message.
   </p>
+  <div style="margin-top:24px;border-top:1px solid #e5e7eb;padding-top:16px">
+    {{signature}}
+  </div>
 </div>`;
 
 export function buildVisitEmailFromTemplates(
