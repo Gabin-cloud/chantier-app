@@ -5,6 +5,7 @@ export const MICROSOFT_SCOPES = [
   "offline_access",
   "User.Read",
   "Mail.ReadWrite",
+  "Mail.Send",
 ].join(" ");
 
 export function isMicrosoftOAuthConfigured() {

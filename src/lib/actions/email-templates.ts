@@ -15,6 +15,7 @@ export type EmailTemplateData = {
   name: string;
   subjectTemplate: string;
   bodyTemplate: string;
+  defaultCc: string;
   updatedAt: string;
 };
 
@@ -39,7 +40,7 @@ export async function getEmailTemplatesSettings(): Promise<EmailTemplatesSetting
 
   const { data, error } = await supabase
     .from("email_templates")
-    .select("id, slug, name, subject_template, body_template, updated_at")
+    .select("id, slug, name, subject_template, body_template, default_cc, updated_at")
     .eq("slug", "visit_report")
     .maybeSingle();
 
@@ -54,6 +55,7 @@ export async function getEmailTemplatesSettings(): Promise<EmailTemplatesSetting
         name: data.name,
         subjectTemplate: data.subject_template,
         bodyTemplate: data.body_template,
+        defaultCc: data.default_cc ?? "",
         updatedAt: data.updated_at,
       }
     : {
@@ -62,6 +64,7 @@ export async function getEmailTemplatesSettings(): Promise<EmailTemplatesSetting
         name: "Compte-rendu de visite",
         subjectTemplate: DEFAULT_VISIT_EMAIL_SUBJECT,
         bodyTemplate: DEFAULT_VISIT_EMAIL_BODY,
+        defaultCc: "",
         updatedAt: new Date().toISOString(),
       };
 
@@ -75,11 +78,12 @@ export async function getEmailTemplatesSettings(): Promise<EmailTemplatesSetting
 export async function getVisitReportEmailTemplate(): Promise<{
   subjectTemplate: string;
   bodyTemplate: string;
+  defaultCc: string;
 }> {
   const supabase = await createClient();
   const { data, error } = await supabase
     .from("email_templates")
-    .select("subject_template, body_template")
+    .select("subject_template, body_template, default_cc")
     .eq("slug", "visit_report")
     .maybeSingle();
 
@@ -87,18 +91,21 @@ export async function getVisitReportEmailTemplate(): Promise<{
     return {
       subjectTemplate: DEFAULT_VISIT_EMAIL_SUBJECT,
       bodyTemplate: DEFAULT_VISIT_EMAIL_BODY,
+      defaultCc: "",
     };
   }
 
   return {
     subjectTemplate: data.subject_template,
     bodyTemplate: data.body_template,
+    defaultCc: data.default_cc ?? "",
   };
 }
 
 export async function updateVisitReportEmailTemplate(input: {
   subjectTemplate: string;
   bodyTemplate: string;
+  defaultCc?: string;
 }): Promise<{ ok: true } | { ok: false; error: string }> {
   try {
     await requireTemplateEditor();
@@ -107,6 +114,7 @@ export async function updateVisitReportEmailTemplate(input: {
 
     const subjectTemplate = input.subjectTemplate.trim();
     const bodyTemplate = input.bodyTemplate.trim();
+    const defaultCc = input.defaultCc?.trim() ?? "";
 
     if (!subjectTemplate || !bodyTemplate) {
       return { ok: false, error: "L'objet et le corps du mail sont obligatoires." };
@@ -118,6 +126,7 @@ export async function updateVisitReportEmailTemplate(input: {
         name: "Compte-rendu de visite",
         subject_template: subjectTemplate,
         body_template: bodyTemplate,
+        default_cc: defaultCc || null,
         updated_by: user.id,
       },
       { onConflict: "slug" }

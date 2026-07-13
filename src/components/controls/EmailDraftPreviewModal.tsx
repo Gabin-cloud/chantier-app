@@ -3,10 +3,18 @@
 import { useState, useTransition } from "react";
 import type { PreviewDraftResult } from "@/lib/actions/control-board";
 import { ModalPanel } from "@/components/ui/ModalPanel";
+import { RichTextEditor } from "@/components/ui/RichTextEditor";
+import {
+  normalizeRecipients,
+  parseEmailList,
+  validateEmailRecipients,
+} from "@/lib/email/recipients";
 
-export type DraftConfirmPayload = {
+export type EmailConfirmPayload = {
   subject: string;
   recipients: { email: string; name: string }[];
+  cc: string;
+  htmlBody: string;
 };
 
 type RecipientRow = { id: string; email: string; name: string };
@@ -18,21 +26,65 @@ function newRecipientId() {
   return `r-${Math.random().toString(36).slice(2, 9)}`;
 }
 
+function buildPayload(
+  subject: string,
+  recipientRows: RecipientRow[],
+  cc: string,
+  htmlBody: string
+): { ok: true; payload: EmailConfirmPayload } | { ok: false; error: string } {
+  const trimmedSubject = subject.trim();
+  const recipients = normalizeRecipients(recipientRows);
+  const trimmedBody = htmlBody.trim();
+
+  if (!trimmedSubject) {
+    return { ok: false, error: "L'objet du mail est obligatoire." };
+  }
+  const toError = validateEmailRecipients(recipients, "destinataire");
+  if (toError) {
+    return { ok: false, error: toError };
+  }
+  if (!trimmedBody) {
+    return { ok: false, error: "Le corps du mail est obligatoire." };
+  }
+
+  const ccRecipients = parseEmailList(cc);
+  const ccError = ccRecipients.length
+    ? validateEmailRecipients(ccRecipients, "destinataire en copie")
+    : null;
+  if (ccError) {
+    return { ok: false, error: ccError };
+  }
+
+  return {
+    ok: true,
+    payload: {
+      subject: trimmedSubject,
+      recipients,
+      cc: cc.trim(),
+      htmlBody: trimmedBody,
+    },
+  };
+}
+
 export function EmailDraftPreviewModal({
   preview,
   m365Ready,
-  isCreating,
+  isSubmitting,
   onClose,
-  onConfirm,
+  onCreateDraft,
+  onSend,
 }: {
   preview: Extract<PreviewDraftResult, { ok: true }>;
   m365Ready: boolean;
-  isCreating: boolean;
+  isSubmitting: boolean;
   onClose: () => void;
-  onConfirm: (payload: DraftConfirmPayload) => void;
+  onCreateDraft: (payload: EmailConfirmPayload) => void;
+  onSend: (payload: EmailConfirmPayload) => void;
 }) {
   const [, startTransition] = useTransition();
   const [subject, setSubject] = useState(preview.subject);
+  const [htmlBody, setHtmlBody] = useState(preview.htmlBody);
+  const [cc, setCc] = useState(preview.defaultCc);
   const [recipientRows, setRecipientRows] = useState<RecipientRow[]>(
     preview.recipients.map((r) => ({
       id: newRecipientId(),
@@ -59,42 +111,26 @@ export function EmailDraftPreviewModal({
     ]);
   }
 
-  function handleConfirm() {
+  function submit(action: "draft" | "send") {
     setFormError(null);
-    const trimmedSubject = subject.trim();
-    const recipients = recipientRows
-      .map((row) => ({
-        email: row.email.trim(),
-        name: row.name.trim() || row.email.trim(),
-      }))
-      .filter((row) => row.email);
-
-    if (!trimmedSubject) {
-      setFormError("L'objet du mail est obligatoire.");
+    const built = buildPayload(subject, recipientRows, cc, htmlBody);
+    if (!built.ok) {
+      setFormError(built.error);
       return;
     }
-
-    if (!recipients.length) {
-      setFormError("Ajoutez au moins un destinataire avec une adresse e-mail.");
-      return;
-    }
-
-    const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-    const invalid = recipients.find((r) => !emailPattern.test(r.email));
-    if (invalid) {
-      setFormError(`Adresse e-mail invalide : ${invalid.email}`);
-      return;
-    }
-
     startTransition(() => {
-      onConfirm({ subject: trimmedSubject, recipients });
+      if (action === "draft") {
+        onCreateDraft(built.payload);
+      } else {
+        onSend(built.payload);
+      }
     });
   }
 
   return (
     <ModalPanel
-      title="Aperçu du brouillon"
-      subtitle="Modifiez l'objet et les destinataires, puis validez"
+      title="Composer le mail"
+      subtitle="Modifiez le contenu, puis envoyez ou enregistrez en brouillon"
       onClose={onClose}
       maxWidth="2xl"
     >
@@ -103,7 +139,7 @@ export function EmailDraftPreviewModal({
           <div className="border-b border-slate-100 bg-slate-50 px-4 py-3">
             <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
               <span className="rounded bg-[#0078d4] px-2 py-0.5 text-white">Outlook</span>
-              <span>Brouillon</span>
+              <span>Composition</span>
             </div>
           </div>
 
@@ -123,7 +159,7 @@ export function EmailDraftPreviewModal({
             <div>
               <div className="mb-2 flex items-center justify-between">
                 <label className="text-xs font-semibold uppercase tracking-wide text-slate-500">
-                  Destinataires
+                  À
                 </label>
                 <button
                   type="button"
@@ -164,6 +200,19 @@ export function EmailDraftPreviewModal({
               </div>
             </div>
 
+            <div>
+              <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Copie (Cc)
+              </label>
+              <input
+                type="text"
+                value={cc}
+                onChange={(e) => setCc(e.target.value)}
+                placeholder="email1@entreprise.fr, email2@entreprise.fr"
+                className={inputClass}
+              />
+            </div>
+
             <div className="flex flex-wrap items-center gap-2">
               <span className="font-medium text-slate-500">Pièce jointe</span>
               <span className="inline-flex items-center gap-1 rounded-lg bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700">
@@ -182,10 +231,12 @@ export function EmailDraftPreviewModal({
             </div>
           </div>
 
-          <div
-            className="max-h-[40vh] overflow-y-auto px-4 py-4 text-sm text-slate-800"
-            dangerouslySetInnerHTML={{ __html: preview.htmlBody }}
-          />
+          <div className="px-4 py-3">
+            <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+              Corps du message
+            </label>
+            <RichTextEditor value={htmlBody} onChange={setHtmlBody} minHeight="220px" />
+          </div>
         </div>
 
         {preview.skipped.length > 0 && (
@@ -200,7 +251,7 @@ export function EmailDraftPreviewModal({
 
         {!m365Ready && (
           <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
-            Connectez Microsoft 365 dans Profil pour créer le brouillon dans Outlook.
+            Connectez Microsoft 365 dans Profil pour envoyer ou créer un brouillon Outlook.
           </p>
         )}
 
@@ -208,18 +259,26 @@ export function EmailDraftPreviewModal({
           <button
             type="button"
             onClick={onClose}
-            disabled={isCreating}
+            disabled={isSubmitting}
             className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-semibold text-slate-700 hover:bg-slate-50 disabled:opacity-50"
           >
             Annuler
           </button>
           <button
             type="button"
-            onClick={handleConfirm}
-            disabled={isCreating || !m365Ready}
+            onClick={() => submit("draft")}
+            disabled={isSubmitting || !m365Ready}
+            className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-40"
+          >
+            {isSubmitting ? "En cours…" : "Brouillon Outlook"}
+          </button>
+          <button
+            type="button"
+            onClick={() => submit("send")}
+            disabled={isSubmitting || !m365Ready}
             className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
           >
-            {isCreating ? "Création…" : "Créer dans Outlook"}
+            {isSubmitting ? "Envoi…" : "Envoyer"}
           </button>
         </div>
       </div>

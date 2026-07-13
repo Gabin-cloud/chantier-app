@@ -6,7 +6,12 @@ import { createClient } from "@/lib/supabase/server";
 import { generateAndStoreVisitReport } from "@/lib/actions/visit-reports";
 import { getVisitReportEmailTemplate } from "@/lib/actions/email-templates";
 import { buildVisitEmailFromTemplates } from "@/lib/notifications/merge-tags";
-import { createUserMailDraft } from "@/lib/microsoft/graph";
+import { createUserMailDraft, sendUserMail } from "@/lib/microsoft/graph";
+import {
+  normalizeRecipients,
+  parseEmailList,
+  validateEmailRecipients,
+} from "@/lib/email/recipients";
 import { getM365ConnectionPublic } from "@/lib/microsoft/m365-store";
 import { isMicrosoftOAuthConfigured } from "@/lib/microsoft/config";
 import { isAdminClientConfigured } from "@/lib/supabase/admin";
@@ -36,6 +41,7 @@ export type PreviewDraftResult =
       skipped: string[];
       pdfFileName: string;
       reportUrl: string | null;
+      defaultCc: string;
     }
   | { ok: false; error: string };
 
@@ -47,7 +53,68 @@ type AssembledVisitDraft = {
   pdfFileName: string;
   pdfBase64: string;
   reportUrl: string | null;
+  defaultCc: string;
 };
+
+type VisitEmailOverrides = {
+  subject?: string;
+  htmlBody?: string;
+  recipients?: { email: string; name?: string | null }[];
+  cc?: string;
+};
+
+type ResolvedVisitEmail = {
+  subject: string;
+  htmlBody: string;
+  recipients: { email: string; name: string }[];
+  cc: { email: string; name: string }[];
+};
+
+export type SendEmailResult =
+  | { ok: true; subject: string; recipients: string[]; skipped: string[] }
+  | { ok: false; error: string };
+
+function resolveVisitEmailPayload(
+  assembled: AssembledVisitDraft,
+  overrides?: VisitEmailOverrides
+): { ok: true; data: ResolvedVisitEmail } | { ok: false; error: string } {
+  const finalSubject = overrides?.subject?.trim() || assembled.subject;
+  const finalHtmlBody = overrides?.htmlBody?.trim() || assembled.htmlBody;
+  const finalRecipients = overrides?.recipients
+    ? normalizeRecipients(overrides.recipients)
+    : assembled.recipients;
+  const finalCc = parseEmailList(overrides?.cc ?? assembled.defaultCc);
+
+  if (!finalSubject) {
+    return { ok: false, error: "L'objet du mail est obligatoire." };
+  }
+
+  if (!finalHtmlBody) {
+    return { ok: false, error: "Le corps du mail est obligatoire." };
+  }
+
+  const toError = validateEmailRecipients(finalRecipients, "destinataire");
+  if (toError) {
+    return { ok: false, error: toError };
+  }
+
+  const ccError = finalCc.length
+    ? validateEmailRecipients(finalCc, "destinataire en copie")
+    : null;
+  if (ccError) {
+    return { ok: false, error: ccError };
+  }
+
+  return {
+    ok: true,
+    data: {
+      subject: finalSubject,
+      htmlBody: finalHtmlBody,
+      recipients: finalRecipients,
+      cc: finalCc,
+    },
+  };
+}
 
 async function safeLogVisitEmail(
   supabase: Awaited<ReturnType<typeof createClient>>,
@@ -670,6 +737,7 @@ async function assembleVisitEmailDraft(
       pdfFileName,
       pdfBase64,
       reportUrl: publicUrlData.publicUrl ?? null,
+      defaultCc: emailTemplate.defaultCc,
     },
   };
 }
@@ -700,16 +768,14 @@ export async function previewVisitEmailDraftFromPc(
     skipped: assembled.data.skipped,
     pdfFileName: assembled.data.pdfFileName,
     reportUrl: assembled.data.reportUrl,
+    defaultCc: assembled.data.defaultCc,
   };
 }
 
 export async function prepareVisitEmailDraftFromPc(
   projectId: string,
   visitId: string,
-  overrides?: {
-    subject?: string;
-    recipients?: { email: string; name?: string | null }[];
-  }
+  overrides?: VisitEmailOverrides
 ): Promise<PrepareDraftResult> {
   try {
     await requireProjectRoles(projectId, ["admin", "gestionnaire"]);
@@ -732,40 +798,20 @@ export async function prepareVisitEmailDraftFromPc(
     return assembled;
   }
 
-  const { subject, htmlBody, recipients, skipped, pdfFileName, pdfBase64 } =
-    assembled.data;
-
-  const finalSubject = overrides?.subject?.trim() || subject;
-  const finalRecipients =
-    overrides?.recipients
-      ?.map((r) => ({
-        email: r.email.trim(),
-        name: r.name?.trim() || r.email.trim(),
-      }))
-      .filter((r) => r.email) ?? recipients;
-
-  if (!finalSubject) {
-    return { ok: false, error: "L'objet du mail est obligatoire." };
+  const resolved = resolveVisitEmailPayload(assembled.data, overrides);
+  if (!resolved.ok) {
+    return resolved;
   }
 
-  if (!finalRecipients.length) {
-    return { ok: false, error: "Ajoutez au moins un destinataire." };
-  }
-
-  const emailPattern = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-  const invalidEmail = finalRecipients.find((r) => !emailPattern.test(r.email));
-  if (invalidEmail) {
-    return {
-      ok: false,
-      error: `Adresse e-mail invalide : ${invalidEmail.email}`,
-    };
-  }
+  const { subject, htmlBody, recipients, cc } = resolved.data;
+  const { skipped, pdfFileName, pdfBase64 } = assembled.data;
 
   try {
     const draft = await createUserMailDraft(user.id, {
-      subject: finalSubject,
+      subject,
       htmlBody,
-      to: finalRecipients,
+      to: recipients,
+      cc,
       attachments: [
         {
           name: pdfFileName,
@@ -775,7 +821,7 @@ export async function prepareVisitEmailDraftFromPc(
       ],
     });
 
-    for (const recipient of finalRecipients) {
+    for (const recipient of recipients) {
       await safeLogVisitEmail(supabase, {
         visit_id: visitId,
         recipient_email: recipient.email,
@@ -789,8 +835,8 @@ export async function prepareVisitEmailDraftFromPc(
     return {
       ok: true,
       webLink: draft.webLink ?? null,
-      subject: finalSubject,
-      recipients: finalRecipients.map((r) => r.email),
+      subject,
+      recipients: recipients.map((r) => r.email),
       skipped,
     };
   } catch (err) {
@@ -798,8 +844,86 @@ export async function prepareVisitEmailDraftFromPc(
     return {
       ok: false,
       error: raw.includes("ErrorAccessDenied")
-        ? "Microsoft refuse la création du brouillon. Vérifiez que votre compte M365 a la permission Mail.ReadWrite et reconnectez-le dans Profil."
+        ? "Microsoft refuse l'opération. Vérifiez Mail.ReadWrite + Mail.Send dans Azure et reconnectez M365 dans Profil."
         : raw,
     };
   }
 }
+
+export async function sendVisitEmailFromPc(
+  projectId: string,
+  visitId: string,
+  overrides?: VisitEmailOverrides
+): Promise<SendEmailResult> {
+  try {
+    await requireProjectRoles(projectId, ["admin", "gestionnaire"]);
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Accès refusé.",
+    };
+  }
+
+  const m365 = await getM365DraftReadiness();
+  if (!m365.ready) {
+    return { ok: false, error: m365.message ?? "Microsoft 365 non connecté." };
+  }
+
+  const user = await requireUser();
+  const supabase = await createClient();
+  const assembled = await assembleVisitEmailDraft(projectId, visitId);
+  if (!assembled.ok) {
+    return assembled;
+  }
+
+  const resolved = resolveVisitEmailPayload(assembled.data, overrides);
+  if (!resolved.ok) {
+    return resolved;
+  }
+
+  const { subject, htmlBody, recipients, cc } = resolved.data;
+  const { skipped, pdfFileName, pdfBase64 } = assembled.data;
+
+  try {
+    await sendUserMail(user.id, {
+      subject,
+      htmlBody,
+      to: recipients,
+      cc,
+      attachments: [
+        {
+          name: pdfFileName,
+          contentType: "application/pdf",
+          contentBytes: pdfBase64,
+        },
+      ],
+    });
+
+    for (const recipient of recipients) {
+      await safeLogVisitEmail(supabase, {
+        visit_id: visitId,
+        recipient_email: recipient.email,
+        enterprise_name: recipient.name,
+        status: "sent",
+      });
+    }
+
+    revalidateControlBoard(projectId);
+
+    return {
+      ok: true,
+      subject,
+      recipients: recipients.map((r) => r.email),
+      skipped,
+    };
+  } catch (err) {
+    const raw = err instanceof Error ? err.message : "Erreur inconnue";
+    return {
+      ok: false,
+      error: raw.includes("ErrorAccessDenied")
+        ? "Microsoft refuse l'envoi. Vérifiez Mail.Send (déléguée) dans Azure et reconnectez M365 dans Profil."
+        : raw,
+    };
+  }
+}
+

@@ -8,6 +8,7 @@ import {
   updateProfileSettings,
   type ProfileSettingsData,
 } from "@/lib/actions/profile";
+import { RichTextEditor } from "@/components/ui/RichTextEditor";
 
 type UserProfileSettingsProps = {
   profile: ProfileSettingsData;
@@ -233,24 +234,17 @@ export function UserProfileSettings({
           }}
           className="mt-4 space-y-4"
         >
-          <div>
-            <label htmlFor="email_signature" className="mb-1 block text-sm font-medium text-zinc-700">
-              Signature (HTML)
-            </label>
-            <textarea
-              id="email_signature"
-              value={emailSignature}
-              onChange={(e) => setEmailSignature(e.target.value)}
-              rows={6}
-              className={`${inputClass} font-mono text-xs leading-relaxed`}
-              placeholder={"Cordialement,<br/><strong>Votre nom</strong><br/>Votre poste"}
-            />
-          </div>
+          <RichTextEditor
+            value={emailSignature}
+            onChange={setEmailSignature}
+            minHeight="140px"
+            placeholder="Cordialement, Votre nom, Votre poste…"
+          />
 
           {emailSignature.trim() && (
             <div className="rounded-xl border border-zinc-100 bg-zinc-50 px-4 py-3">
               <p className="mb-2 text-xs font-semibold uppercase tracking-wide text-zinc-400">
-                Aperçu
+                Aperçu dans les mails
               </p>
               <div
                 className="text-sm text-zinc-800"
