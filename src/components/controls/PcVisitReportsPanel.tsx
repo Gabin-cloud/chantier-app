@@ -55,14 +55,14 @@ export function PcVisitReportsPanel({
         setError(result.error);
         return;
       }
-      let msg = `Brouillon créé dans Outlook (${result.recipients.length} destinataire(s)).`;
+      let msg =
+        "Brouillon créé dans Outlook bureau → dossier Brouillons. Ouvrez l'application Outlook sur votre PC pour le relire et l'envoyer.";
       if (result.skipped.length > 0) {
         msg += ` Ignorés : ${result.skipped.join(" · ")}`;
       }
       setSuccess(msg);
       if (result.webLink) {
         setDraftLink(result.webLink);
-        window.open(result.webLink, "_blank", "noopener,noreferrer");
       }
       router.refresh();
     });
@@ -81,7 +81,8 @@ export function PcVisitReportsPanel({
       <p className="text-sm text-slate-600">
         Générez le rapport PDF, puis préparez un <strong>brouillon Outlook</strong> avec
         les destinataires, l&apos;objet, le corps du message et le PDF en pièce jointe.
-        Rien n&apos;est envoyé automatiquement — vous validez l&apos;envoi depuis Outlook.
+        Le brouillon apparaît dans <strong>Outlook bureau</strong> (dossier Brouillons) —
+        rien n&apos;est envoyé automatiquement.
       </p>
 
       {!m365Ready && m365Message && (
@@ -196,9 +197,9 @@ export function PcVisitReportsPanel({
               href={draftLink}
               target="_blank"
               rel="noopener noreferrer"
-              className="mt-1 inline-block font-semibold underline"
+              className="mt-1 inline-block text-emerald-700 underline"
             >
-              Ouvrir le brouillon dans Outlook
+              Ouvrir aussi dans Outlook Web (optionnel)
             </a>
           )}
         </div>

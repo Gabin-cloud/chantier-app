@@ -4,10 +4,8 @@ import { revalidatePath } from "next/cache";
 import { requireProjectAccess, requireProjectRoles, requireUser } from "@/lib/auth/permissions";
 import { createClient } from "@/lib/supabase/server";
 import { generateAndStoreVisitReport } from "@/lib/actions/visit-reports";
-import {
-  buildVisitEmailHtml,
-  buildVisitEmailSubject,
-} from "@/lib/notifications/visit-completed";
+import { getVisitReportEmailTemplate } from "@/lib/actions/email-templates";
+import { buildVisitEmailFromTemplates } from "@/lib/notifications/merge-tags";
 import { createUserMailDraft } from "@/lib/microsoft/graph";
 import { getM365ConnectionPublic } from "@/lib/microsoft/m365-store";
 import { isMicrosoftOAuthConfigured } from "@/lib/microsoft/config";
@@ -501,7 +499,7 @@ export async function prepareVisitEmailDraftFromPc(
 
   const { data: project } = await supabase
     .from("projects")
-    .select("name")
+    .select("name, client_name")
     .eq("id", projectId)
     .single();
 
@@ -627,6 +625,7 @@ export async function prepareVisitEmailDraftFromPc(
 
   const draftInput = {
     projectName: project?.name ?? "Chantier",
+    clientName: project?.client_name ?? null,
     visitTitle: visit.title ?? "Visite",
     visitDate: visit.visit_date,
     phaseName,
@@ -634,14 +633,22 @@ export async function prepareVisitEmailDraftFromPc(
     controlLabel,
     controlSummary: (visit.control_summary as VisitControlSummary) ?? "pending",
     recipients,
+    enterpriseNames: (enterprises ?? []).map((e) => e.name),
     markerCount: visitMarkers?.length ?? 0,
     nonConformCount,
   };
 
+  const emailTemplate = await getVisitReportEmailTemplate();
+  const emailContent = buildVisitEmailFromTemplates(
+    emailTemplate.subjectTemplate,
+    emailTemplate.bodyTemplate,
+    draftInput
+  );
+
   try {
     const draft = await createUserMailDraft(user.id, {
-      subject: buildVisitEmailSubject(draftInput),
-      htmlBody: buildVisitEmailHtml(draftInput),
+      subject: emailContent.subject,
+      htmlBody: emailContent.htmlBody,
       to: recipients,
       attachments: [
         {
@@ -666,7 +673,7 @@ export async function prepareVisitEmailDraftFromPc(
     return {
       ok: true,
       webLink: draft.webLink ?? null,
-      subject: buildVisitEmailSubject(draftInput),
+      subject: emailContent.subject,
       recipients: recipients.map((r) => r.email),
       skipped,
     };
