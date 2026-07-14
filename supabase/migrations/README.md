@@ -28,6 +28,7 @@ Ordre d’application (numéros uniques, tri alphabétique) :
 | 022 | `022_sous_traitance_schema_rls.sql` | Schéma sous-traitance |
 | 023 | `023_perf_security_hardening.sql` | Index FK, search_path, RLS initplan, revoke anon |
 | 024 | `024_fix_rls_gaps.sql` | Policies manquantes (control_library_items, phase_zones) |
+| 025 | `025_lock_security_definer_execute.sql` | REVOKE PUBLIC + GRANT authenticated sur fonctions SECURITY DEFINER |
 
 ## Audit base distante (2026-07)
 
