@@ -1,10 +1,26 @@
-import { PlaceholderPanel } from "@/components/pc/PlaceholderPanel";
+import { OperationDashboardTable } from "@/components/pc/dashboard/OperationDashboardTable";
+import { DatabaseErrorNotice } from "@/components/SupabaseSetupNotice";
+import { getOperationLots } from "@/lib/actions/dashboard";
 
-export default function TableauDeBordPage() {
-  return (
-    <PlaceholderPanel
-      title="Tableau de bord de synthèse"
-      description="Vue d'ensemble de l'opération : tableau récapitulatif (lignes et colonnes à détailler)."
-    />
-  );
+type PageProps = {
+  params: Promise<{ id: string }>;
+};
+
+export default async function TableauDeBordPage({ params }: PageProps) {
+  const { id } = await params;
+
+  try {
+    const lots = await getOperationLots(id);
+    return <OperationDashboardTable lots={lots} />;
+  } catch (error) {
+    return (
+      <DatabaseErrorNotice
+        message={
+          error instanceof Error
+            ? error.message
+            : "Impossible de charger le tableau de bord."
+        }
+      />
+    );
+  }
 }
