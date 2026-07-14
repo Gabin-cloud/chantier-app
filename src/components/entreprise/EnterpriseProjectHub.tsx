@@ -4,7 +4,7 @@ import type { Project } from "@/lib/types/database";
 
 type EnterpriseProjectHubProps = {
   project: Project;
-  enterprise: Enterprise;
+  enterprise: Pick<Enterprise, "id" | "name" | "lot_number" | "trade">;
   pendingCount?: number;
 };
 

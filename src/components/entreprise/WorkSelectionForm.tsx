@@ -9,7 +9,7 @@ import type { Enterprise } from "@/lib/types/database";
 type WorkSelectionFormProps = {
   projectId: string;
   projectName: string;
-  enterprise: Enterprise;
+  enterprise: Pick<Enterprise, "id" | "name" | "lot_number">;
 };
 
 const inputClass =
