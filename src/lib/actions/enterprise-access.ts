@@ -41,7 +41,7 @@ export async function getEnterpriseProjectAccess(): Promise<EnterpriseProjectAcc
     .order("created_at", { ascending: false });
 
   if (error) throw new Error(error.message);
-  return (data ?? []) as EnterpriseProjectAccess[];
+  return (data ?? []) as unknown as EnterpriseProjectAccess[];
 }
 
 export async function getEnterpriseAccessForProject(projectId: string) {
@@ -65,7 +65,7 @@ export async function getEnterpriseAccessForProject(projectId: string) {
     .order("created_at", { ascending: true });
 
   if (error) throw new Error(error.message);
-  return (data ?? []) as EnterpriseAccessWithProfile[];
+  return (data ?? []) as unknown as EnterpriseAccessWithProfile[];
 }
 
 export async function getEnterpriseMembership(projectId: string) {
@@ -81,7 +81,7 @@ export async function getEnterpriseMembership(projectId: string) {
     .maybeSingle();
 
   if (error) throw new Error(error.message);
-  return data as {
+  return data as unknown as {
     enterprise_id: string;
     enterprises: {
       id: string;

@@ -96,7 +96,7 @@ export async function getProjectFinancialData(projectId: string): Promise<Projec
   data.bank_guarantees = data.financial_bank_guarantees ?? [];
   delete data.financial_bank_guarantees;
 
-  return data as ProjectFinancialData;
+  return data as unknown as ProjectFinancialData;
 }
 
 export async function getLot(projectId: string, lotId: string) {

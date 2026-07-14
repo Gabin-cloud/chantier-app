@@ -32,7 +32,7 @@ export async function getProjectMembers(projectId: string) {
     .order("created_at", { ascending: true });
 
   if (error) throw new Error(error.message);
-  return data as ProjectMemberWithProfile[];
+  return data as unknown as ProjectMemberWithProfile[];
 }
 
 export async function addProjectMember(
