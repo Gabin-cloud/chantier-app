@@ -1,3 +1,4 @@
+import { Suspense } from "react";
 import { UserMenu } from "@/components/auth/UserMenu";
 import { EntrepriseAppNav } from "@/components/entreprise/EntrepriseAppNav";
 import {
@@ -5,7 +6,7 @@ import {
   SupabaseSetupNotice,
 } from "@/components/SupabaseSetupNotice";
 import { UserProfileSettings } from "@/components/auth/UserProfileSettings";
-import { getProfile } from "@/lib/auth/permissions";
+import { getProfileSettings } from "@/lib/actions/profile";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
 export default async function EntrepriseProfilPage() {
@@ -14,7 +15,7 @@ export default async function EntrepriseProfilPage() {
   }
 
   try {
-    const profile = await getProfile();
+    const profile = await getProfileSettings();
 
     return (
       <main className="min-h-full px-6 py-8">
@@ -33,7 +34,9 @@ export default async function EntrepriseProfilPage() {
               Coordonnées du contact et informations de connexion.
             </p>
           </header>
-          <UserProfileSettings profile={profile} basePath="entreprise" />
+          <Suspense fallback={<p className="text-sm text-zinc-500">Chargement…</p>}>
+            <UserProfileSettings profile={profile} basePath="entreprise" />
+          </Suspense>
         </div>
       </main>
     );
