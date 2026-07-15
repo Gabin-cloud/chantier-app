@@ -1,5 +1,6 @@
 import Link from "next/link";
 import type { Project } from "@/lib/types/database";
+import { NewProjectButton } from "@/components/projects/NewProjectButton";
 
 type ProjectListProps = {
   projects: Project[];
@@ -16,6 +17,16 @@ function formatLocation(project: Project) {
 export function ProjectList({ projects, basePath }: ProjectListProps) {
   const isTablette = basePath === "tablette";
 
+  const buttonClass = `shrink-0 rounded-xl px-4 py-3 text-sm font-semibold text-white transition-colors disabled:opacity-50 ${
+    isTablette
+      ? "bg-emerald-600 hover:bg-emerald-500"
+      : "bg-slate-800 hover:bg-slate-700"
+  }`;
+
+  const emptyButtonClass = `mt-6 inline-block rounded-xl px-6 py-3 font-semibold text-white disabled:opacity-50 ${
+    isTablette ? "bg-emerald-600 hover:bg-emerald-500" : "bg-slate-800 hover:bg-slate-700"
+  }`;
+
   return (
     <div className="mx-auto w-full max-w-2xl">
       <header className="mb-6 flex items-start justify-between gap-4">
@@ -30,16 +41,9 @@ export function ProjectList({ projects, basePath }: ProjectListProps) {
             Choisissez un chantier ou créez-en un nouveau.
           </p>
         </div>
-        <Link
-          href={`/${basePath}/projets/nouveau`}
-          className={`shrink-0 rounded-xl px-4 py-3 text-sm font-semibold text-white transition-colors ${
-            isTablette
-              ? "bg-emerald-600 hover:bg-emerald-500"
-              : "bg-slate-800 hover:bg-slate-700"
-          }`}
-        >
+        <NewProjectButton basePath={basePath} className={buttonClass}>
           + Nouveau
-        </Link>
+        </NewProjectButton>
       </header>
 
       {projects.length === 0 ? (
@@ -48,14 +52,9 @@ export function ProjectList({ projects, basePath }: ProjectListProps) {
           <p className="mt-2 text-zinc-500">
             Créez votre premier chantier pour commencer.
           </p>
-          <Link
-            href={`/${basePath}/projets/nouveau`}
-            className={`mt-6 inline-block rounded-xl px-6 py-3 font-semibold text-white ${
-              isTablette ? "bg-emerald-600" : "bg-slate-800"
-            }`}
-          >
+          <NewProjectButton basePath={basePath} className={emptyButtonClass}>
             Créer un projet
-          </Link>
+          </NewProjectButton>
         </div>
       ) : (
         <ul className="space-y-3">

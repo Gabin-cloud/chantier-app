@@ -1,13 +1,6 @@
 import { redirect } from "next/navigation";
-import { SupabaseSetupNotice } from "@/components/SupabaseSetupNotice";
-import { createQuickProject } from "@/lib/actions/projects";
-import { isSupabaseConfigured } from "@/lib/supabase/config";
 
-export default async function NouveauProjetPcPage() {
-  if (!isSupabaseConfigured()) {
-    return <SupabaseSetupNotice />;
-  }
-
-  const projectId = await createQuickProject();
-  redirect(`/pc/projets/${projectId}/parametres`);
+/** Ancienne URL : la création se fait via le bouton « + Nouveau » sur la liste. */
+export default function NouveauProjetPcPage() {
+  redirect("/pc");
 }

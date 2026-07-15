@@ -41,16 +41,23 @@ export async function getProject(id: string) {
 }
 
 export async function createQuickProject(): Promise<string> {
-  return createProject({ name: "Nouvelle opération" });
+  try {
+    return await createProject({ name: "Nouvelle opération" });
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Impossible de créer le projet.";
+    throw new Error(`Création du projet impossible : ${message}`);
+  }
 }
 
 export async function createProject(formData: ProjectFormData): Promise<string> {
   const user = await requireUser();
   const supabase = await createClient();
+
   const { data, error } = await supabase
     .from("projects")
     .insert({
-      name: formData.name,
+      name: formData.name.trim() || "Nouvelle opération",
       address: formData.address || null,
       city: formData.city || null,
       postal_code: formData.postal_code || null,
@@ -60,26 +67,37 @@ export async function createProject(formData: ProjectFormData): Promise<string> 
     .select("id")
     .single();
 
-  if (error) throw new Error(error.message);
+  if (error) {
+    throw new Error(
+      error.message.includes("row-level security")
+        ? "Droits insuffisants pour créer un projet. Vérifiez votre connexion."
+        : error.message
+    );
+  }
 
   await ensureProjectCreatorMember(data.id, user.id);
 
-  const { data: creatorProfile } = await supabase
-    .from("profiles")
-    .select("full_name, email")
-    .eq("id", user.id)
-    .single();
+  try {
+    const { data: creatorProfile } = await supabase
+      .from("profiles")
+      .select("full_name, email")
+      .eq("id", user.id)
+      .single();
 
-  await notifyNewProjectCreated({
-    projectId: data.id,
-    projectName: formData.name,
-    createdByUserId: user.id,
-    createdByName: creatorProfile?.full_name ?? null,
-    createdByEmail: creatorProfile?.email ?? user.email ?? "",
-  });
+    await notifyNewProjectCreated({
+      projectId: data.id,
+      projectName: formData.name,
+      createdByUserId: user.id,
+      createdByName: creatorProfile?.full_name ?? null,
+      createdByEmail: creatorProfile?.email ?? user.email ?? "",
+    });
+  } catch (notifyError) {
+    console.error("[createProject] notification:", notifyError);
+  }
 
   revalidatePath("/tablette");
   revalidatePath("/pc");
+  revalidatePath(`/pc/projets/${data.id}/parametres`);
 
   return data.id;
 }
