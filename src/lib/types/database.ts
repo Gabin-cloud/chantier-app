@@ -39,6 +39,14 @@ export type Project = {
   updated_at: string;
 };
 
+export type EnterpriseEmailInvitation = {
+  id: string;
+  enterprise_id: string;
+  email: string;
+  sent_at: string;
+  sent_by: string | null;
+};
+
 export type Enterprise = {
   id: string;
   project_id: string;

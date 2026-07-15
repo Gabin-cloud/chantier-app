@@ -1,3 +1,4 @@
+import Link from "next/link";
 import { PcAppNav } from "@/components/pc/PcAppNav";
 import {
   DatabaseErrorNotice,
@@ -52,7 +53,14 @@ export default async function ReferentielsPage() {
                     <tbody>
                       {companies.map((c) => (
                         <tr key={c.id} className="border-b border-slate-100">
-                          <td className="px-2 py-2 font-medium">{c.name}</td>
+                          <td className="px-2 py-2 font-medium">
+                            <Link
+                              href={`/pc/referentiels/entreprises/${c.id}`}
+                              className="text-violet-700 hover:underline"
+                            >
+                              {c.name}
+                            </Link>
+                          </td>
                           <td className="px-2 py-2 text-slate-600">{c.siret ?? "—"}</td>
                           <td className="px-2 py-2 text-slate-600">{c.city ?? "—"}</td>
                           <td className="px-2 py-2 text-slate-600">{c.email_administratif ?? "—"}</td>
@@ -84,7 +92,14 @@ export default async function ReferentielsPage() {
                     <tbody>
                       {owners.map((o) => (
                         <tr key={o.id} className="border-b border-slate-100">
-                          <td className="px-2 py-2 font-medium">{o.name}</td>
+                          <td className="px-2 py-2 font-medium">
+                            <Link
+                              href={`/pc/referentiels/maitres-ouvrage/${o.id}`}
+                              className="text-violet-700 hover:underline"
+                            >
+                              {o.name}
+                            </Link>
+                          </td>
                           <td className="px-2 py-2 text-slate-600">{o.city ?? "—"}</td>
                           <td className="px-2 py-2 text-slate-600">{o.email_admin ?? "—"}</td>
                           <td className="px-2 py-2 text-xs text-slate-500">

@@ -2,7 +2,7 @@
 
 import { useState, useTransition } from "react";
 import { sendEnterpriseInvitation } from "@/lib/actions/invitations";
-import { validateEmail } from "@/lib/validation/fields";
+import { DANOBAT_DIRTY_TEXT, SAVED_TEXT, validateEmail } from "@/lib/validation/fields";
 
 type EmailFieldWithInviteProps = {
   value: string;
@@ -13,7 +13,19 @@ type EmailFieldWithInviteProps = {
   inputClassName: string;
   savedValue: string;
   placeholder?: string;
+  invitationSentAt?: string | null;
+  onInvitationSent?: (email: string, sentAt: string) => void;
 };
+
+function formatInvitationDate(iso: string) {
+  return new Date(iso).toLocaleString("fr-FR", {
+    day: "2-digit",
+    month: "2-digit",
+    year: "numeric",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
 
 export function EmailFieldWithInvite({
   value,
@@ -24,16 +36,22 @@ export function EmailFieldWithInvite({
   inputClassName,
   savedValue,
   placeholder,
+  invitationSentAt,
+  onInvitationSent,
 }: EmailFieldWithInviteProps) {
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [validationError, setValidationError] = useState<string | null>(null);
+  const [localSentAt, setLocalSentAt] = useState<string | null>(invitationSentAt ?? null);
 
   const dirtyClass =
-    value.trim() !== savedValue.trim()
-      ? "text-[#1a4b8c]"
-      : "text-slate-900";
+    value.trim() !== savedValue.trim() ? DANOBAT_DIRTY_TEXT : SAVED_TEXT;
+
+  const sentAt = localSentAt;
+  const tooltip = sentAt
+    ? `Invitation envoyée le ${formatInvitationDate(sentAt)}`
+    : "Envoyer une invitation par e-mail depuis votre compte Microsoft 365";
 
   function handleInvite() {
     setMessage(null);
@@ -49,33 +67,48 @@ export function EmailFieldWithInvite({
         setError(result.error);
         return;
       }
+      const now = new Date().toISOString();
+      setLocalSentAt(now);
+      onInvitationSent?.(value.trim().toLowerCase(), now);
       setMessage(result.message);
     });
   }
 
   return (
     <div>
-      <div className="flex gap-2">
-        <input
-          type="email"
-          className={`${inputClassName} ${dirtyClass}`}
-          value={value}
-          placeholder={placeholder}
-          onChange={(e) => {
-            onChange(e.target.value);
-            setValidationError(validateEmail(e.target.value));
-          }}
-          onBlur={() => setValidationError(validateEmail(value))}
-          disabled={disabled}
-        />
+      <div className="flex items-start gap-2">
+        <div className="relative min-w-0 flex-1" title={tooltip}>
+          <input
+            type="email"
+            className={`${inputClassName} ${dirtyClass} ${sentAt ? "pr-20" : ""}`}
+            value={value}
+            placeholder={placeholder}
+            onChange={(e) => {
+              onChange(e.target.value);
+              setValidationError(validateEmail(e.target.value));
+            }}
+            onBlur={() => setValidationError(validateEmail(value))}
+            disabled={disabled}
+            title={tooltip}
+          />
+          {sentAt && (
+            <span
+              className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-bold uppercase tracking-wide text-violet-700"
+              title={tooltip}
+            >
+              Invité
+            </span>
+          )}
+        </div>
         {value.trim().includes("@") && !disabled && (
           <button
             type="button"
             onClick={handleInvite}
             disabled={isPending || !!validateEmail(value)}
-            className="shrink-0 rounded-lg border border-blue-300 bg-blue-50 px-3 py-2 text-xs font-semibold text-blue-700 hover:bg-blue-100 disabled:opacity-50"
+            title={sentAt ? `Renvoyer l'invitation — ${tooltip}` : tooltip}
+            className="shrink-0 rounded-lg border border-violet-300 bg-violet-50 px-3 py-2 text-xs font-semibold text-violet-700 hover:bg-violet-100 disabled:opacity-50"
           >
-            {isPending ? "…" : "Envoyer invitation"}
+            {isPending ? "…" : sentAt ? "Renvoyer" : "Envoyer invitation"}
           </button>
         )}
       </div>

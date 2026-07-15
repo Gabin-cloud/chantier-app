@@ -1,5 +1,5 @@
-/** Bleu DANOBAT : champ modifié non enregistré. */
-export const DANOBAT_DIRTY_TEXT = "text-[#1a4b8c]";
+/** Violet : champ modifié non enregistré. */
+export const DANOBAT_DIRTY_TEXT = "text-[#7c3aed]";
 /** Texte enregistré / à jour. */
 export const SAVED_TEXT = "text-slate-900";
 

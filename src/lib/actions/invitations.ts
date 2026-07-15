@@ -7,6 +7,32 @@ import { createClient } from "@/lib/supabase/server";
 import { sendUserMail } from "@/lib/microsoft/graph";
 import { buildInvitationEmailFromTemplates } from "@/lib/notifications/invitation-email";
 
+export async function getEnterpriseEmailInvitations(
+  enterpriseIds: string[]
+): Promise<Record<string, Record<string, string>>> {
+  if (enterpriseIds.length === 0) return {};
+
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("enterprise_email_invitations")
+    .select("enterprise_id, email, sent_at")
+    .in("enterprise_id", enterpriseIds);
+
+  if (error) {
+    console.error("[getEnterpriseEmailInvitations]", error.message);
+    return {};
+  }
+
+  const map: Record<string, Record<string, string>> = {};
+  for (const row of data ?? []) {
+    const key = row.enterprise_id as string;
+    const email = (row.email as string).toLowerCase();
+    if (!map[key]) map[key] = {};
+    map[key][email] = row.sent_at as string;
+  }
+  return map;
+}
+
 export async function sendEnterpriseInvitation(
   projectId: string,
   email: string,
@@ -90,6 +116,16 @@ export async function sendEnterpriseInvitation(
         accessMessage = "Invitation envoyée. Cet utilisateur a déjà accès au projet.";
       }
     }
+
+    await supabase.from("enterprise_email_invitations").upsert(
+      {
+        enterprise_id: enterpriseId,
+        email: normalizedEmail,
+        sent_at: new Date().toISOString(),
+        sent_by: user.id,
+      },
+      { onConflict: "enterprise_id,email" }
+    );
 
     revalidatePath(`/pc/projets/${projectId}/parametres`);
     revalidatePath("/entreprise");

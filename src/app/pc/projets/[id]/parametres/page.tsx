@@ -1,20 +1,21 @@
-import Link from "next/link";
-import { OperationSheet } from "@/components/projects/OperationSheet";
 import {
   DatabaseErrorNotice,
   SupabaseSetupNotice,
 } from "@/components/SupabaseSetupNotice";
+import { OperationParametresView } from "@/components/projects/OperationParametresView";
 import {
   canAccessField,
   canEditProject,
   canManageMembers,
   getProjectRole,
 } from "@/lib/auth/permissions";
+import { getEnterpriseEmailInvitations } from "@/lib/actions/invitations";
 import {
   getCompanyDirectory,
   getOwnerDirectory,
 } from "@/lib/actions/operation-sheet";
 import { getProject } from "@/lib/actions/projects";
+import type { Enterprise } from "@/lib/types/database";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
 type PageProps = {
@@ -50,32 +51,21 @@ export default async function PcParametresPage({ params }: PageProps) {
       );
     }
 
+    const enterpriseIds = (project.enterprises ?? []).map((e: Enterprise) => e.id);
+    const invitationMap = await getEnterpriseEmailInvitations(enterpriseIds);
+
     return (
       <main className="min-h-full bg-slate-50 px-4 py-6 sm:px-6">
         <div className="mx-auto w-full max-w-[110rem]">
-          <Link
-            href={`/pc/projets/${id}/tableau-de-bord`}
-            className="text-sm font-medium text-slate-400 hover:text-slate-600"
-          >
-            ← Retour à l&apos;opération
-          </Link>
-          <header className="mb-4 mt-3 rounded-xl border border-slate-200 bg-white px-6 py-4 shadow-sm">
-            <h1 className="text-2xl font-semibold text-slate-900">Fiche opération</h1>
-            <p className="mt-1 text-slate-500">
-              {project.name} — configuration complète de l&apos;opération.
-            </p>
-          </header>
-
-          {canEdit || canPlans ? (
-            <OperationSheet
-              project={project}
-              enterprises={project.enterprises ?? []}
-              directory={directory}
-              ownerDirectory={ownerDirectory}
-              canEdit={canEdit}
-              isOperationConfigured={project.is_operation_configured}
-            />
-          ) : null}
+          <OperationParametresView
+            project={project}
+            enterprises={project.enterprises ?? []}
+            directory={directory}
+            ownerDirectory={ownerDirectory}
+            canEdit={canEdit}
+            invitationMap={invitationMap}
+            backHref={`/pc/projets/${id}/tableau-de-bord`}
+          />
         </div>
       </main>
     );

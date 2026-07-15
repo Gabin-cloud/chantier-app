@@ -40,6 +40,10 @@ export async function getProject(id: string) {
   return data;
 }
 
+export async function createQuickProject(): Promise<string> {
+  return createProject({ name: "Nouvelle opération" });
+}
+
 export async function createProject(formData: ProjectFormData): Promise<string> {
   const user = await requireUser();
   const supabase = await createClient();

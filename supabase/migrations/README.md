@@ -32,6 +32,7 @@ Ordre d’application (numéros uniques, tri alphabétique) :
 | 026 | `026_operation_sheet.sql` | Fiche opération : champs MOA/MOE projet, champs entreprise détaillés, base `company_directory` |
 | 027 | `027_owner_directory.sql` | Annuaire maîtres d'ouvrage réutilisable (`owner_directory`) |
 | 028 | `028_operation_init_invitation.sql` | État initialisation fiche opération (`is_operation_configured`) + modèle mail invitation plateforme |
+| 029 | `029_enterprise_invitations.sql` | Journal des invitations e-mail envoyées aux entreprises |
 
 ## Audit base distante (2026-07)
 

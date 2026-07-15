@@ -1,10 +1,11 @@
 "use client";
 
-import { useMemo, useRef, useState, useTransition } from "react";
+import { useMemo, useRef, useState, useTransition, useEffect } from "react";
 import { useRouter } from "next/navigation";
 import { AutocompleteInput } from "@/components/projects/AutocompleteInput";
 import { EmailFieldWithInvite } from "@/components/projects/EmailFieldWithInvite";
 import { SharePointPathSettings } from "@/components/projects/SharePointPathSettings";
+import { FormattedNumberInput } from "@/components/ui/FormattedNumberInput";
 import { uploadOperationPhoto } from "@/lib/actions/finance";
 import {
   createEnterpriseOnProject,
@@ -35,6 +36,8 @@ type OperationSheetProps = {
   ownerDirectory: OwnerDirectoryEntry[];
   canEdit: boolean;
   isOperationConfigured: boolean;
+  invitationMap?: Record<string, Record<string, string>>;
+  onDirtyChange?: (dirty: boolean) => void;
 };
 
 type OperationFormState = {
@@ -247,6 +250,8 @@ export function OperationSheet({
   ownerDirectory,
   canEdit,
   isOperationConfigured = project.is_operation_configured,
+  invitationMap = {},
+  onDirtyChange,
 }: OperationSheetProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -258,6 +263,11 @@ export function OperationSheet({
   const [selectedId, setSelectedId] = useState(enterprises[0]?.id ?? "");
   const [showNewEnterprise, setShowNewEnterprise] = useState(false);
   const [newEnterpriseName, setNewEnterpriseName] = useState("");
+  const [enterpriseDirty, setEnterpriseDirty] = useState(false);
+
+  useEffect(() => {
+    setEnterpriseDirty(false);
+  }, [selectedId]);
 
   const ownerOptions = useMemo(
     () => ownerDirectory.map((entry) => ({ id: entry.id, label: entry.name, data: entry })),
@@ -268,6 +278,15 @@ export function OperationSheet({
     [enterprises, selectedId]
   );
   const configuredEditing = canEdit && isOperationConfigured;
+
+  const opDirty = useMemo(
+    () => JSON.stringify(op) !== JSON.stringify(savedOp),
+    [op, savedOp]
+  );
+
+  useEffect(() => {
+    onDirtyChange?.(opDirty || enterpriseDirty);
+  }, [opDirty, enterpriseDirty, onDirtyChange]);
 
   const setOpField = <K extends keyof OperationFormState>(key: K, value: OperationFormState[K]) =>
     setOp((current) => ({ ...current, [key]: value }));
@@ -492,7 +511,17 @@ export function OperationSheet({
           {enterprises.length === 0 ? (
             <p className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-500">Aucune entreprise. Cliquez sur « Nouvelle entreprise » pour commencer.</p>
           ) : selected ? (
-            <EnterpriseSheetForm key={selected.id} projectId={project.id} enterprise={selected} directory={directory} canEdit={configuredEditing} onUploadLogo={(formData) => uploadLogo("enterprise", formData, selected.id)} onSaved={() => router.refresh()} />
+            <EnterpriseSheetForm
+              key={selected.id}
+              projectId={project.id}
+              enterprise={selected}
+              directory={directory}
+              canEdit={configuredEditing}
+              invitationMap={invitationMap[selected.id] ?? {}}
+              onUploadLogo={(formData) => uploadLogo("enterprise", formData, selected.id)}
+              onSaved={() => router.refresh()}
+              onDirtyChange={setEnterpriseDirty}
+            />
           ) : null}
         </SectionCard>
       </div>
@@ -564,15 +593,19 @@ function EnterpriseSheetForm({
   enterprise,
   directory,
   canEdit,
+  invitationMap,
   onUploadLogo,
   onSaved,
+  onDirtyChange,
 }: {
   projectId: string;
   enterprise: Enterprise;
   directory: CompanyDirectoryEntry[];
   canEdit: boolean;
+  invitationMap: Record<string, string>;
   onUploadLogo: (formData: FormData) => Promise<void>;
   onSaved: () => void;
+  onDirtyChange?: (dirty: boolean) => void;
 }) {
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
@@ -580,11 +613,36 @@ function EnterpriseSheetForm({
   const [form, setForm] = useState(() => enterpriseForm(enterprise));
   const [savedForm, setSavedForm] = useState(() => enterpriseForm(enterprise));
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof EnterpriseFormState, string | null>>>({});
+  const [localInvitations, setLocalInvitations] = useState(invitationMap);
 
   const companyOptions = useMemo(
     () => directory.map((entry) => ({ id: entry.id, label: `${entry.name}${entry.siret ? ` (${entry.siret})` : ""}`, data: entry })),
     [directory]
   );
+  const siretOptions = useMemo(
+    () =>
+      directory
+        .filter((entry) => entry.siret)
+        .map((entry) => ({
+          id: entry.id,
+          label: `${entry.siret} — ${entry.name}`,
+          data: entry,
+        })),
+    [directory]
+  );
+
+  const formDirty = useMemo(
+    () => JSON.stringify(form) !== JSON.stringify(savedForm),
+    [form, savedForm]
+  );
+
+  useEffect(() => {
+    onDirtyChange?.(formDirty);
+  }, [formDirty, onDirtyChange]);
+
+  useEffect(() => {
+    setLocalInvitations(invitationMap);
+  }, [invitationMap]);
   const set = <K extends keyof EnterpriseFormState>(key: K, value: EnterpriseFormState[K]) =>
     setForm((current) => ({ ...current, [key]: value }));
   const inputClass = <K extends keyof EnterpriseFormState>(key: K, base = danobatInput) =>
@@ -633,10 +691,49 @@ function EnterpriseSheetForm({
           </Field>
           <Field label="N° du lot"><input className={inputClass("lot_number")} value={form.lot_number} onChange={(event) => set("lot_number", event.target.value)} disabled={!canEdit} /></Field>
           <Field label="Intitulé du lot"><input className={inputClass("designation")} value={form.designation} onChange={(event) => set("designation", event.target.value)} disabled={!canEdit} /></Field>
-          <Field label="Marché initial H.T. (€)"><input type="number" step="0.01" className={inputClass("contract_amount_ht")} value={form.contract_amount_ht} onChange={(event) => set("contract_amount_ht", event.target.value)} disabled={!canEdit} /></Field>
-          <Field label="TVA (%)" error={fieldErrors.vat_rate}><input type="number" step="0.01" className={inputClass("vat_rate")} value={form.vat_rate} onChange={(event) => set("vat_rate", event.target.value)} onBlur={() => validateField("vat_rate", validatePercent)} disabled={!canEdit} /></Field>
-          <Field label="Prorata (%)" error={fieldErrors.prorata_percent}><input type="number" step="0.001" className={inputClass("prorata_percent")} value={form.prorata_percent} onChange={(event) => set("prorata_percent", event.target.value)} onBlur={() => validateField("prorata_percent", validatePercent)} disabled={!canEdit} /></Field>
-          <Field label="Avanc. max avant DGD (%)" error={fieldErrors.avancement_max_avant_dgd}><input type="number" step="0.01" className={inputClass("avancement_max_avant_dgd")} value={form.avancement_max_avant_dgd} onChange={(event) => set("avancement_max_avant_dgd", event.target.value)} onBlur={() => validateField("avancement_max_avant_dgd", validatePercent)} disabled={!canEdit} /></Field>
+          <Field label="Marché initial H.T.">
+            <FormattedNumberInput
+              value={form.contract_amount_ht}
+              onChange={(value) => set("contract_amount_ht", value)}
+              unit="€"
+              decimals={2}
+              disabled={!canEdit}
+              className={inputClass("contract_amount_ht")}
+            />
+          </Field>
+          <Field label="TVA" error={fieldErrors.vat_rate}>
+            <FormattedNumberInput
+              value={form.vat_rate}
+              onChange={(value) => set("vat_rate", value)}
+              unit="%"
+              decimals={2}
+              disabled={!canEdit}
+              className={inputClass("vat_rate")}
+              onBlur={() => validateField("vat_rate", validatePercent)}
+            />
+          </Field>
+          <Field label="Prorata" error={fieldErrors.prorata_percent}>
+            <FormattedNumberInput
+              value={form.prorata_percent}
+              onChange={(value) => set("prorata_percent", value)}
+              unit="%"
+              decimals={3}
+              disabled={!canEdit}
+              className={inputClass("prorata_percent")}
+              onBlur={() => validateField("prorata_percent", validatePercent)}
+            />
+          </Field>
+          <Field label="Avanc. max avant DGD" error={fieldErrors.avancement_max_avant_dgd}>
+            <FormattedNumberInput
+              value={form.avancement_max_avant_dgd}
+              onChange={(value) => set("avancement_max_avant_dgd", value)}
+              unit="%"
+              decimals={2}
+              disabled={!canEdit}
+              className={inputClass("avancement_max_avant_dgd")}
+              onBlur={() => validateField("avancement_max_avant_dgd", validatePercent)}
+            />
+          </Field>
         </div>
       </div>
 
@@ -660,13 +757,47 @@ function EnterpriseSheetForm({
           <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3 xl:grid-cols-5">
             {emailFields.map(([key, label]) => (
               <Field key={key} label={label}>
-                <EmailFieldWithInvite value={form[key]} onChange={(value) => set(key, value)} projectId={projectId} enterpriseId={enterprise.id} disabled={!canEdit} inputClassName={enterpriseInput} savedValue={savedForm[key]} />
+                <EmailFieldWithInvite
+                  value={form[key]}
+                  onChange={(value) => set(key, value)}
+                  projectId={projectId}
+                  enterpriseId={enterprise.id}
+                  disabled={!canEdit}
+                  inputClassName={enterpriseInput}
+                  savedValue={savedForm[key]}
+                  invitationSentAt={localInvitations[form[key].trim().toLowerCase()] ?? null}
+                  onInvitationSent={(email, sentAt) =>
+                    setLocalInvitations((current) => ({ ...current, [email]: sentAt }))
+                  }
+                />
               </Field>
             ))}
             <Field label="Signataire"><input className={inputClass("signataire_name", enterpriseInput)} value={form.signataire_name} onChange={(event) => set("signataire_name", event.target.value)} disabled={!canEdit} /></Field>
-            <Field label="N° SIRET" error={fieldErrors.siret}><input className={inputClass("siret", enterpriseInput)} value={form.siret} onChange={(event) => set("siret", event.target.value)} onBlur={() => validateField("siret", validateSiret)} disabled={!canEdit} /></Field>
+            <Field label="N° SIRET" error={fieldErrors.siret}>
+              <AutocompleteInput
+                value={form.siret}
+                onChange={(value) => set("siret", value)}
+                onSelect={(option) => applyCompanyAdminFields(option.data, setForm)}
+                options={siretOptions}
+                disabled={!canEdit}
+                className={inputClass("siret", enterpriseInput)}
+                placeholder="Rechercher par SIRET…"
+              />
+            </Field>
             <Field label="Mail SAV">
-              <EmailFieldWithInvite value={form.email_sav} onChange={(value) => set("email_sav", value)} projectId={projectId} enterpriseId={enterprise.id} disabled={!canEdit} inputClassName={enterpriseInput} savedValue={savedForm.email_sav} />
+              <EmailFieldWithInvite
+                value={form.email_sav}
+                onChange={(value) => set("email_sav", value)}
+                projectId={projectId}
+                enterpriseId={enterprise.id}
+                disabled={!canEdit}
+                inputClassName={enterpriseInput}
+                savedValue={savedForm.email_sav}
+                invitationSentAt={localInvitations[form.email_sav.trim().toLowerCase()] ?? null}
+                onInvitationSent={(email, sentAt) =>
+                  setLocalInvitations((current) => ({ ...current, [email]: sentAt }))
+                }
+              />
             </Field>
             <Field label="Tél. Accueil" error={fieldErrors.phone_accueil}><input className={inputClass("phone_accueil", enterpriseInput)} value={form.phone_accueil} onChange={(event) => set("phone_accueil", event.target.value)} onBlur={() => validateField("phone_accueil", validatePhone)} disabled={!canEdit} /></Field>
             <Field label="Tél. Travaux" error={fieldErrors.phone_travaux}><input className={inputClass("phone_travaux", enterpriseInput)} value={form.phone_travaux} onChange={(event) => set("phone_travaux", event.target.value)} onBlur={() => validateField("phone_travaux", validatePhone)} disabled={!canEdit} /></Field>
