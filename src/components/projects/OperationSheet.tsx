@@ -160,13 +160,15 @@ function Field({
   label,
   children,
   error,
+  className = "",
 }: {
   label: string;
   children: React.ReactNode;
   error?: string | null;
+  className?: string;
 }) {
   return (
-    <div>
+    <div className={className}>
       <label className={labelClass}>{label}</label>
       {children}
       {error && <p className="mt-1 text-xs text-red-600">{error}</p>}
@@ -698,72 +700,63 @@ function EnterpriseSheetForm({
     <div className="space-y-4">
       <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4">
         <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Renseigné par DANOBAT</p>
-        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-6 xl:grid-cols-12">
-          <div className="sm:col-span-2 lg:col-span-2">
-            <Field label="Nom de l'entreprise">
-              <AutocompleteInput value={form.name} onChange={(value) => set("name", value)} onSelect={(option) => applyCompanyAdminFields(option.data, setForm)} options={companyOptions} disabled={!canEdit} className={`${danobatInput} ${dirtyTextClass(form.name, savedForm.name, !canEdit)}`} placeholder="Rechercher…" />
-            </Field>
-          </div>
-          <div className="lg:col-span-1">
-            <Field label="N° du lot"><input className={inputClass("lot_number")} value={form.lot_number} onChange={(event) => set("lot_number", event.target.value)} disabled={!canEdit} /></Field>
-          </div>
-          <div className="sm:col-span-2 lg:col-span-2">
-            <Field label="Intitulé du lot"><input className={inputClass("designation")} value={form.designation} onChange={(event) => set("designation", event.target.value)} disabled={!canEdit} /></Field>
-          </div>
-          <div className="sm:col-span-2 lg:col-span-3">
-            <Field label="Marché initial H.T.">
-              <AppField
-                format="money"
-                value={form.contract_amount_ht}
-                savedValue={savedForm.contract_amount_ht}
-                onChange={(value) => set("contract_amount_ht", value)}
-                inputClassName={danobatInput}
-                disabled={!canEdit}
-              />
-            </Field>
-          </div>
-          <div className="lg:col-span-1">
-            <Field label="TVA" error={fieldErrors.vat_rate}>
-              <AppField
-                format="percent"
-                decimals={2}
-                value={form.vat_rate}
-                savedValue={savedForm.vat_rate}
-                onChange={(value) => set("vat_rate", value)}
-                inputClassName={danobatInput}
-                disabled={!canEdit}
-                onBlur={() => validateField("vat_rate", validatePercent)}
-              />
-            </Field>
-          </div>
-          <div className="lg:col-span-1">
-            <Field label="Prorata" error={fieldErrors.prorata_percent}>
-              <AppField
-                format="percent"
-                decimals={3}
-                value={form.prorata_percent}
-                savedValue={savedForm.prorata_percent}
-                onChange={(value) => set("prorata_percent", value)}
-                inputClassName={danobatInput}
-                disabled={!canEdit}
-                onBlur={() => validateField("prorata_percent", validatePercent)}
-              />
-            </Field>
-          </div>
-          <div className="sm:col-span-2 lg:col-span-2">
-            <Field label="Avanc. max avant DGD" error={fieldErrors.avancement_max_avant_dgd}>
-              <AppField
-                format="percent"
-                decimals={2}
-                value={form.avancement_max_avant_dgd}
-                savedValue={savedForm.avancement_max_avant_dgd}
-                onChange={(value) => set("avancement_max_avant_dgd", value)}
-                inputClassName={danobatInput}
-                disabled={!canEdit}
-                onBlur={() => validateField("avancement_max_avant_dgd", validatePercent)}
-              />
-            </Field>
-          </div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <Field label="Nom de l'entreprise">
+            <AutocompleteInput value={form.name} onChange={(value) => set("name", value)} onSelect={(option) => applyCompanyAdminFields(option.data, setForm)} options={companyOptions} disabled={!canEdit} className={`${danobatInput} ${dirtyTextClass(form.name, savedForm.name, !canEdit)}`} placeholder="Rechercher…" />
+          </Field>
+          <Field label="N° du lot"><input className={inputClass("lot_number")} value={form.lot_number} onChange={(event) => set("lot_number", event.target.value)} disabled={!canEdit} /></Field>
+          <Field label="Intitulé du lot" className="sm:col-span-2">
+            <input className={inputClass("designation")} value={form.designation} onChange={(event) => set("designation", event.target.value)} disabled={!canEdit} />
+          </Field>
+        </div>
+
+        <div className="mt-3 grid grid-cols-2 gap-3 sm:grid-cols-4 lg:grid-cols-[13.5rem_6.5rem_7.5rem_9rem]">
+          <Field label="Marché initial H.T.">
+            <AppField
+              format="money"
+              value={form.contract_amount_ht}
+              savedValue={savedForm.contract_amount_ht}
+              onChange={(value) => set("contract_amount_ht", value)}
+              inputClassName={`${danobatInput} tabular-nums`}
+              disabled={!canEdit}
+            />
+          </Field>
+          <Field label="TVA" error={fieldErrors.vat_rate}>
+            <AppField
+              format="percent"
+              decimals={2}
+              value={form.vat_rate}
+              savedValue={savedForm.vat_rate}
+              onChange={(value) => set("vat_rate", value)}
+              inputClassName={`${danobatInput} tabular-nums text-sm`}
+              disabled={!canEdit}
+              onBlur={() => validateField("vat_rate", validatePercent)}
+            />
+          </Field>
+          <Field label="Prorata" error={fieldErrors.prorata_percent}>
+            <AppField
+              format="percent"
+              decimals={3}
+              value={form.prorata_percent}
+              savedValue={savedForm.prorata_percent}
+              onChange={(value) => set("prorata_percent", value)}
+              inputClassName={`${danobatInput} tabular-nums text-sm`}
+              disabled={!canEdit}
+              onBlur={() => validateField("prorata_percent", validatePercent)}
+            />
+          </Field>
+          <Field label="Avanc. max avant DGD" error={fieldErrors.avancement_max_avant_dgd}>
+            <AppField
+              format="percent"
+              decimals={2}
+              value={form.avancement_max_avant_dgd}
+              savedValue={savedForm.avancement_max_avant_dgd}
+              onChange={(value) => set("avancement_max_avant_dgd", value)}
+              inputClassName={`${danobatInput} tabular-nums text-sm`}
+              disabled={!canEdit}
+              onBlur={() => validateField("avancement_max_avant_dgd", validatePercent)}
+            />
+          </Field>
         </div>
       </div>
 

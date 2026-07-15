@@ -4,4 +4,4 @@ export const appFieldClass =
 export const appFieldInvalidClass = "border-red-300 focus:border-red-400";
 
 export const appFieldUnitClass =
-  "pointer-events-none absolute right-4 top-1/2 -translate-y-1/2 text-sm font-medium text-slate-400";
+  "pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-xs font-medium text-slate-400";

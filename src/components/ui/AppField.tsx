@@ -169,7 +169,7 @@ export function AppField({
     inputClassName ?? appFieldClass,
     dirtyClass,
     error ? appFieldInvalidClass : "",
-    resolvedUnit && !multiline ? "pr-14" : "",
+    resolvedUnit && !multiline ? "pr-10" : "",
   ]
     .filter(Boolean)
     .join(" ");
