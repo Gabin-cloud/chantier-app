@@ -13,6 +13,7 @@ export type Project = {
   default_payment_terms: string | null;
   operation_photo_path: string | null;
   sharepoint_plan_exe_path: string | null;
+  is_operation_configured: boolean;
   // Maître d'ouvrage (renseigné par DANOBAT)
   owner_name: string | null;
   owner_address: string | null;

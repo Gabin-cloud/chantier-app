@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { OperationAdvancedSettings } from "@/components/projects/OperationAdvancedSettings";
 import { OperationSheet } from "@/components/projects/OperationSheet";
 import {
   DatabaseErrorNotice,
@@ -11,14 +10,10 @@ import {
   canManageMembers,
   getProjectRole,
 } from "@/lib/auth/permissions";
-import { getProjectMembers } from "@/lib/actions/members";
-import { getProjectChecklistItems } from "@/lib/actions/checklist";
 import {
   getCompanyDirectory,
   getOwnerDirectory,
 } from "@/lib/actions/operation-sheet";
-import { getProjectPhases } from "@/lib/actions/phases";
-import { getProjectZones } from "@/lib/actions/zones";
 import { getProject } from "@/lib/actions/projects";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
@@ -34,21 +29,8 @@ export default async function PcParametresPage({ params }: PageProps) {
   const { id } = await params;
 
   try {
-    const [
-      project,
-      phases,
-      checklistItems,
-      zones,
-      members,
-      directory,
-      ownerDirectory,
-      projectRole,
-    ] = await Promise.all([
+    const [project, directory, ownerDirectory, projectRole] = await Promise.all([
       getProject(id),
-      getProjectPhases(id),
-      getProjectChecklistItems(id),
-      getProjectZones(id),
-      getProjectMembers(id),
       getCompanyDirectory().catch(() => []),
       getOwnerDirectory().catch(() => []),
       getProjectRole(id),
@@ -91,24 +73,9 @@ export default async function PcParametresPage({ params }: PageProps) {
               directory={directory}
               ownerDirectory={ownerDirectory}
               canEdit={canEdit}
+              isOperationConfigured={project.is_operation_configured}
             />
           ) : null}
-
-          <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-            <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-400">
-              Configuration avancée
-            </h2>
-            <OperationAdvancedSettings
-              projectId={id}
-              members={members}
-              phases={phases}
-              zones={zones}
-              checklistItems={checklistItems}
-              canManageMembers={canManage}
-              canEditPlans={canPlans}
-              canEdit={canEdit}
-            />
-          </div>
         </div>
       </main>
     );

@@ -93,6 +93,7 @@ export async function updateOperationSheet(
       address: clean(data.address),
       postal_code: clean(data.postal_code),
       city: clean(data.city),
+      is_operation_configured: true,
       owner_name: clean(data.owner_name),
       owner_address: clean(data.owner_address),
       owner_postal_code: clean(data.owner_postal_code),
@@ -264,7 +265,14 @@ export async function createEnterpriseOnProject(projectId: string, name: string)
 
   const { data, error } = await supabase
     .from("enterprises")
-    .insert({ project_id: projectId, name: trimmed })
+    .insert({
+      project_id: projectId,
+      name: trimmed,
+      contract_amount_ht: 0,
+      vat_rate: 20,
+      prorata_percent: 0.015,
+      avancement_max_avant_dgd: 95,
+    })
     .select("id")
     .single();
 

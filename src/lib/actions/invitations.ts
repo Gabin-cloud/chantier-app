@@ -1,94 +1,101 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { requireProjectRoles } from "@/lib/auth/permissions";
-import { createAdminClient, isAdminClientConfigured } from "@/lib/supabase/admin";
+import { requireProjectRoles, requireUser } from "@/lib/auth/permissions";
+import { getPlatformInvitationEmailTemplate } from "@/lib/actions/email-templates";
 import { createClient } from "@/lib/supabase/server";
-import type { ProjectRole } from "@/lib/types/database";
+import { sendUserMail } from "@/lib/microsoft/graph";
+import { buildInvitationEmailFromTemplates } from "@/lib/notifications/invitation-email";
 
-export type InvitationContext =
-  | { type: "enterprise"; enterpriseId: string }
-  | { type: "platform"; role?: ProjectRole };
-
-export async function sendPlatformInvitation(
+export async function sendEnterpriseInvitation(
   projectId: string,
   email: string,
-  context: InvitationContext
-) {
-  await requireProjectRoles(projectId, ["admin", "gestionnaire"]);
+  enterpriseId: string
+): Promise<{ ok: true; message: string } | { ok: false; error: string }> {
+  try {
+    const user = await requireUser();
+    await requireProjectRoles(projectId, ["admin", "gestionnaire"]);
 
-  const normalizedEmail = email.trim().toLowerCase();
-  if (!normalizedEmail || !normalizedEmail.includes("@")) {
-    throw new Error("Adresse e-mail invalide.");
-  }
-
-  const supabase = await createClient();
-
-  const { data: profile, error: profileError } = await supabase
-    .from("profiles")
-    .select("id, email")
-    .eq("email", normalizedEmail)
-    .maybeSingle();
-
-  if (profileError) throw new Error(profileError.message);
-
-  let userId = profile?.id;
-
-  if (!userId) {
-    if (!isAdminClientConfigured()) {
-      throw new Error(
-        "La clé SUPABASE_SERVICE_ROLE_KEY est requise pour envoyer une invitation."
-      );
+    const normalizedEmail = email.trim().toLowerCase();
+    if (!normalizedEmail || !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(normalizedEmail)) {
+      return { ok: false, error: "Adresse e-mail invalide." };
     }
 
-    const admin = createAdminClient();
+    const supabase = await createClient();
+
+    const [{ data: project }, { data: enterprise }, { data: profile }] =
+      await Promise.all([
+        supabase.from("projects").select("name").eq("id", projectId).single(),
+        supabase
+          .from("enterprises")
+          .select("id, name")
+          .eq("id", enterpriseId)
+          .eq("project_id", projectId)
+          .single(),
+        supabase
+          .from("profiles")
+          .select("email_signature_html")
+          .eq("id", user.id)
+          .single(),
+      ]);
+
+    if (!enterprise) {
+      return { ok: false, error: "Entreprise introuvable sur ce projet." };
+    }
+
     const appUrl = process.env.NEXT_PUBLIC_APP_URL ?? "http://localhost:3000";
+    const template = await getPlatformInvitationEmailTemplate();
+    const emailContent = buildInvitationEmailFromTemplates(
+      template.subjectTemplate,
+      template.bodyTemplate,
+      {
+        projectName: project?.name ?? "Opération",
+        enterpriseName: enterprise.name,
+        platformUrl: `${appUrl}/login`,
+        signatureHtml: profile?.email_signature_html ?? null,
+      }
+    );
 
-    const { data: invited, error: inviteError } =
-      await admin.auth.admin.inviteUserByEmail(normalizedEmail, {
-        redirectTo: `${appUrl}/login`,
-      });
+    await sendUserMail(user.id, {
+      subject: emailContent.subject,
+      htmlBody: emailContent.htmlBody,
+      to: [{ email: normalizedEmail, name: enterprise.name }],
+    });
 
-    if (inviteError) throw new Error(inviteError.message);
-    userId = invited.user.id;
-  }
-
-  const role: ProjectRole =
-    context.type === "enterprise" ? "entreprise" : (context.role ?? "lecture");
-
-  const insertPayload: {
-    project_id: string;
-    user_id: string;
-    role: ProjectRole;
-    enterprise_id?: string;
-  } = {
-    project_id: projectId,
-    user_id: userId,
-    role,
-  };
-
-  if (context.type === "enterprise") {
-    const { data: enterprise, error: entError } = await supabase
-      .from("enterprises")
+    const { data: existingProfile } = await supabase
+      .from("profiles")
       .select("id")
-      .eq("id", context.enterpriseId)
-      .eq("project_id", projectId)
+      .eq("email", normalizedEmail)
       .maybeSingle();
 
-    if (entError) throw new Error(entError.message);
-    if (!enterprise) throw new Error("Entreprise introuvable sur ce projet.");
-    insertPayload.enterprise_id = context.enterpriseId;
-  }
+    let accessMessage =
+      "Invitation envoyée par e-mail. L'utilisateur devra créer son compte puis se connecter.";
 
-  const { error } = await supabase.from("project_members").insert(insertPayload);
+    if (existingProfile) {
+      const { error: memberError } = await supabase.from("project_members").insert({
+        project_id: projectId,
+        user_id: existingProfile.id,
+        role: "entreprise",
+        enterprise_id: enterpriseId,
+      });
 
-  if (error) {
-    if (error.code === "23505") {
-      throw new Error("Cet utilisateur a déjà accès à ce projet.");
+      if (memberError && memberError.code !== "23505") {
+        return { ok: false, error: memberError.message };
+      }
+
+      if (!memberError) {
+        accessMessage =
+          "Invitation envoyée et accès entreprise créé pour ce compte existant.";
+      } else {
+        accessMessage = "Invitation envoyée. Cet utilisateur a déjà accès au projet.";
+      }
     }
-    throw new Error(error.message);
-  }
 
-  revalidatePath(`/pc/projets/${projectId}/parametres`);
-  revalidatePath("/entreprise");
+    revalidatePath(`/pc/projets/${projectId}/parametres`);
+    revalidatePath("/entreprise");
+    return { ok: true, message: accessMessage };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : "Erreur lors de l'envoi.";
+    return { ok: false, error: message };
+  }
 }

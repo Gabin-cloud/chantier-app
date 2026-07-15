@@ -51,6 +51,7 @@ export async function createProject(formData: ProjectFormData): Promise<string> 
       city: formData.city || null,
       postal_code: formData.postal_code || null,
       description: formData.description || null,
+      is_operation_configured: false,
     })
     .select("id")
     .single();

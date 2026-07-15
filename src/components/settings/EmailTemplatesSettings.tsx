@@ -3,35 +3,112 @@
 import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { EmailTemplatesSettingsData } from "@/lib/actions/email-templates";
-import { updateVisitReportEmailTemplate } from "@/lib/actions/email-templates";
+import {
+  updatePlatformInvitationEmailTemplate,
+  updateVisitReportEmailTemplate,
+} from "@/lib/actions/email-templates";
 import { RichTextEditor, type RichTextEditorHandle } from "@/components/ui/RichTextEditor";
 
 const inputClass =
   "w-full rounded-xl border border-slate-200 px-3 py-2.5 text-sm text-slate-900 outline-none focus:border-slate-400 focus:ring-2 focus:ring-slate-200";
 
+type MergeTag = { key: string; label: string; description: string; example: string };
+
+function MergeTagsPanel({
+  tags,
+  canEdit,
+  onInsertSubject,
+  onInsertBody,
+}: {
+  tags: readonly MergeTag[];
+  canEdit: boolean;
+  onInsertSubject: (key: string) => void;
+  onInsertBody: (key: string) => void;
+}) {
+  return (
+    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+      <h3 className="text-base font-semibold text-slate-900">Étiquettes disponibles</h3>
+      <p className="mt-1 text-sm text-slate-500">
+        Cliquez sur une étiquette pour l&apos;insérer dans l&apos;objet ou le corps du mail.
+      </p>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <span className="self-center text-xs font-semibold uppercase tracking-wide text-slate-400">
+          Objet
+        </span>
+        {tags.map((tag) => (
+          <button
+            key={`subject-${tag.key}`}
+            type="button"
+            disabled={!canEdit}
+            onClick={() => onInsertSubject(tag.key)}
+            className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-200 disabled:opacity-40"
+            title={`${tag.description} — ex. ${tag.example}`}
+          >
+            {tag.label}
+          </button>
+        ))}
+      </div>
+
+      <div className="mt-4 flex flex-wrap gap-2">
+        <span className="self-center text-xs font-semibold uppercase tracking-wide text-slate-400">
+          Corps
+        </span>
+        {tags.map((tag) => (
+          <button
+            key={`body-${tag.key}`}
+            type="button"
+            disabled={!canEdit}
+            onClick={() => onInsertBody(tag.key)}
+            className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-40"
+            title={`${tag.description} — ex. ${tag.example}`}
+          >
+            {`{{${tag.key}}}`}
+          </button>
+        ))}
+      </div>
+    </section>
+  );
+}
+
 export function EmailTemplatesSettings({ data }: { data: EmailTemplatesSettingsData }) {
   const router = useRouter();
-  const [subjectTemplate, setSubjectTemplate] = useState(data.visitReport.subjectTemplate);
-  const [bodyTemplate, setBodyTemplate] = useState(data.visitReport.bodyTemplate);
-  const [defaultCc, setDefaultCc] = useState(data.visitReport.defaultCc);
-  const [error, setError] = useState<string | null>(null);
-  const [success, setSuccess] = useState<string | null>(null);
-  const [isPending, startTransition] = useTransition();
-  const subjectRef = useRef<HTMLInputElement>(null);
-  const bodyEditorRef = useRef<RichTextEditorHandle>(null);
+  const [visitSubject, setVisitSubject] = useState(data.visitReport.subjectTemplate);
+  const [visitBody, setVisitBody] = useState(data.visitReport.bodyTemplate);
+  const [visitCc, setVisitCc] = useState(data.visitReport.defaultCc);
+  const [inviteSubject, setInviteSubject] = useState(data.platformInvitation.subjectTemplate);
+  const [inviteBody, setInviteBody] = useState(data.platformInvitation.bodyTemplate);
+  const [visitError, setVisitError] = useState<string | null>(null);
+  const [visitSuccess, setVisitSuccess] = useState<string | null>(null);
+  const [inviteError, setInviteError] = useState<string | null>(null);
+  const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
+  const [isVisitPending, startVisitTransition] = useTransition();
+  const [isInvitePending, startInviteTransition] = useTransition();
+  const visitSubjectRef = useRef<HTMLInputElement>(null);
+  const inviteSubjectRef = useRef<HTMLInputElement>(null);
+  const visitBodyRef = useRef<RichTextEditorHandle>(null);
+  const inviteBodyRef = useRef<RichTextEditorHandle>(null);
 
-  function insertTag(field: "subject" | "body", tagKey: string) {
+  function insertTag(
+    field: "subject" | "body",
+    tagKey: string,
+    subject: string,
+    setSubject: (value: string) => void,
+    subjectRef: React.RefObject<HTMLInputElement | null>,
+    bodyRef: React.RefObject<RichTextEditorHandle | null>,
+    setBody: (value: string) => void
+  ) {
     const token = `{{${tagKey}}}`;
     if (field === "subject") {
       const input = subjectRef.current;
       if (!input) {
-        setSubjectTemplate((prev) => `${prev}${token}`);
+        setSubject(`${subject}${token}`);
         return;
       }
-      const start = input.selectionStart ?? subjectTemplate.length;
-      const end = input.selectionEnd ?? subjectTemplate.length;
-      const next = `${subjectTemplate.slice(0, start)}${token}${subjectTemplate.slice(end)}`;
-      setSubjectTemplate(next);
+      const start = input.selectionStart ?? subject.length;
+      const end = input.selectionEnd ?? subject.length;
+      const next = `${subject.slice(0, start)}${token}${subject.slice(end)}`;
+      setSubject(next);
       requestAnimationFrame(() => {
         input.focus();
         const caret = start + token.length;
@@ -40,38 +117,58 @@ export function EmailTemplatesSettings({ data }: { data: EmailTemplatesSettingsD
       return;
     }
 
-    bodyEditorRef.current?.insertToken(token);
-    const latestHtml = bodyEditorRef.current?.getHtml();
+    bodyRef.current?.insertToken(token);
+    const latestHtml = bodyRef.current?.getHtml();
     if (latestHtml !== undefined) {
-      setBodyTemplate(latestHtml);
+      setBody(latestHtml);
     }
   }
 
-  function handleSubmit(event: React.FormEvent) {
+  function saveVisit(event: React.FormEvent) {
     event.preventDefault();
-    setError(null);
-    setSuccess(null);
+    setVisitError(null);
+    setVisitSuccess(null);
+    const latestBody = visitBodyRef.current?.getHtml() ?? visitBody;
 
-    const latestBody = bodyEditorRef.current?.getHtml() ?? bodyTemplate;
-
-    startTransition(async () => {
+    startVisitTransition(async () => {
       const result = await updateVisitReportEmailTemplate({
-        subjectTemplate,
+        subjectTemplate: visitSubject,
         bodyTemplate: latestBody,
-        defaultCc,
+        defaultCc: visitCc,
       });
       if (!result.ok) {
-        setError(result.error);
+        setVisitError(result.error);
         return;
       }
-      setBodyTemplate(latestBody);
-      setSuccess("Modèle enregistré.");
+      setVisitBody(latestBody);
+      setVisitSuccess("Modèle enregistré.");
+      router.refresh();
+    });
+  }
+
+  function saveInvitation(event: React.FormEvent) {
+    event.preventDefault();
+    setInviteError(null);
+    setInviteSuccess(null);
+    const latestBody = inviteBodyRef.current?.getHtml() ?? inviteBody;
+
+    startInviteTransition(async () => {
+      const result = await updatePlatformInvitationEmailTemplate({
+        subjectTemplate: inviteSubject,
+        bodyTemplate: latestBody,
+      });
+      if (!result.ok) {
+        setInviteError(result.error);
+        return;
+      }
+      setInviteBody(latestBody);
+      setInviteSuccess("Modèle enregistré.");
       router.refresh();
     });
   }
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-8">
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
         <h2 className="text-lg font-semibold text-slate-900">Mails type — visite de chantier</h2>
         <p className="mt-1 text-sm text-slate-500">
@@ -86,53 +183,46 @@ export function EmailTemplatesSettings({ data }: { data: EmailTemplatesSettingsD
           </p>
         )}
 
-        <form onSubmit={handleSubmit} className="mt-5 space-y-5">
+        <form onSubmit={saveVisit} className="mt-5 space-y-5">
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-slate-700">
-              Objet du mail
-            </label>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">Objet du mail</label>
             <input
-              ref={subjectRef}
+              ref={visitSubjectRef}
               type="text"
-              value={subjectTemplate}
-              onChange={(e) => setSubjectTemplate(e.target.value)}
-              disabled={!data.canEdit || isPending}
+              value={visitSubject}
+              onChange={(e) => setVisitSubject(e.target.value)}
+              disabled={!data.canEdit || isVisitPending}
               className={inputClass}
             />
           </div>
-
           <div>
             <label className="mb-1.5 block text-sm font-medium text-slate-700">
               Copie carbone par défaut (Cc)
             </label>
             <input
               type="text"
-              value={defaultCc}
-              onChange={(e) => setDefaultCc(e.target.value)}
-              disabled={!data.canEdit || isPending}
+              value={visitCc}
+              onChange={(e) => setVisitCc(e.target.value)}
+              disabled={!data.canEdit || isVisitPending}
               placeholder="email1@entreprise.fr, email2@entreprise.fr"
               className={inputClass}
             />
           </div>
-
           <div>
-            <label className="mb-1.5 block text-sm font-medium text-slate-700">
-              Corps du mail
-            </label>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">Corps du mail</label>
             <RichTextEditor
-              ref={bodyEditorRef}
-              value={bodyTemplate}
-              onChange={setBodyTemplate}
-              disabled={!data.canEdit || isPending}
+              ref={visitBodyRef}
+              value={visitBody}
+              onChange={setVisitBody}
+              disabled={!data.canEdit || isVisitPending}
               minHeight="260px"
               placeholder="Rédigez le contenu du mail type…"
             />
           </div>
-
           {data.canEdit && (
             <button
               type="submit"
-              disabled={isPending}
+              disabled={isVisitPending}
               className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
             >
               Enregistrer le modèle
@@ -140,77 +230,90 @@ export function EmailTemplatesSettings({ data }: { data: EmailTemplatesSettingsD
           )}
         </form>
 
-        {success && (
+        {visitSuccess && (
           <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
-            {success}
+            {visitSuccess}
           </p>
         )}
-        {error && (
-          <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+        {visitError && (
+          <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{visitError}</p>
         )}
+
+        <div className="mt-6">
+          <MergeTagsPanel
+            tags={data.mergeTags}
+            canEdit={data.canEdit}
+            onInsertSubject={(key) =>
+              insertTag("subject", key, visitSubject, setVisitSubject, visitSubjectRef, visitBodyRef, setVisitBody)
+            }
+            onInsertBody={(key) =>
+              insertTag("body", key, visitSubject, setVisitSubject, visitSubjectRef, visitBodyRef, setVisitBody)
+            }
+          />
+        </div>
       </section>
 
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
-        <h3 className="text-base font-semibold text-slate-900">Étiquettes disponibles</h3>
+        <h2 className="text-lg font-semibold text-slate-900">Mails type — invitation plateforme</h2>
         <p className="mt-1 text-sm text-slate-500">
-          Cliquez sur une étiquette pour l&apos;insérer dans l&apos;objet ou le corps du mail.
+          Envoyé depuis votre adresse Microsoft 365 lors d&apos;une invitation entreprise sur la
+          fiche opération.
         </p>
 
-        <div className="mt-4 flex flex-wrap gap-2">
-          <span className="self-center text-xs font-semibold uppercase tracking-wide text-slate-400">
-            Objet
-          </span>
-          {data.mergeTags.map((tag) => (
+        <form onSubmit={saveInvitation} className="mt-5 space-y-5">
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">Objet du mail</label>
+            <input
+              ref={inviteSubjectRef}
+              type="text"
+              value={inviteSubject}
+              onChange={(e) => setInviteSubject(e.target.value)}
+              disabled={!data.canEdit || isInvitePending}
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">Corps du mail</label>
+            <RichTextEditor
+              ref={inviteBodyRef}
+              value={inviteBody}
+              onChange={setInviteBody}
+              disabled={!data.canEdit || isInvitePending}
+              minHeight="260px"
+              placeholder="Rédigez le contenu de l'invitation…"
+            />
+          </div>
+          {data.canEdit && (
             <button
-              key={`subject-${tag.key}`}
-              type="button"
-              disabled={!data.canEdit}
-              onClick={() => insertTag("subject", tag.key)}
-              className="rounded-full bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-200 disabled:opacity-40"
-              title={`${tag.description} — ex. ${tag.example}`}
+              type="submit"
+              disabled={isInvitePending}
+              className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
             >
-              {tag.label}
+              Enregistrer le modèle
             </button>
-          ))}
-        </div>
+          )}
+        </form>
 
-        <div className="mt-4 flex flex-wrap gap-2">
-          <span className="self-center text-xs font-semibold uppercase tracking-wide text-slate-400">
-            Corps
-          </span>
-          {data.mergeTags.map((tag) => (
-            <button
-              key={`body-${tag.key}`}
-              type="button"
-              disabled={!data.canEdit}
-              onClick={() => insertTag("body", tag.key)}
-              className="rounded-full bg-emerald-50 px-3 py-1.5 text-xs font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-40"
-              title={`${tag.description} — ex. ${tag.example}`}
-            >
-              {`{{${tag.key}}}`}
-            </button>
-          ))}
-        </div>
+        {inviteSuccess && (
+          <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+            {inviteSuccess}
+          </p>
+        )}
+        {inviteError && (
+          <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{inviteError}</p>
+        )}
 
-        <div className="mt-5 overflow-x-auto rounded-xl border border-slate-100">
-          <table className="min-w-full text-left text-sm">
-            <thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-500">
-              <tr>
-                <th className="px-3 py-2 font-semibold">Étiquette</th>
-                <th className="px-3 py-2 font-semibold">Libellé</th>
-                <th className="px-3 py-2 font-semibold">Exemple</th>
-              </tr>
-            </thead>
-            <tbody>
-              {data.mergeTags.map((tag) => (
-                <tr key={tag.key} className="border-t border-slate-100">
-                  <td className="px-3 py-2 font-mono text-xs text-emerald-700">{`{{${tag.key}}}`}</td>
-                  <td className="px-3 py-2 text-slate-700">{tag.label}</td>
-                  <td className="px-3 py-2 text-slate-500">{tag.example}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
+        <div className="mt-6">
+          <MergeTagsPanel
+            tags={data.invitationMergeTags}
+            canEdit={data.canEdit}
+            onInsertSubject={(key) =>
+              insertTag("subject", key, inviteSubject, setInviteSubject, inviteSubjectRef, inviteBodyRef, setInviteBody)
+            }
+            onInsertBody={(key) =>
+              insertTag("body", key, inviteSubject, setInviteSubject, inviteSubjectRef, inviteBodyRef, setInviteBody)
+            }
+          />
         </div>
       </section>
     </div>
