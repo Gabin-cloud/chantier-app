@@ -182,57 +182,72 @@ export async function updateEnterpriseSheet(
 
   if (error) throw new Error(error.message);
 
-  // Alimente la base de données d'entreprises réutilisable (clé SIRET ou nom).
-  if (payload.siret) {
-    await supabase
-      .from("company_directory")
-      .upsert(
-        {
-          siret: payload.siret,
-          name: payload.name,
-          address: payload.enterprise_address,
-          postal_code: payload.enterprise_postal_code,
-          city: payload.enterprise_city,
-          email_administratif: payload.email_administratif,
-          email_comptabilite: payload.email_comptabilite,
-          email_travaux: payload.email_travaux,
-          email_bureau_etudes: payload.email_bureau_etudes,
-          email_signataire: payload.email_signataire,
-          signataire_name: payload.signataire_name,
-          email_sav: payload.email_sav,
-          phone_accueil: payload.phone_accueil,
-          phone_travaux: payload.phone_travaux,
-        },
-        { onConflict: "siret" }
-      );
-  } else if (payload.name) {
-    const { data: existing } = await supabase
-      .from("company_directory")
-      .select("id")
-      .eq("name", payload.name)
-      .maybeSingle();
-    if (existing) {
-      await supabase
-        .from("company_directory")
-        .update({
-          address: payload.enterprise_address,
-          postal_code: payload.enterprise_postal_code,
-          city: payload.enterprise_city,
-          email_administratif: payload.email_administratif,
-          email_comptabilite: payload.email_comptabilite,
-          email_travaux: payload.email_travaux,
-          email_bureau_etudes: payload.email_bureau_etudes,
-          email_signataire: payload.email_signataire,
-          signataire_name: payload.signataire_name,
-          email_sav: payload.email_sav,
-          phone_accueil: payload.phone_accueil,
-          phone_travaux: payload.phone_travaux,
-        })
-        .eq("id", existing.id);
-    }
-  }
+  await upsertCompanyDirectory(supabase, payload);
 
   revalidateSheet(projectId);
+}
+
+async function upsertCompanyDirectory(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  payload: {
+    name: string;
+    siret: string | null;
+    enterprise_address: string | null;
+    enterprise_postal_code: string | null;
+    enterprise_city: string | null;
+    email_administratif: string | null;
+    email_comptabilite: string | null;
+    email_travaux: string | null;
+    email_bureau_etudes: string | null;
+    email_signataire: string | null;
+    signataire_name: string | null;
+    email_sav: string | null;
+    phone_accueil: string | null;
+    phone_travaux: string | null;
+  }
+) {
+  const row = {
+    name: payload.name,
+    siret: payload.siret,
+    address: payload.enterprise_address,
+    postal_code: payload.enterprise_postal_code,
+    city: payload.enterprise_city,
+    email_administratif: payload.email_administratif,
+    email_comptabilite: payload.email_comptabilite,
+    email_travaux: payload.email_travaux,
+    email_bureau_etudes: payload.email_bureau_etudes,
+    email_signataire: payload.email_signataire,
+    signataire_name: payload.signataire_name,
+    email_sav: payload.email_sav,
+    phone_accueil: payload.phone_accueil,
+    phone_travaux: payload.phone_travaux,
+  };
+
+  if (payload.siret) {
+    const { error } = await supabase
+      .from("company_directory")
+      .upsert(row, { onConflict: "siret" });
+    if (error) console.error("[upsertCompanyDirectory]", error.message);
+    return;
+  }
+
+  const { data: existing } = await supabase
+    .from("company_directory")
+    .select("id")
+    .eq("name", payload.name)
+    .maybeSingle();
+
+  if (existing) {
+    const { error } = await supabase
+      .from("company_directory")
+      .update(row)
+      .eq("id", existing.id);
+    if (error) console.error("[upsertCompanyDirectory]", error.message);
+    return;
+  }
+
+  const { error } = await supabase.from("company_directory").insert(row);
+  if (error) console.error("[upsertCompanyDirectory]", error.message);
 }
 
 export async function getCompanyDirectory(): Promise<CompanyDirectoryEntry[]> {

@@ -1,3 +1,5 @@
+import { parseNumberInput } from "@/lib/validation/numbers";
+
 /** Violet : champ modifié non enregistré. */
 export const DANOBAT_DIRTY_TEXT = "text-[#7c3aed]";
 /** Texte enregistré / à jour. */
@@ -6,6 +8,17 @@ export const SAVED_TEXT = "text-slate-900";
 export function dirtyTextClass(current: string, saved: string, disabled?: boolean) {
   if (disabled) return "text-slate-400";
   const norm = (v: string) => v.trim();
+  return norm(current) !== norm(saved) ? DANOBAT_DIRTY_TEXT : SAVED_TEXT;
+}
+
+/** Comparaison numérique tolérante (150000 vs 150 000,00). */
+export function dirtyNumericTextClass(
+  current: string,
+  saved: string,
+  disabled?: boolean
+) {
+  if (disabled) return "text-slate-400";
+  const norm = (v: string) => String(parseNumberInput(v));
   return norm(current) !== norm(saved) ? DANOBAT_DIRTY_TEXT : SAVED_TEXT;
 }
 

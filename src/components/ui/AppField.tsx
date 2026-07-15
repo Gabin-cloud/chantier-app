@@ -6,7 +6,7 @@ import {
   appFieldInvalidClass,
   appFieldUnitClass,
 } from "@/components/ui/app-field-styles";
-import { dirtyTextClass, SAVED_TEXT } from "@/lib/validation/fields";
+import { dirtyTextClass, dirtyNumericTextClass, SAVED_TEXT } from "@/lib/validation/fields";
 import {
   FIELD_FORMATS,
   validateFieldValue,
@@ -160,14 +160,16 @@ export function AppField({
 
   const dirtyClass =
     savedValue !== undefined || defaultValue !== undefined
-      ? dirtyTextClass(currentValue, baseline, disabled)
+      ? isNumeric
+        ? dirtyNumericTextClass(currentValue, baseline, disabled)
+        : dirtyTextClass(currentValue, baseline, disabled)
       : SAVED_TEXT;
 
   const fieldClass = [
     inputClassName ?? appFieldClass,
     dirtyClass,
     error ? appFieldInvalidClass : "",
-    resolvedUnit && !multiline ? "pr-12" : "",
+    resolvedUnit && !multiline ? "pr-14" : "",
   ]
     .filter(Boolean)
     .join(" ");
