@@ -6,7 +6,8 @@ import {
   updateProjectFinancialInfo,
   uploadOperationPhoto,
 } from "@/lib/actions/finance";
-import { FormField, financeInputClass } from "@/components/finance/FormField";
+import { AppFormField } from "@/components/ui/AppFormField";
+import { useTrackedForm } from "@/hooks/useTrackedForm";
 import type { Project } from "@/lib/types/database";
 
 type FinancialProjectInfoProps = {
@@ -22,22 +23,32 @@ export function FinancialProjectInfo({
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
 
+  const { values, saved, set, markSaved, isDirty } = useTrackedForm({
+    client_name: project.client_name ?? "",
+    typology: project.typology ?? "",
+    client_address: project.client_address ?? "",
+    default_payment_terms: project.default_payment_terms ?? "30 JOURS",
+  });
+
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
     setSuccess(null);
 
-    const form = new FormData(e.currentTarget);
+    if (!e.currentTarget.checkValidity()) {
+      e.currentTarget.reportValidity();
+      return;
+    }
 
     startTransition(async () => {
       try {
         await updateProjectFinancialInfo(project.id, {
-          typology: (form.get("typology") as string).trim() || undefined,
-          client_name: (form.get("client_name") as string).trim() || undefined,
-          client_address: (form.get("client_address") as string).trim() || undefined,
-          default_payment_terms:
-            (form.get("default_payment_terms") as string).trim() || undefined,
+          typology: values.typology.trim() || undefined,
+          client_name: values.client_name.trim() || undefined,
+          client_address: values.client_address.trim() || undefined,
+          default_payment_terms: values.default_payment_terms.trim() || undefined,
         });
+        markSaved();
         setSuccess("Informations enregistrées.");
       } catch (err) {
         setError(err instanceof Error ? err.message : "Une erreur est survenue.");
@@ -70,6 +81,11 @@ export function FinancialProjectInfo({
       <p className="mb-4 text-sm text-slate-500">
         Données générales du chantier pour le suivi financier.
       </p>
+      {isDirty && (
+        <p className="mb-4 text-sm font-medium text-violet-700">
+          Modifications non enregistrées — texte en violet.
+        </p>
+      )}
 
       <div className="mb-6 grid gap-6 lg:grid-cols-[200px_1fr]">
         <div>
@@ -89,7 +105,7 @@ export function FinancialProjectInfo({
               <span className="text-xs text-slate-400">Aucune photo</span>
             )}
           </div>
-          <label className="mt-2 inline-block cursor-pointer text-sm font-medium text-blue-600 hover:text-blue-700">
+          <label className="mt-2 inline-block cursor-pointer text-sm font-medium text-violet-700 hover:text-violet-800">
             Changer la photo
             <input
               type="file"
@@ -102,34 +118,31 @@ export function FinancialProjectInfo({
 
         <form onSubmit={handleSubmit} className="space-y-4">
           <div className="grid gap-4 sm:grid-cols-2">
-            <FormField label="Maître d'ouvrage">
-              <input
-                name="client_name"
-                defaultValue={project.client_name ?? ""}
-                className={financeInputClass}
-              />
-            </FormField>
-            <FormField label="Typologie">
-              <input
-                name="typology"
-                defaultValue={project.typology ?? ""}
-                className={financeInputClass}
-              />
-            </FormField>
-            <FormField label="Adresse maître d'ouvrage" className="sm:col-span-2">
-              <input
-                name="client_address"
-                defaultValue={project.client_address ?? ""}
-                className={financeInputClass}
-              />
-            </FormField>
-            <FormField label="Conditions de règlement par défaut">
-              <input
-                name="default_payment_terms"
-                defaultValue={project.default_payment_terms ?? "30 JOURS"}
-                className={financeInputClass}
-              />
-            </FormField>
+            <AppFormField
+              label="Maître d'ouvrage"
+              value={values.client_name}
+              savedValue={saved.client_name}
+              onChange={(v) => set("client_name", v)}
+            />
+            <AppFormField
+              label="Typologie"
+              value={values.typology}
+              savedValue={saved.typology}
+              onChange={(v) => set("typology", v)}
+            />
+            <AppFormField
+              label="Adresse maître d'ouvrage"
+              className="sm:col-span-2"
+              value={values.client_address}
+              savedValue={saved.client_address}
+              onChange={(v) => set("client_address", v)}
+            />
+            <AppFormField
+              label="Conditions de règlement par défaut"
+              value={values.default_payment_terms}
+              savedValue={saved.default_payment_terms}
+              onChange={(v) => set("default_payment_terms", v)}
+            />
           </div>
 
           {error && (

@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useTransition } from "react";
+import { AppFormField } from "@/components/ui/AppFormField";
+import { useTrackedForm } from "@/hooks/useTrackedForm";
 import type { ProjectFormData } from "@/lib/types/database";
 
 type ProjectFormProps = {
@@ -9,24 +11,34 @@ type ProjectFormProps = {
   initialData?: ProjectFormData;
 };
 
-const inputClass =
-  "w-full rounded-xl border-2 border-zinc-200 bg-zinc-50 px-4 py-3 text-base text-zinc-800 placeholder:text-zinc-400 focus:border-zinc-400 focus:bg-white focus:outline-none";
-
 export function ProjectForm({ action, submitLabel, initialData }: ProjectFormProps) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const formId = "project-form";
+
+  const { values, saved, set, markSaved } = useTrackedForm({
+    name: initialData?.name ?? "",
+    address: initialData?.address ?? "",
+    postal_code: initialData?.postal_code ?? "",
+    city: initialData?.city ?? "",
+    description: initialData?.description ?? "",
+  });
 
   function handleSubmit(e: React.FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setError(null);
 
-    const form = new FormData(e.currentTarget);
+    if (!e.currentTarget.checkValidity()) {
+      e.currentTarget.reportValidity();
+      return;
+    }
+
     const data: ProjectFormData = {
-      name: (form.get("name") as string).trim(),
-      address: (form.get("address") as string).trim() || undefined,
-      city: (form.get("city") as string).trim() || undefined,
-      postal_code: (form.get("postal_code") as string).trim() || undefined,
-      description: (form.get("description") as string).trim() || undefined,
+      name: values.name.trim(),
+      address: values.address.trim() || undefined,
+      city: values.city.trim() || undefined,
+      postal_code: values.postal_code.trim() || undefined,
+      description: values.description.trim() || undefined,
     };
 
     if (!data.name) {
@@ -37,6 +49,7 @@ export function ProjectForm({ action, submitLabel, initialData }: ProjectFormPro
     startTransition(async () => {
       try {
         await action(data);
+        markSaved(values);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Une erreur est survenue.");
       }
@@ -44,74 +57,56 @@ export function ProjectForm({ action, submitLabel, initialData }: ProjectFormPro
   }
 
   return (
-    <form onSubmit={handleSubmit} className="space-y-5">
-      <div>
-        <label htmlFor="name" className="mb-2 block font-semibold text-zinc-800">
-          Nom du projet *
-        </label>
-        <input
-          id="name"
-          name="name"
-          required
-          defaultValue={initialData?.name}
-          placeholder="Ex : Rénovation immeuble rue des Lilas"
-          className={inputClass}
-        />
-      </div>
+    <form id={formId} onSubmit={handleSubmit} className="space-y-5">
+      <AppFormField
+        label="Nom du projet"
+        id={`${formId}-name`}
+        value={values.name}
+        savedValue={saved.name}
+        onChange={(v) => set("name", v)}
+        required
+        placeholder="Ex : Rénovation immeuble rue des Lilas"
+      />
 
-      <div>
-        <label htmlFor="address" className="mb-2 block font-semibold text-zinc-800">
-          Adresse du chantier
-        </label>
-        <input
-          id="address"
-          name="address"
-          defaultValue={initialData?.address}
-          placeholder="12 rue des Lilas"
-          className={inputClass}
-        />
-      </div>
+      <AppFormField
+        label="Adresse du chantier"
+        id={`${formId}-address`}
+        value={values.address}
+        savedValue={saved.address}
+        onChange={(v) => set("address", v)}
+        placeholder="12 rue des Lilas"
+      />
 
       <div className="grid grid-cols-2 gap-3">
-        <div>
-          <label htmlFor="postal_code" className="mb-2 block font-semibold text-zinc-800">
-            Code postal
-          </label>
-          <input
-            id="postal_code"
-            name="postal_code"
-            defaultValue={initialData?.postal_code}
-            placeholder="75011"
-            className={inputClass}
-          />
-        </div>
-        <div>
-          <label htmlFor="city" className="mb-2 block font-semibold text-zinc-800">
-            Ville
-          </label>
-          <input
-            id="city"
-            name="city"
-            defaultValue={initialData?.city}
-            placeholder="Paris"
-            className={inputClass}
-          />
-        </div>
-      </div>
-
-      <div>
-        <label htmlFor="description" className="mb-2 block font-semibold text-zinc-800">
-          Description
-        </label>
-        <textarea
-          id="description"
-          name="description"
-          rows={3}
-          defaultValue={initialData?.description}
-          placeholder="Informations complémentaires sur le chantier…"
-          className={`${inputClass} resize-none`}
+        <AppFormField
+          label="Code postal"
+          id={`${formId}-postal`}
+          format="postal"
+          value={values.postal_code}
+          savedValue={saved.postal_code}
+          onChange={(v) => set("postal_code", v)}
+          placeholder="75011"
+        />
+        <AppFormField
+          label="Ville"
+          id={`${formId}-city`}
+          value={values.city}
+          savedValue={saved.city}
+          onChange={(v) => set("city", v)}
+          placeholder="Paris"
         />
       </div>
+
+      <AppFormField
+        label="Description"
+        id={`${formId}-description`}
+        multiline
+        rows={3}
+        value={values.description}
+        savedValue={saved.description}
+        onChange={(v) => set("description", v)}
+        placeholder="Informations complémentaires sur le chantier…"
+      />
 
       {error && (
         <p className="rounded-xl bg-red-50 px-4 py-3 text-sm font-medium text-red-700">

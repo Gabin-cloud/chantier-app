@@ -1,0 +1,41 @@
+---
+description: Champs de formulaire — validation, unités, violet non enregistré
+globs: src/**/*.tsx
+alwaysApply: true
+---
+
+# Champs de formulaire (règle application)
+
+Tout nouveau formulaire ou champ éditable **doit** utiliser les composants partagés :
+
+- `AppField` / `AppFormField` depuis `@/components/ui/AppField` et `@/components/ui/AppFormField`
+- `useTrackedForm` pour les formulaires avec enregistrement explicite
+- `useUnsavedChangesWarning` + `confirmLeaveIfDirty` pour les pages avec navigation
+
+## Comportement obligatoire
+
+1. **Violet non enregistré** : passer `savedValue` (ou `defaultValue` comme baseline) pour afficher le texte en violet (`#7c3aed`) tant que la valeur diffère de la dernière sauvegarde.
+2. **Validation bloquante** : utiliser `format` (`email`, `postal`, `phone`, `siret`, `percent`, `money`, `number`) ou `validate`. Le champ appelle `setCustomValidity` — le submit natif du formulaire est bloqué si invalide.
+3. **Nombres** : séparateurs de milliers format `fr-FR`, unité affichée à droite (`€`, `%`, etc.).
+4. **Ne pas** utiliser de `<input>` / `<textarea>` bruts pour des champs métier (texte, email, nombre, pourcentage, montant).
+
+## Exemple
+
+```tsx
+const { values, saved, set, markSaved } = useTrackedForm({
+  client_name: project.client_name ?? "",
+});
+
+<AppFormField
+  label="Maître d'ouvrage"
+  name="client_name"
+  value={values.client_name}
+  savedValue={saved.client_name}
+  onChange={(v) => set("client_name", v)}
+  required
+/>
+```
+
+## Exceptions
+
+- Cases à cocher, fichiers, éditeur riche (`RichTextEditor`), autocomplétion spécialisée (`AutocompleteInput`).

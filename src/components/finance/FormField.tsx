@@ -1,7 +1,7 @@
 import type { ReactNode } from "react";
+import { appFieldClass } from "@/components/ui/app-field-styles";
 
-export const financeInputClass =
-  "w-full rounded-xl border-2 border-slate-200 bg-slate-50 px-4 py-3 text-base text-slate-800 focus:border-slate-400 focus:bg-white focus:outline-none";
+export const financeInputClass = appFieldClass;
 
 type FormFieldProps = {
   label: string;
