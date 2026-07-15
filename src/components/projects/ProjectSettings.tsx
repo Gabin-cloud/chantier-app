@@ -153,11 +153,7 @@ export function ProjectSettings({
       )}
 
       {canEditPlans && showSharePoint && (
-        <SharePointPathSettings
-          project={project}
-          enterprises={enterprises}
-          canEdit={canEdit}
-        />
+        <SharePointPathSettings project={project} canEdit={canEdit} />
       )}
 
       {canEditPlans && (

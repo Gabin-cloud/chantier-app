@@ -1,6 +1,6 @@
 import Link from "next/link";
+import { OperationAdvancedSettings } from "@/components/projects/OperationAdvancedSettings";
 import { OperationSheet } from "@/components/projects/OperationSheet";
-import { ProjectSettings } from "@/components/projects/ProjectSettings";
 import {
   DatabaseErrorNotice,
   SupabaseSetupNotice,
@@ -11,12 +11,12 @@ import {
   canManageMembers,
   getProjectRole,
 } from "@/lib/auth/permissions";
-import { getEnterpriseAccessForProject } from "@/lib/actions/enterprise-access";
 import { getProjectMembers } from "@/lib/actions/members";
-import { getProjectLocations } from "@/lib/actions/locations";
-import { getPlanFolders, getPlansWithUrls } from "@/lib/actions/plans";
 import { getProjectChecklistItems } from "@/lib/actions/checklist";
-import { getCompanyDirectory } from "@/lib/actions/operation-sheet";
+import {
+  getCompanyDirectory,
+  getOwnerDirectory,
+} from "@/lib/actions/operation-sheet";
 import { getProjectPhases } from "@/lib/actions/phases";
 import { getProjectZones } from "@/lib/actions/zones";
 import { getProject } from "@/lib/actions/projects";
@@ -34,17 +34,23 @@ export default async function PcParametresPage({ params }: PageProps) {
   const { id } = await params;
 
   try {
-    const [project, plans, planFolders, phases, checklistItems, zones, members, enterpriseAccess, locations, directory, projectRole] = await Promise.all([
+    const [
+      project,
+      phases,
+      checklistItems,
+      zones,
+      members,
+      directory,
+      ownerDirectory,
+      projectRole,
+    ] = await Promise.all([
       getProject(id),
-      getPlansWithUrls(id),
-      getPlanFolders(id),
       getProjectPhases(id),
       getProjectChecklistItems(id),
       getProjectZones(id),
       getProjectMembers(id),
-      getEnterpriseAccessForProject(id).catch(() => []),
-      getProjectLocations(id).catch(() => []),
       getCompanyDirectory().catch(() => []),
+      getOwnerDirectory().catch(() => []),
       getProjectRole(id),
     ]);
 
@@ -63,17 +69,17 @@ export default async function PcParametresPage({ params }: PageProps) {
     }
 
     return (
-      <main className="min-h-full bg-slate-50 px-6 py-8">
-        <div className="mx-auto w-full max-w-4xl">
+      <main className="min-h-full bg-slate-50 px-4 py-6 sm:px-6">
+        <div className="mx-auto w-full max-w-[110rem]">
           <Link
             href={`/pc/projets/${id}/tableau-de-bord`}
             className="text-sm font-medium text-slate-400 hover:text-slate-600"
           >
             ← Retour à l&apos;opération
           </Link>
-          <header className="mb-6 mt-4 rounded-xl border border-slate-200 bg-white px-6 py-5 shadow-sm">
+          <header className="mb-4 mt-3 rounded-xl border border-slate-200 bg-white px-6 py-4 shadow-sm">
             <h1 className="text-2xl font-semibold text-slate-900">Fiche opération</h1>
-            <p className="mt-2 text-slate-500">
+            <p className="mt-1 text-slate-500">
               {project.name} — configuration complète de l&apos;opération.
             </p>
           </header>
@@ -83,31 +89,24 @@ export default async function PcParametresPage({ params }: PageProps) {
               project={project}
               enterprises={project.enterprises ?? []}
               directory={directory}
+              ownerDirectory={ownerDirectory}
               canEdit={canEdit}
             />
           ) : null}
 
-          <div className="mt-10">
+          <div className="mt-8 rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
             <h2 className="mb-4 text-sm font-semibold uppercase tracking-wide text-slate-400">
               Configuration avancée
             </h2>
-            <ProjectSettings
-              project={project}
-              enterprises={project.enterprises ?? []}
-              plans={plans}
-              planFolders={planFolders}
+            <OperationAdvancedSettings
+              projectId={id}
+              members={members}
               phases={phases}
               zones={zones}
               checklistItems={checklistItems}
-              locations={locations}
-              members={members}
-              enterpriseAccess={enterpriseAccess}
-              basePath="pc"
-              canEdit={canEdit}
               canManageMembers={canManage}
               canEditPlans={canPlans}
-              showProjectInfo={false}
-              showSharePoint={false}
+              canEdit={canEdit}
             />
           </div>
         </div>

@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireProjectAccess, requireProjectRoles } from "@/lib/auth/permissions";
 import { createClient } from "@/lib/supabase/server";
-import type { CompanyDirectoryEntry } from "@/lib/types/database";
+import type { CompanyDirectoryEntry, OwnerDirectoryEntry } from "@/lib/types/database";
 
 const LOGO_BUCKET = "financial-files";
 
@@ -72,6 +72,7 @@ function revalidateSheet(projectId: string) {
   revalidatePath(`/pc/projets/${projectId}/dossier`);
   revalidatePath(`/pc/projets/${projectId}`);
   revalidatePath(`/tablette/projets/${projectId}/parametres`);
+  revalidatePath("/pc/referentiels");
 }
 
 export async function updateOperationSheet(
@@ -113,6 +114,28 @@ export async function updateOperationSheet(
     .eq("id", projectId);
 
   if (error) throw new Error(error.message);
+
+  const ownerName = clean(data.owner_name);
+  if (ownerName) {
+    await supabase.from("owner_directory").upsert(
+      {
+        name: ownerName,
+        address: clean(data.owner_address),
+        postal_code: clean(data.owner_postal_code),
+        city: clean(data.owner_city),
+        email_admin: clean(data.owner_email_admin),
+        email_works: clean(data.owner_email_works),
+        signatory_name: clean(data.owner_signatory_name),
+        signatory_email: clean(data.owner_signatory_email),
+        doc_marche: !!data.owner_doc_marche,
+        doc_os: !!data.owner_doc_os,
+        doc_ae: !!data.owner_doc_ae,
+        doc_avenant: !!data.owner_doc_avenant,
+      },
+      { onConflict: "name" }
+    );
+  }
+
   revalidateSheet(projectId);
 }
 
@@ -158,7 +181,7 @@ export async function updateEnterpriseSheet(
 
   if (error) throw new Error(error.message);
 
-  // Alimente la base de données d'entreprises réutilisable (clé SIRET).
+  // Alimente la base de données d'entreprises réutilisable (clé SIRET ou nom).
   if (payload.siret) {
     await supabase
       .from("company_directory")
@@ -181,6 +204,31 @@ export async function updateEnterpriseSheet(
         },
         { onConflict: "siret" }
       );
+  } else if (payload.name) {
+    const { data: existing } = await supabase
+      .from("company_directory")
+      .select("id")
+      .eq("name", payload.name)
+      .maybeSingle();
+    if (existing) {
+      await supabase
+        .from("company_directory")
+        .update({
+          address: payload.enterprise_address,
+          postal_code: payload.enterprise_postal_code,
+          city: payload.enterprise_city,
+          email_administratif: payload.email_administratif,
+          email_comptabilite: payload.email_comptabilite,
+          email_travaux: payload.email_travaux,
+          email_bureau_etudes: payload.email_bureau_etudes,
+          email_signataire: payload.email_signataire,
+          signataire_name: payload.signataire_name,
+          email_sav: payload.email_sav,
+          phone_accueil: payload.phone_accueil,
+          phone_travaux: payload.phone_travaux,
+        })
+        .eq("id", existing.id);
+    }
   }
 
   revalidateSheet(projectId);
@@ -195,6 +243,34 @@ export async function getCompanyDirectory(): Promise<CompanyDirectoryEntry[]> {
 
   if (error) throw new Error(error.message);
   return (data as CompanyDirectoryEntry[]) ?? [];
+}
+
+export async function getOwnerDirectory(): Promise<OwnerDirectoryEntry[]> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("owner_directory")
+    .select("*")
+    .order("name", { ascending: true });
+
+  if (error) throw new Error(error.message);
+  return (data as OwnerDirectoryEntry[]) ?? [];
+}
+
+export async function createEnterpriseOnProject(projectId: string, name: string) {
+  await requireProjectRoles(projectId, ["admin", "gestionnaire"]);
+  const supabase = await createClient();
+  const trimmed = name.trim();
+  if (!trimmed) throw new Error("Le nom de l'entreprise est obligatoire.");
+
+  const { data, error } = await supabase
+    .from("enterprises")
+    .insert({ project_id: projectId, name: trimmed })
+    .select("id")
+    .single();
+
+  if (error) throw new Error(error.message);
+  revalidateSheet(projectId);
+  return data.id as string;
 }
 
 /** Pré-remplit une fiche entreprise depuis l'annuaire (gain de temps début d'opé). */

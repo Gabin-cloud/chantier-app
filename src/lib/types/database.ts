@@ -98,6 +98,26 @@ export type CompanyDirectoryEntry = {
   updated_at: string;
 };
 
+/** Entrée de la base maîtres d'ouvrage réutilisable (auto-remplissage). */
+export type OwnerDirectoryEntry = {
+  id: string;
+  name: string;
+  address: string | null;
+  postal_code: string | null;
+  city: string | null;
+  email_admin: string | null;
+  email_works: string | null;
+  signatory_name: string | null;
+  signatory_email: string | null;
+  logo_path: string | null;
+  doc_marche: boolean;
+  doc_os: boolean;
+  doc_ae: boolean;
+  doc_avenant: boolean;
+  created_at: string;
+  updated_at: string;
+};
+
 export type FinancialBankGuarantee = {
   id: string;
   project_id: string;
