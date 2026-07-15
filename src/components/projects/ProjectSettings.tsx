@@ -35,6 +35,8 @@ type ProjectSettingsProps = {
   canEdit: boolean;
   canManageMembers: boolean;
   canEditPlans: boolean;
+  showProjectInfo?: boolean;
+  showSharePoint?: boolean;
 };
 
 const inputClass =
@@ -55,6 +57,8 @@ export function ProjectSettings({
   canEdit,
   canManageMembers,
   canEditPlans,
+  showProjectInfo = true,
+  showSharePoint = true,
 }: ProjectSettingsProps) {
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
@@ -135,6 +139,7 @@ export function ProjectSettings({
 
       {canEdit && (
       <>
+      {showProjectInfo && (
       <section className="rounded-2xl bg-white p-5 shadow-sm">
         <h2 className="mb-4 text-lg font-semibold text-zinc-900">
           Informations du projet
@@ -145,8 +150,9 @@ export function ProjectSettings({
           initialData={initialData}
         />
       </section>
+      )}
 
-      {canEditPlans && (
+      {canEditPlans && showSharePoint && (
         <SharePointPathSettings
           project={project}
           enterprises={enterprises}

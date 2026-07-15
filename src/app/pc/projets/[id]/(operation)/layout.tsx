@@ -54,10 +54,10 @@ export default async function OperationLayout({
               </span>
             </div>
             <Link
-              href={`${base}/dossier`}
+              href={`${base}/parametres`}
               className="shrink-0 rounded-md border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
             >
-              Dossier d&apos;opération
+              Fiche opération
             </Link>
           </div>
         </div>

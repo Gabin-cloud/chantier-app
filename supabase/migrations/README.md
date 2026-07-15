@@ -29,6 +29,7 @@ Ordre d’application (numéros uniques, tri alphabétique) :
 | 023 | `023_perf_security_hardening.sql` | Index FK, search_path, RLS initplan, revoke anon |
 | 024 | `024_fix_rls_gaps.sql` | Policies manquantes (control_library_items, phase_zones) |
 | 025 | `025_lock_security_definer_execute.sql` | REVOKE PUBLIC + GRANT authenticated sur fonctions SECURITY DEFINER |
+| 026 | `026_operation_sheet.sql` | Fiche opération : champs MOA/MOE projet, champs entreprise détaillés, base `company_directory` |
 
 ## Audit base distante (2026-07)
 
