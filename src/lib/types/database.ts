@@ -136,6 +136,15 @@ export type FinancialBankGuarantee = {
   created_at: string;
 };
 
+export type AmendmentType = "ts" | "tma";
+
+export type AmendmentSignatureStatus =
+  | "devis_recu_non_valide"
+  | "devis_valide_avenant_a_faire"
+  | "chez_entreprise"
+  | "chez_moe"
+  | "valide_classe";
+
 export type FinancialAmendment = {
   id: string;
   enterprise_id: string;
@@ -144,6 +153,9 @@ export type FinancialAmendment = {
   os_number: string | null;
   amount_ht: number;
   amount_ttc: number;
+  amendment_type: AmendmentType;
+  signature_status: AmendmentSignatureStatus;
+  internal_comment: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -537,6 +549,9 @@ export type AmendmentFormData = {
   designation?: string;
   os_number?: string;
   amount_ht: number;
+  amendment_type?: AmendmentType;
+  signature_status?: AmendmentSignatureStatus;
+  internal_comment?: string;
 };
 
 export type SituationFormData = {

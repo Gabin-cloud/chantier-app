@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireFinanceAccess } from "@/lib/actions/members";
 import { computeAmendmentTtc } from "@/lib/finance/calculations";
+import { normalizeAmendment } from "@/lib/finance/amendment-workflow";
 import { createClient } from "@/lib/supabase/server";
 import type {
   AmendmentFormData,
@@ -18,6 +19,9 @@ function financePaths(projectId: string) {
     `/pc/projets/${projectId}/finance/lots`,
     `/pc/projets/${projectId}/finance/recap`,
     `/pc/projets/${projectId}/finance/situations`,
+    `/pc/projets/${projectId}/suivi-financier`,
+    `/pc/projets/${projectId}/suivi-financier/synthese`,
+    `/pc/projets/${projectId}/suivi-financier/avenants`,
   ];
 }
 
@@ -77,7 +81,9 @@ export async function getProjectFinancialData(projectId: string): Promise<Projec
     );
 
     for (const enterprise of data.enterprises) {
-      enterprise.amendments = enterprise.financial_amendments ?? [];
+      enterprise.amendments = (enterprise.financial_amendments ?? []).map(
+        normalizeAmendment
+      );
       enterprise.situations = enterprise.financial_situations ?? [];
       delete enterprise.financial_amendments;
       delete enterprise.financial_situations;
@@ -116,7 +122,7 @@ export async function getLot(projectId: string, lotId: string) {
 
   if (error) throw new Error(error.message);
 
-  data.amendments = data.financial_amendments ?? [];
+  data.amendments = (data.financial_amendments ?? []).map(normalizeAmendment);
   data.situations = data.financial_situations ?? [];
   delete data.financial_amendments;
   delete data.financial_situations;
@@ -161,7 +167,9 @@ export async function getSituation(
   }
 
   const enterprise = data.enterprise;
-  enterprise.amendments = enterprise.financial_amendments ?? [];
+  enterprise.amendments = (enterprise.financial_amendments ?? []).map(
+    normalizeAmendment
+  );
   enterprise.situations = enterprise.financial_situations ?? [];
   delete enterprise.financial_amendments;
   delete enterprise.financial_situations;
@@ -337,6 +345,9 @@ export async function upsertAmendment(
     os_number: formData.os_number || null,
     amount_ht: formData.amount_ht,
     amount_ttc: amountTtc,
+    amendment_type: formData.amendment_type ?? "ts",
+    signature_status: formData.signature_status ?? "devis_recu_non_valide",
+    internal_comment: formData.internal_comment?.trim() || null,
   };
 
   if (amendmentId) {
