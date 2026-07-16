@@ -37,6 +37,7 @@ Ordre d’application (numéros uniques, tri alphabétique) :
 | 031 | `031_amendment_signature_statuses.sql` | Statuts de signature des avenants |
 | 032 | `032_financial_previsionnel.sql` | Prévisionnel financier |
 | 033 | `033_account_kind_and_favorites.sql` | Type de compte `danobat` / `entreprise` + table `project_favorites` |
+| 034 | `034_fix_rls_helper_grants.sql` | GRANT EXECUTE anon sur helpers RLS (`is_super_admin`, etc.) |
 
 ## Audit base distante (2026-07)
 
