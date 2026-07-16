@@ -1,5 +1,5 @@
 import { createClient } from "@/lib/supabase/server";
-import type { GlobalRole, ProjectRole } from "@/lib/types/database";
+import type { AccountKind, GlobalRole, ProjectRole } from "@/lib/types/database";
 
 export async function getSessionUser() {
   const supabase = await createClient();
@@ -34,6 +34,7 @@ export async function getProfile() {
     email: string;
     full_name: string | null;
     global_role: GlobalRole;
+    account_kind: AccountKind;
   };
 }
 

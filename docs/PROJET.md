@@ -10,12 +10,14 @@ Application de **contrôle de chantier** pour conducteurs de travaux : visites s
 
 | Interface | URL | Public | Rôle |
 |-----------|-----|--------|------|
-| **PC** | `/pc` | Admin, gestionnaire, finance | Bureau : projets, contrôles, finances, paramètres |
-| **Tablette** | `/tablette` | Admin, gestionnaire, terrain | Chantier : visites, plans, checklist sécurité |
-| **Entreprise** | `/entreprise` | Sous-traitants invités | Dépôt factures, sous-traitance, choix travaux |
+| **PC** | `/pc` | Comptes **DANOBAT** | Bureau : explorateur par maître d'ouvrage, favoris, contrôles, finances |
+| **Tablette** | `/tablette` | Comptes **DANOBAT** | Chantier : visites, plans, checklist sécurité (+ favoris partagés) |
+| **Entreprise** | `/entreprise` | Comptes **entreprise** (invités) | Portail sous-traitants uniquement — pas d'accès PC/tablette |
 | **Outlook** | `/outlook/taskpane` | Complément Office | Tri rapide des pièces jointes du mail ouvert |
 
-La page d’accueil `/` redirige automatiquement les tablettes vers `/tablette`.
+Après connexion, le middleware route selon `profiles.account_kind` :
+`danobat` → `/pc` ou `/tablette` (selon appareil) ; `entreprise` → `/entreprise`.
+La page `/` pour les non connectés propose la connexion (plus de choix d'interface libre pour les comptes entreprise).
 
 ---
 

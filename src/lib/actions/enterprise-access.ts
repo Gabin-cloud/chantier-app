@@ -115,15 +115,28 @@ export async function inviteEnterpriseUser(
 
   let userId: string;
 
-  const { data: profile, error: profileError } = await supabase
+  if (!isAdminClientConfigured()) {
+    throw new Error(
+      "La clé SUPABASE_SERVICE_ROLE_KEY est requise pour gérer les comptes entreprise."
+    );
+  }
+
+  const admin = createAdminClient();
+
+  const { data: profile, error: profileError } = await admin
     .from("profiles")
-    .select("id, email")
+    .select("id, email, account_kind")
     .eq("email", normalizedEmail)
     .maybeSingle();
 
   if (profileError) throw new Error(profileError.message);
 
   if (profile) {
+    if (profile.account_kind === "danobat") {
+      throw new Error(
+        "Cet email est déjà un compte DANOBAT (PC/tablette). Utilisez une autre adresse pour l'accès entreprise."
+      );
+    }
     userId = profile.id;
   } else {
     if (!password || password.length < 8) {
@@ -131,22 +144,26 @@ export async function inviteEnterpriseUser(
         "Mot de passe requis (8 caractères minimum) pour créer un nouveau compte entreprise."
       );
     }
-    if (!isAdminClientConfigured()) {
-      throw new Error(
-        "La clé SUPABASE_SERVICE_ROLE_KEY est requise pour créer un compte depuis le PC."
-      );
-    }
 
-    const admin = createAdminClient();
     const { data: created, error: createError } = await admin.auth.admin.createUser({
       email: normalizedEmail,
       password,
       email_confirm: true,
-      user_metadata: { full_name: enterprise.name },
+      user_metadata: {
+        full_name: enterprise.name,
+        account_kind: "entreprise",
+      },
     });
 
     if (createError) throw new Error(createError.message);
     userId = created.user.id;
+
+    // Garantir le type de compte même si le trigger a pris le défaut
+    const { error: kindError } = await admin
+      .from("profiles")
+      .update({ account_kind: "entreprise" })
+      .eq("id", userId);
+    if (kindError) throw new Error(kindError.message);
   }
 
   const { error } = await supabase.from("project_members").insert({

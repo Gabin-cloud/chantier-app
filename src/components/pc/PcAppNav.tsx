@@ -22,11 +22,15 @@ const tabs = [
   },
 ] as const;
 
-export function PcAppNav() {
+type PcAppNavProps = {
+  className?: string;
+};
+
+export function PcAppNav({ className = "mb-6" }: PcAppNavProps) {
   const pathname = usePathname();
 
   return (
-    <nav className="mb-6 flex flex-wrap gap-2 border-b border-slate-200 pb-3">
+    <nav className={`flex flex-wrap gap-2 ${className}`}>
       {tabs.map((tab) => {
         const active = tab.match(pathname);
         return (
