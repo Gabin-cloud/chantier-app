@@ -88,20 +88,20 @@ jobs:
       - name: Deploy to Vercel
         run: |
           set -euo pipefail
+          # --archive=tgz évite la limite « api-upload-free » (>5000 fichiers)
           deploy_once() {
             if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-              vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+              vercel deploy --prebuilt --prod --archive=tgz --token=${{ secrets.VERCEL_TOKEN }}
             else
-              vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }}
+              vercel deploy --prebuilt --archive=tgz --token=${{ secrets.VERCEL_TOKEN }}
             fi
           }
-          # Retry on transient "Upload aborted" / network errors
           for attempt in 1 2 3; do
             if deploy_once; then
               exit 0
             fi
-            echo "Deploy attempt ${attempt} failed; retrying in $((attempt * 10))s..."
-            sleep $((attempt * 10))
+            echo "Deploy attempt ${attempt} failed; retrying in $((attempt * 15))s..."
+            sleep $((attempt * 15))
           done
           echo "Deploy failed after 3 attempts"
           exit 1
