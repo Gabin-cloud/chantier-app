@@ -33,6 +33,50 @@ jobs:
       - name: Pull Vercel Environment Information
         run: vercel pull --yes --environment=${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }} --token=${{ secrets.VERCEL_TOKEN }}
 
+      # `vercel build` hors infra Vercel n'injecte pas toujours les env runtime.
+      # On force un .env.production lisible par Next, avec repli sur les secrets GitHub.
+      - name: Ensure Next.js env for offline vercel build
+        env:
+          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+          ENV_FILE=".env.production"
+          : > "$ENV_FILE"
+
+          if [ -f .vercel/.env.production.local ]; then
+            # Ne garder que les KEY=value (ignorer les commentaires / exports)
+            grep -E '^[A-Za-z_][A-Za-z0-9_]*=' .vercel/.env.production.local >> "$ENV_FILE" || true
+          fi
+          if [ -f .vercel/.env.preview.local ]; then
+            grep -E '^[A-Za-z_][A-Za-z0-9_]*=' .vercel/.env.preview.local >> "$ENV_FILE" || true
+          fi
+
+          append_if_missing() {
+            local key="$1"
+            local value="$2"
+            if [ -n "$value" ] && ! grep -q "^${key}=" "$ENV_FILE"; then
+              printf '%s=%s\n' "$key" "$value" >> "$ENV_FILE"
+            fi
+          }
+
+          append_if_missing "NEXT_PUBLIC_SUPABASE_URL" "${NEXT_PUBLIC_SUPABASE_URL:-}"
+          append_if_missing "NEXT_PUBLIC_SUPABASE_ANON_KEY" "${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}"
+          append_if_missing "SUPABASE_SERVICE_ROLE_KEY" "${SUPABASE_SERVICE_ROLE_KEY:-}"
+
+          # Fallback public (clé anon = publique par design) si absente du projet Vercel / secrets
+          append_if_missing "NEXT_PUBLIC_SUPABASE_URL" "https://diuvvnprrucdxizbujoy.supabase.co"
+          append_if_missing "NEXT_PUBLIC_SUPABASE_ANON_KEY" "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRpdXZ2bnBycnVjZHhpemJ1am95Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM2NzM4NTUsImV4cCI6MjA5OTI0OTg1NX0.E-ySkLxTjXUIdo_fMcPminbh1z0OocUvlqKsZbc9eRY"
+
+          echo "Env keys present for build:"
+          cut -d= -f1 "$ENV_FILE" | sort -u | sed 's/^/  - /'
+
+          if ! grep -q '^NEXT_PUBLIC_SUPABASE_URL=' "$ENV_FILE" || ! grep -q '^NEXT_PUBLIC_SUPABASE_ANON_KEY=' "$ENV_FILE"; then
+            echo "::error::Missing NEXT_PUBLIC_SUPABASE_* for build"
+            exit 1
+          fi
+
       - name: Build Project Artifacts
         run: |
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
