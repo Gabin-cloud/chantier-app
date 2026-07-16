@@ -12,7 +12,8 @@ import type {
   LotWithFinancials,
 } from "@/lib/types/database";
 
-export const DEFAULT_SITUATION_COLUMNS = 4;
+/** Colonnes situations affichées par défaut (hors colonne tampon vide en fin de tableau). */
+export const DEFAULT_SITUATION_COLUMNS = 8;
 
 export type SubcontractorSummary = {
   name: string;
@@ -80,8 +81,9 @@ export function collectLotSubcontractors(
   }));
 }
 
+/** Nombre total de colonnes : max(8, situations existantes) + 1 colonne vide en fin. */
 export function computeSituationColumnCount(maxSituationNumber: number): number {
-  return Math.max(DEFAULT_SITUATION_COLUMNS, maxSituationNumber);
+  return Math.max(DEFAULT_SITUATION_COLUMNS, maxSituationNumber) + 1;
 }
 
 export function buildLotSituationsSynthesis(

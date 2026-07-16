@@ -11,9 +11,10 @@ type SituationsSynthesisProps = {
   lots: LotWithFinancials[];
 };
 
-const cell =
-  "border border-slate-300 px-2 py-0.5 text-[11px] leading-snug align-middle";
-const amountClass = "tabular-nums text-right whitespace-nowrap";
+const BORDER = "border border-[#B4C6E7]";
+const CELL = `${BORDER} px-1.5 py-0.5 text-[10px] leading-tight align-middle`;
+const AMOUNT = "tabular-nums text-right whitespace-nowrap";
+const LABEL = "text-[9px] italic text-slate-500";
 
 function formatProrataPercent(value: number): string {
   return new Intl.NumberFormat("fr-FR", {
@@ -28,170 +29,213 @@ function formatAmount(value: number | null | undefined): string {
   return formatCurrency(value);
 }
 
-function RecapStack({ block }: { block: LotSituationsSynthesis }) {
-  const { subcontractors } = block;
+const SITUATION_ROW_LABELS = [
+  "situation du mois à payer",
+  "situation cumulée",
+  "date de la situation",
+  "Prorata retenue cumulée",
+] as const;
 
+function SituationLine({
+  label,
+  children,
+  bold,
+}: {
+  label: string;
+  children: React.ReactNode;
+  bold?: boolean;
+}) {
   return (
-    <div className="flex flex-col gap-1 py-1">
-      <div className="flex items-baseline justify-between gap-3 border-b border-slate-200 pb-1">
-        <span className="text-slate-700">marché de base T.T.C.</span>
-        <span className={`${amountClass} font-medium`}>
-          {formatAmount(block.contractBaseTtc)}
-        </span>
-      </div>
-      <div className="flex items-baseline justify-between gap-3 border-b border-slate-200 pb-1">
-        <span className="text-slate-700">avenant au marché</span>
-        <span className={amountClass}>{formatAmount(block.amendmentsTtc)}</span>
-      </div>
-      {subcontractors.map((subcontractor) => (
-        <div
-          key={subcontractor.name}
-          className="flex items-baseline justify-between gap-3 border-b border-amber-200 bg-amber-50/60 px-1 pb-1"
-        >
-          <span className="font-medium text-slate-800">{subcontractor.name}</span>
-          <span className={amountClass}>
-            {formatAmount(subcontractor.delegationAmount)}
-          </span>
-        </div>
-      ))}
-      <div className="flex items-baseline justify-between gap-3 border-b border-slate-200 pb-1 font-bold">
-        <span>total du marché T.T.C.</span>
-        <span className={amountClass}>{formatAmount(block.totalMarketTtc)}</span>
-      </div>
-      <div className="flex items-baseline justify-between gap-3">
-        <span className="text-slate-700">Prorata</span>
-        <span className={amountClass}>
-          {formatProrataPercent(block.prorataPercent)}
-          {block.prorataAmountTtc !== 0 && (
-            <span className="ml-1 font-normal text-slate-600">
-              {formatCurrency(block.prorataAmountTtc)}
-            </span>
-          )}
-        </span>
-      </div>
+    <div
+      className={`flex items-baseline justify-between gap-1 border-b border-[#D9E2F3] px-1 py-[3px] last:border-b-0 ${bold ? "font-bold" : ""}`}
+    >
+      <span className={`${LABEL} shrink-0`}>{label}</span>
+      <span className={`${AMOUNT} min-w-0 text-slate-800`}>{children}</span>
     </div>
   );
 }
 
-function SituationLabels() {
-  const labels = [
-    "situation du mois à payer",
-    "situation cumulée",
-    "date de la situation",
-    "Prorata retenue cumulée",
+function SituationBox({
+  column,
+  isBufferColumn,
+}: {
+  column: SituationColumnData;
+  isBufferColumn: boolean;
+}) {
+  const empty = !column.situation || isBufferColumn;
+
+  return (
+    <div className="flex min-h-[6.25rem] flex-col justify-between bg-white py-0.5">
+      {empty ? (
+        SITUATION_ROW_LABELS.map((label) => (
+          <SituationLine key={label} label={label}>
+            <span className="text-slate-300">—</span>
+          </SituationLine>
+        ))
+      ) : (
+        <>
+          <SituationLine label={SITUATION_ROW_LABELS[0]} bold>
+            <span className="inline-flex items-baseline gap-1">
+              {formatAmount(column.periodTtc)}
+              {column.advancementPercent !== null && (
+                <span className="text-[9px] font-normal text-slate-500">
+                  {formatPercent(column.advancementPercent)}
+                </span>
+              )}
+            </span>
+          </SituationLine>
+          <SituationLine label={SITUATION_ROW_LABELS[1]}>
+            {formatAmount(column.cumulativeTtc)}
+          </SituationLine>
+          <SituationLine label={SITUATION_ROW_LABELS[2]}>
+            <span className="text-[9px]">{column.dateLabel ?? "—"}</span>
+          </SituationLine>
+          <SituationLine label={SITUATION_ROW_LABELS[3]}>
+            {formatAmount(column.prorataCumulativeHt)}
+          </SituationLine>
+        </>
+      )}
+    </div>
+  );
+}
+
+function LotSituationsBlock({
+  block,
+  columnCount,
+}: {
+  block: LotSituationsSynthesis;
+  columnCount: number;
+}) {
+  const { lot, columns, subcontractors } = block;
+  const recapRowCount = 4 + subcontractors.length;
+  const paymentRowCount = subcontractors.length * 2;
+  const totalRowSpan = recapRowCount + paymentRowCount;
+
+  const recapRows: {
+    label: string;
+    amount: string;
+    highlight?: boolean;
+    bold?: boolean;
+    alt?: boolean;
+  }[] = [
+    {
+      label: "marché de base T.T.C.",
+      amount: formatAmount(block.contractBaseTtc),
+    },
+    {
+      label: "avenant au marché",
+      amount: formatAmount(block.amendmentsTtc),
+      alt: true,
+    },
+    ...subcontractors.map((sub) => ({
+      label: sub.name,
+      amount: formatAmount(sub.delegationAmount),
+      highlight: true,
+    })),
+    {
+      label: "total du marché T.T.C.",
+      amount: formatAmount(block.totalMarketTtc),
+      bold: true,
+    },
+    {
+      label: "Prorata",
+      amount:
+        block.prorataAmountTtc !== 0
+          ? `${formatProrataPercent(block.prorataPercent)} ${formatCurrency(block.prorataAmountTtc)}`
+          : formatProrataPercent(block.prorataPercent),
+      alt: true,
+    },
   ];
 
   return (
-    <div className="flex h-full min-h-[5.5rem] flex-col justify-between py-1 italic text-slate-600">
-      {labels.map((label) => (
-        <div key={label} className="px-1">
-          {label}
-        </div>
+    <tbody className="border-b-2 border-[#2F5496]">
+      {recapRows.map((row, rowIndex) => (
+        <tr
+          key={row.label}
+          className={
+            row.highlight
+              ? "bg-amber-50/50 hover:bg-amber-50/70"
+              : row.alt
+                ? "bg-slate-50/40 hover:bg-slate-50/50"
+                : "hover:bg-slate-50/50"
+          }
+        >
+          {rowIndex === 0 ? (
+            <td
+              rowSpan={totalRowSpan}
+              className="w-[9rem] border border-[#2F5496] bg-[#4472C4] px-2 py-3 text-center align-middle font-bold text-white"
+            >
+              <div className="text-[11px] uppercase leading-tight">{lot.name}</div>
+              {lot.designation ? (
+                <div className="mt-1 text-[9px] font-normal normal-case opacity-90">
+                  {lot.designation}
+                </div>
+              ) : null}
+            </td>
+          ) : null}
+
+          <td className={`${CELL} text-slate-700 ${row.bold ? "font-bold" : ""}`}>
+            {row.label}
+          </td>
+          <td className={`${CELL} ${AMOUNT} ${row.bold ? "font-bold" : "font-medium"}`}>
+            {row.amount}
+          </td>
+
+          {rowIndex === 0
+            ? columns.map((column, colIndex) => (
+                <td
+                  key={column.number}
+                  rowSpan={recapRowCount}
+                  className={`${CELL} min-w-[7.5rem] w-[7.5rem] p-0 align-top`}
+                >
+                  <SituationBox
+                    column={column}
+                    isBufferColumn={colIndex === columnCount - 1}
+                  />
+                </td>
+              ))
+            : null}
+        </tr>
       ))}
-    </div>
-  );
-}
-
-function SituationBox({ column }: { column: SituationColumnData }) {
-  if (!column.situation) {
-    return (
-      <td className={`${cell} min-w-[6.5rem] border-2 border-slate-700 p-0 align-top`}>
-        <div className="flex min-h-[5.5rem] items-center justify-center text-slate-300">
-          —
-        </div>
-      </td>
-    );
-  }
-
-  return (
-    <td className={`${cell} min-w-[6.5rem] border-2 border-slate-700 p-0 align-top`}>
-      <div className="flex min-h-[5.5rem] flex-col justify-between divide-y divide-slate-400 py-0.5">
-        <div className={`px-1.5 py-0.5 ${amountClass} font-bold text-slate-900`}>
-          <div className="flex items-baseline justify-end gap-1">
-            <span>{formatAmount(column.periodTtc)}</span>
-            {column.advancementPercent !== null && (
-              <span className="text-[10px] font-normal text-slate-500">
-                {formatPercent(column.advancementPercent)}
-              </span>
-            )}
-          </div>
-        </div>
-        <div className={`px-1.5 py-0.5 ${amountClass} text-slate-800`}>
-          {formatAmount(column.cumulativeTtc)}
-        </div>
-        <div className="px-1.5 py-0.5 text-center text-[10px] text-slate-700">
-          {column.dateLabel}
-        </div>
-        <div className={`px-1.5 py-0.5 ${amountClass} text-slate-600`}>
-          {formatAmount(column.prorataCumulativeHt)}
-        </div>
-      </div>
-    </td>
-  );
-}
-
-function LotSituationsBlock({ block }: { block: LotSituationsSynthesis }) {
-  const { lot, columns, subcontractors } = block;
-  const paymentRowCount = subcontractors.length * 2;
-  const totalRowSpan = 1 + paymentRowCount;
-
-  return (
-    <tbody className="border-b-[3px] border-slate-400">
-      <tr className="hover:bg-slate-50/60">
-        <td
-          rowSpan={totalRowSpan}
-          className="w-[8.5rem] border border-slate-300 bg-[#4472C4] px-2 py-2 text-center align-middle font-bold text-white"
-        >
-          <div className="text-[11px] uppercase leading-tight">{lot.name}</div>
-          <div className="mt-1 text-[10px] font-normal opacity-90">
-            {lot.designation}
-          </div>
-        </td>
-        <td
-          rowSpan={totalRowSpan}
-          colSpan={2}
-          className="w-[14rem] border border-slate-300 align-top"
-        >
-          <RecapStack block={block} />
-        </td>
-        <td className="w-[9.5rem] border border-slate-300 align-top">
-          <SituationLabels />
-        </td>
-        {columns.map((column) => (
-          <SituationBox key={column.number} column={column} />
-        ))}
-      </tr>
 
       {subcontractors.flatMap((subcontractor) => [
-        <tr key={`${subcontractor.name}-period`} className="hover:bg-amber-50/40">
-          <td className={`${cell} pl-3 text-slate-600`}>
+        <tr
+          key={`${subcontractor.name}-period`}
+          className="bg-amber-50/30 hover:bg-amber-50/50"
+        >
+          <td colSpan={2} className={`${CELL} pl-3 text-slate-600`}>
             {subcontractor.name} — du mois
           </td>
-          {columns.map((column) => {
-            const payment = column.subcontractorPayments.find(
-              (item) => item.name === subcontractor.name
-            );
-            return (
-              <td key={column.number} className={`${cell} ${amountClass}`}>
-                {formatAmount(payment?.periodTtc ?? null)}
-              </td>
-            );
-          })}
+          {columns.map((column, colIndex) => (
+            <td key={column.number} className={`${CELL} ${AMOUNT}`}>
+              {colIndex === columnCount - 1
+                ? "—"
+                : formatAmount(
+                    column.subcontractorPayments.find(
+                      (item) => item.name === subcontractor.name
+                    )?.periodTtc ?? null
+                  )}
+            </td>
+          ))}
         </tr>,
-        <tr key={`${subcontractor.name}-cumul`} className="hover:bg-amber-50/40">
-          <td className={`${cell} pl-3 text-slate-600`}>
+        <tr
+          key={`${subcontractor.name}-cumul`}
+          className="bg-amber-50/30 hover:bg-amber-50/50"
+        >
+          <td colSpan={2} className={`${CELL} pl-3 text-slate-600`}>
             {subcontractor.name} — cumul
           </td>
-          {columns.map((column) => {
-            const payment = column.subcontractorPayments.find(
-              (item) => item.name === subcontractor.name
-            );
-            return (
-              <td key={column.number} className={`${cell} ${amountClass}`}>
-                {formatAmount(payment?.cumulativeTtc ?? null)}
-              </td>
-            );
-          })}
+          {columns.map((column, colIndex) => (
+            <td key={column.number} className={`${CELL} ${AMOUNT}`}>
+              {colIndex === columnCount - 1
+                ? "—"
+                : formatAmount(
+                    column.subcontractorPayments.find(
+                      (item) => item.name === subcontractor.name
+                    )?.cumulativeTtc ?? null
+                  )}
+            </td>
+          ))}
         </tr>,
       ])}
     </tbody>
@@ -203,7 +247,7 @@ export function SituationsSynthesis({ project, lots }: SituationsSynthesisProps)
 
   return (
     <section className="space-y-2">
-      <div className="border-2 border-slate-700 bg-[#2F5496] px-3 py-2 text-center text-white">
+      <div className="border-2 border-[#2F5496] bg-[#2F5496] px-3 py-2 text-center text-white">
         <h2 className="text-xs font-bold uppercase tracking-wide">
           Récapitulatif des situations de travaux des entreprises
         </h2>
@@ -217,24 +261,21 @@ export function SituationsSynthesis({ project, lots }: SituationsSynthesisProps)
           Aucun lot configuré.
         </p>
       ) : (
-        <div className="overflow-x-auto border border-slate-400 bg-white">
-          <table className="w-full min-w-[880px] border-collapse">
+        <div className="overflow-x-auto border-2 border-[#2F5496] bg-white">
+          <table className="w-full min-w-[1200px] border-collapse">
             <thead>
-              <tr className="bg-[#2F5496] text-[11px] font-bold text-white">
-                <th className={`${cell} w-[8.5rem] border-slate-500 text-left`}>
+              <tr className="bg-[#2F5496] text-[10px] font-bold text-white">
+                <th className={`${CELL} w-[9rem] border-[#B4C6E7] text-center`}>
                   Entreprise
                 </th>
-                <th
-                  colSpan={2}
-                  className={`${cell} border-slate-500 text-left`}
-                >
-                  Récapitulatif marché
+                <th className={`${CELL} border-[#B4C6E7] text-left`}>Libellé</th>
+                <th className={`${CELL} w-[8rem] border-[#B4C6E7] text-right`}>
+                  Montant
                 </th>
-                <th className={`${cell} w-[9.5rem] border-slate-500`} />
                 {Array.from({ length: columnCount }, (_, index) => (
                   <th
                     key={index}
-                    className={`${cell} min-w-[6.5rem] border-slate-500 text-center`}
+                    className={`${CELL} min-w-[7.5rem] border-[#B4C6E7] text-center`}
                   >
                     situation n°{String(index + 1).padStart(2, "0")}
                   </th>
@@ -243,7 +284,11 @@ export function SituationsSynthesis({ project, lots }: SituationsSynthesisProps)
             </thead>
 
             {blocks.map((block) => (
-              <LotSituationsBlock key={block.lot.id} block={block} />
+              <LotSituationsBlock
+                key={block.lot.id}
+                block={block}
+                columnCount={columnCount}
+              />
             ))}
           </table>
         </div>
