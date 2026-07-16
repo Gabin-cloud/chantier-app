@@ -87,8 +87,21 @@ jobs:
 
       - name: Deploy to Vercel
         run: |
-          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
-          else
-            vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }}
-          fi
+          set -euo pipefail
+          deploy_once() {
+            if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+              vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
+            else
+              vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }}
+            fi
+          }
+          # Retry on transient "Upload aborted" / network errors
+          for attempt in 1 2 3; do
+            if deploy_once; then
+              exit 0
+            fi
+            echo "Deploy attempt ${attempt} failed; retrying in $((attempt * 10))s..."
+            sleep $((attempt * 10))
+          done
+          echo "Deploy failed after 3 attempts"
+          exit 1
