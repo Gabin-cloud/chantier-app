@@ -8,6 +8,7 @@ import { SharePointPathSettings } from "@/components/projects/SharePointPathSett
 import { AppField } from "@/components/ui/AppField";
 import { uploadOperationPhoto } from "@/lib/actions/finance";
 import {
+  applyDirectoryToEnterprise,
   createEnterpriseOnProject,
   updateEnterpriseSheet,
   updateOperationSheet,
@@ -102,6 +103,20 @@ function logoUrl(path: string | null | undefined) {
     : null;
 }
 
+function inferOperationUnlocked(
+  project: Project,
+  enterprises: Enterprise[],
+  isOperationConfigured: boolean
+) {
+  if (isOperationConfigured === true) return true;
+  if (enterprises.length > 0) return true;
+  if (project.owner_name?.trim()) return true;
+  if (project.address?.trim() || project.city?.trim()) return true;
+  if (project.description?.trim()) return true;
+  if (project.name.trim() && project.name.trim() !== "Nouvelle opération") return true;
+  return false;
+}
+
 function operationForm(project: Project): OperationFormState {
   return {
     name: project.name ?? "",
@@ -126,6 +141,31 @@ function operationForm(project: Project): OperationFormState {
     moe_city: project.moe_city ?? "",
     moe_email_admin: project.moe_email_admin ?? "",
     moe_email_works: project.moe_email_works ?? "",
+  };
+}
+
+function emptyEnterpriseForm(): EnterpriseFormState {
+  return {
+    name: "",
+    lot_number: "",
+    designation: "",
+    contract_amount_ht: "0",
+    vat_rate: "20",
+    prorata_percent: "1.5",
+    avancement_max_avant_dgd: "95",
+    enterprise_address: "",
+    enterprise_postal_code: "",
+    enterprise_city: "",
+    email_administratif: "",
+    email_comptabilite: "",
+    email_travaux: "",
+    email_bureau_etudes: "",
+    email_signataire: "",
+    signataire_name: "",
+    siret: "",
+    email_sav: "",
+    phone_accueil: "",
+    phone_travaux: "",
   };
 }
 
@@ -264,13 +304,38 @@ export function OperationSheet({
   const [savedOp, setSavedOp] = useState(() => operationForm(project));
   const [opErrors, setOpErrors] = useState<Partial<Record<keyof OperationFormState, string | null>>>({});
   const [selectedId, setSelectedId] = useState(enterprises[0]?.id ?? "");
-  const [showNewEnterprise, setShowNewEnterprise] = useState(false);
-  const [newEnterpriseName, setNewEnterpriseName] = useState("");
+  const [isCreatingEnterprise, setIsCreatingEnterprise] = useState(
+    () => enterprises.length === 0
+  );
   const [enterpriseDirty, setEnterpriseDirty] = useState(false);
+  const [formUnlocked, setFormUnlocked] = useState(() =>
+    inferOperationUnlocked(project, enterprises, isOperationConfigured)
+  );
+
+  useEffect(() => {
+    const next = operationForm(project);
+    setOp(next);
+    setSavedOp(next);
+    setFormUnlocked(inferOperationUnlocked(project, enterprises, isOperationConfigured));
+  }, [project.id]);
+
+  useEffect(() => {
+    setFormUnlocked(inferOperationUnlocked(project, enterprises, isOperationConfigured));
+  }, [project.is_operation_configured, project.owner_name, project.name, enterprises.length, isOperationConfigured]);
+
+  useEffect(() => {
+    if (enterprises.length === 0) {
+      setIsCreatingEnterprise(true);
+      return;
+    }
+    if (!enterprises.some((enterprise) => enterprise.id === selectedId)) {
+      setSelectedId(enterprises[0]?.id ?? "");
+    }
+  }, [enterprises, selectedId]);
 
   useEffect(() => {
     setEnterpriseDirty(false);
-  }, [selectedId]);
+  }, [selectedId, isCreatingEnterprise]);
 
   const ownerOptions = useMemo(
     () => ownerDirectory.map((entry) => ({ id: entry.id, label: entry.name, data: entry })),
@@ -280,7 +345,8 @@ export function OperationSheet({
     () => enterprises.find((enterprise) => enterprise.id === selectedId) ?? null,
     [enterprises, selectedId]
   );
-  const configuredEditing = canEdit && isOperationConfigured;
+  const configuredEditing = canEdit && formUnlocked;
+  const lockedSectionClass = canEdit && !formUnlocked ? "opacity-60" : "";
 
   const opDirty = useMemo(
     () => JSON.stringify(op) !== JSON.stringify(savedOp),
@@ -327,8 +393,10 @@ export function OperationSheet({
     startTransition(async () => {
       try {
         await updateOperationSheet(project.id, op);
+        const wasUnlocked = formUnlocked;
         setSavedOp(op);
-        setMessage(isOperationConfigured ? "Fiche opération enregistrée." : "Opération créée.");
+        setFormUnlocked(true);
+        setMessage(wasUnlocked ? "Fiche opération enregistrée." : "Opération créée.");
         router.refresh();
       } catch (caughtError) {
         setError(caughtError instanceof Error ? caughtError.message : "Erreur lors de l'enregistrement.");
@@ -343,22 +411,7 @@ export function OperationSheet({
 
   function addEnterprise() {
     setError(null);
-    const name = newEnterpriseName.trim();
-    if (!name) {
-      setError("Le nom de l'entreprise est obligatoire.");
-      return;
-    }
-    startTransition(async () => {
-      try {
-        const id = await createEnterpriseOnProject(project.id, name);
-        setSelectedId(id);
-        setNewEnterpriseName("");
-        setShowNewEnterprise(false);
-        router.refresh();
-      } catch (caughtError) {
-        setError(caughtError instanceof Error ? caughtError.message : "Erreur lors de la création.");
-      }
-    });
+    setIsCreatingEnterprise(true);
   }
 
   return (
@@ -389,7 +442,7 @@ export function OperationSheet({
           </div>
         </SectionCard>
 
-        <SectionCard title="Maître d'ouvrage" subtitle="Renseigné par DANOBAT. Auto-complétion depuis les autres opérations." className={!isOperationConfigured ? "pointer-events-none opacity-50" : ""}>
+        <SectionCard title="Maître d'ouvrage" subtitle="Renseigné par DANOBAT. Auto-complétion depuis les autres opérations." className={lockedSectionClass}>
           <div className="grid gap-3">
             <Field label="Nom du maître d'ouvrage">
               <AutocompleteInput value={op.owner_name} onChange={(value) => setOpField("owner_name", value)} onSelect={(option) => applyOwner(option.data)} options={ownerOptions} disabled={!configuredEditing} className={opInputClass("owner_name")} placeholder="Rechercher ou saisir…" />
@@ -434,7 +487,7 @@ export function OperationSheet({
           </div>
         </SectionCard>
 
-        <SectionCard title="Maître d'œuvre — DANOBAT" subtitle="Renseigné par DANOBAT." className={!isOperationConfigured ? "pointer-events-none opacity-50" : ""}>
+        <SectionCard title="Maître d'œuvre — DANOBAT" subtitle="Renseigné par DANOBAT." className={lockedSectionClass}>
           <div className="grid gap-3">
             <div>
               <label className={labelClass}>Adresse postale</label>
@@ -460,59 +513,92 @@ export function OperationSheet({
         </SectionCard>
       </div>
 
-      <div className={!isOperationConfigured ? "pointer-events-none opacity-50" : ""}>
-        <SharePointPathSettings project={project} canEdit={canEdit && isOperationConfigured} />
+      <div className={lockedSectionClass}>
+        <SharePointPathSettings project={project} canEdit={configuredEditing} />
       </div>
+
+      {!canEdit && (
+        <p className="rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800">
+          Mode lecture seule — vous n&apos;avez pas les droits de modification sur cette opération.
+        </p>
+      )}
+
+      {canEdit && !formUnlocked && (
+        <p className="rounded-xl border border-violet-200 bg-violet-50 px-4 py-3 text-sm text-violet-800">
+          Renseignez la zone Opération puis cliquez sur « Créer opération » pour déverrouiller le reste de la fiche.
+        </p>
+      )}
 
       {canEdit && (
         <div className="flex flex-wrap items-center gap-3">
           <button type="button" onClick={saveProject} disabled={isPending} className="rounded-xl bg-emerald-600 px-5 py-2.5 font-semibold text-white hover:bg-emerald-500 disabled:opacity-50">
-            {isPending ? "Enregistrement…" : isOperationConfigured ? "Enregistrer l'opération, le MOA et le MOE" : "Créer opération"}
+            {isPending ? "Enregistrement…" : formUnlocked ? "Enregistrer l'opération, le MOA et le MOE" : "Créer opération"}
           </button>
           {message && <span className="text-sm font-medium text-emerald-700">{message}</span>}
           {error && <span className="text-sm font-medium text-red-700">{error}</span>}
         </div>
       )}
 
-      <div className={!isOperationConfigured ? "pointer-events-none opacity-50" : ""}>
+      <div className={lockedSectionClass}>
         <SectionCard title="Entreprise" subtitle="Une fiche par entreprise.">
           <div className="mb-4 flex flex-wrap items-end gap-3">
-            {enterprises.length > 0 && (
+            {enterprises.length > 0 && !isCreatingEnterprise && (
               <div className="min-w-[16rem] flex-1">
                 <label className={labelClass}>Sélectionner</label>
-                <select className={`${danobatInput} text-slate-900`} value={selectedId} onChange={(event) => setSelectedId(event.target.value)}>
+                <select
+                  className={`${danobatInput} text-slate-900`}
+                  value={selectedId}
+                  onChange={(event) => setSelectedId(event.target.value)}
+                >
                   {enterprises.map((enterprise) => (
                     <option key={enterprise.id} value={enterprise.id}>
-                      {enterprise.lot_number ? `Lot ${enterprise.lot_number} — ` : ""}{enterprise.name}
+                      {enterprise.lot_number ? `Lot ${enterprise.lot_number} — ` : ""}
+                      {enterprise.name}
                     </option>
                   ))}
                 </select>
               </div>
             )}
-            {configuredEditing && !showNewEnterprise && (
-              <button type="button" onClick={() => setShowNewEnterprise(true)} className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-800 hover:bg-emerald-100">
+            {configuredEditing && !isCreatingEnterprise && (
+              <button
+                type="button"
+                onClick={addEnterprise}
+                className="rounded-xl border border-emerald-300 bg-emerald-50 px-4 py-2.5 text-sm font-semibold text-emerald-800 hover:bg-emerald-100"
+              >
                 + Nouvelle entreprise
+              </button>
+            )}
+            {configuredEditing && isCreatingEnterprise && enterprises.length > 0 && (
+              <button
+                type="button"
+                onClick={() => {
+                  setIsCreatingEnterprise(false);
+                  router.refresh();
+                }}
+                className="px-3 py-2.5 text-sm font-medium text-slate-600 hover:text-slate-900"
+              >
+                Annuler
               </button>
             )}
           </div>
 
-          {showNewEnterprise && (
-            <div className="mb-4 flex flex-wrap items-end gap-3 rounded-xl border border-emerald-200 bg-emerald-50 p-3">
-              <div className="min-w-[16rem] flex-1">
-                <label className={labelClass}>Nom de la nouvelle entreprise</label>
-                <input className={`${danobatInput} text-slate-900`} value={newEnterpriseName} onChange={(event) => setNewEnterpriseName(event.target.value)} disabled={isPending} />
-              </div>
-              <button type="button" onClick={addEnterprise} disabled={isPending} className="rounded-xl bg-emerald-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-emerald-500 disabled:opacity-50">
-                Ajouter
-              </button>
-              <button type="button" onClick={() => setShowNewEnterprise(false)} disabled={isPending} className="px-3 py-2.5 text-sm font-medium text-slate-600 hover:text-slate-900">
-                Annuler
-              </button>
-            </div>
-          )}
-
-          {enterprises.length === 0 ? (
-            <p className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-500">Aucune entreprise. Cliquez sur « Nouvelle entreprise » pour commencer.</p>
+          {isCreatingEnterprise && configuredEditing ? (
+            <EnterpriseSheetForm
+              key="draft-enterprise"
+              projectId={project.id}
+              enterprise={null}
+              directory={directory}
+              canEdit
+              invitationMap={{}}
+              onUploadLogo={async () => {}}
+              onSaved={() => router.refresh()}
+              onDirtyChange={setEnterpriseDirty}
+              onCreated={(id) => setSelectedId(id)}
+              onFinished={() => {
+                setIsCreatingEnterprise(false);
+                router.refresh();
+              }}
+            />
           ) : selected ? (
             <EnterpriseSheetForm
               key={selected.id}
@@ -525,7 +611,11 @@ export function OperationSheet({
               onSaved={() => router.refresh()}
               onDirtyChange={setEnterpriseDirty}
             />
-          ) : null}
+          ) : (
+            <p className="rounded-xl bg-slate-50 px-4 py-3 text-sm text-slate-500">
+              Aucune entreprise sur cette opération.
+            </p>
+          )}
         </SectionCard>
       </div>
     </div>
@@ -610,23 +700,37 @@ function EnterpriseSheetForm({
   onUploadLogo,
   onSaved,
   onDirtyChange,
+  onCreated,
+  onFinished,
 }: {
   projectId: string;
-  enterprise: Enterprise;
+  enterprise: Enterprise | null;
   directory: CompanyDirectoryEntry[];
   canEdit: boolean;
   invitationMap: Record<string, string>;
   onUploadLogo: (formData: FormData) => Promise<void>;
   onSaved: () => void;
   onDirtyChange?: (dirty: boolean) => void;
+  onCreated?: (id: string) => void;
+  onFinished?: () => void;
 }) {
+  const isDraft = enterprise === null;
   const [isPending, startTransition] = useTransition();
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [form, setForm] = useState(() => enterpriseForm(enterprise));
-  const [savedForm, setSavedForm] = useState(() => enterpriseForm(enterprise));
+  const [enterpriseId, setEnterpriseId] = useState<string | null>(enterprise?.id ?? null);
+  const [form, setForm] = useState(() =>
+    enterprise ? enterpriseForm(enterprise) : emptyEnterpriseForm()
+  );
+  const [savedForm, setSavedForm] = useState(() =>
+    enterprise ? enterpriseForm(enterprise) : emptyEnterpriseForm()
+  );
   const [fieldErrors, setFieldErrors] = useState<Partial<Record<keyof EnterpriseFormState, string | null>>>({});
   const [localInvitations, setLocalInvitations] = useState(invitationMap);
+  const [creating, setCreating] = useState(false);
+
+  const activeEnterpriseId = enterprise?.id ?? enterpriseId;
+  const secondaryFieldsEnabled = canEdit && Boolean(activeEnterpriseId);
 
   const companyOptions = useMemo(
     () => directory.map((entry) => ({ id: entry.id, label: `${entry.name}${entry.siret ? ` (${entry.siret})` : ""}`, data: entry })),
@@ -656,6 +760,15 @@ function EnterpriseSheetForm({
   useEffect(() => {
     setLocalInvitations(invitationMap);
   }, [invitationMap]);
+
+  useEffect(() => {
+    if (!enterprise) return;
+    const next = enterpriseForm(enterprise);
+    setForm(next);
+    setSavedForm(next);
+    setEnterpriseId(enterprise.id);
+  }, [enterprise]);
+
   const set = <K extends keyof EnterpriseFormState>(key: K, value: EnterpriseFormState[K]) =>
     setForm((current) => ({ ...current, [key]: value }));
   const inputClass = <K extends keyof EnterpriseFormState>(key: K, base = danobatInput) =>
@@ -665,13 +778,62 @@ function EnterpriseSheetForm({
     setFieldErrors((current) => ({ ...current, [key]: validator(form[key]) }));
   }
 
+  async function ensureEnterprise(name: string, directoryId?: string) {
+    if (activeEnterpriseId) return activeEnterpriseId;
+    const trimmed = name.trim();
+    if (!trimmed) throw new Error("Le nom de l'entreprise est obligatoire.");
+
+    setCreating(true);
+    try {
+      const id = await createEnterpriseOnProject(projectId, trimmed);
+      if (directoryId) {
+        await applyDirectoryToEnterprise(projectId, id, directoryId);
+      }
+      setEnterpriseId(id);
+      onCreated?.(id);
+      return id;
+    } finally {
+      setCreating(false);
+    }
+  }
+
+  function handleCompanySelect(entry: CompanyDirectoryEntry) {
+    applyCompanyAdminFields(entry, setForm);
+    if (!isDraft || activeEnterpriseId) return;
+    startTransition(async () => {
+      try {
+        setError(null);
+        await ensureEnterprise(entry.name, entry.id);
+        setMessage("Entreprise créée depuis l'annuaire — complétez le lot et les montants.");
+        onSaved();
+      } catch (caughtError) {
+        setError(caughtError instanceof Error ? caughtError.message : "Erreur lors de la création.");
+      }
+    });
+  }
+
+  function handleNameBlur() {
+    if (!isDraft || activeEnterpriseId || !form.name.trim()) return;
+    startTransition(async () => {
+      try {
+        setError(null);
+        await ensureEnterprise(form.name);
+        setMessage("Entreprise créée — vous pouvez compléter la fiche.");
+        onSaved();
+      } catch (caughtError) {
+        setError(caughtError instanceof Error ? caughtError.message : "Erreur lors de la création.");
+      }
+    });
+  }
+
   function save() {
     setError(null);
     setMessage(null);
     const normalized = normalizeEnterpriseNumericFields(form);
     startTransition(async () => {
       try {
-        await updateEnterpriseSheet(projectId, enterprise.id, {
+        const id = await ensureEnterprise(normalized.name);
+        await updateEnterpriseSheet(projectId, id, {
           ...normalized,
           contract_amount_ht: Number(normalized.contract_amount_ht) || 0,
           vat_rate: Number(normalized.vat_rate) || 20,
@@ -680,12 +842,19 @@ function EnterpriseSheetForm({
         });
         setForm(normalized);
         setSavedForm(normalized);
-        setMessage("Fiche entreprise enregistrée.");
-        onSaved();
+        setMessage(isDraft ? "Entreprise ajoutée à l'opération." : "Fiche entreprise enregistrée.");
+        if (isDraft) onFinished?.();
+        else onSaved();
       } catch (caughtError) {
         setError(caughtError instanceof Error ? caughtError.message : "Erreur.");
       }
     });
+  }
+
+  async function handleLogoUpload(formData: FormData) {
+    const id = await ensureEnterprise(form.name);
+    await uploadOperationLogo(projectId, "enterprise", formData, id);
+    onSaved();
   }
 
   const emailFields = [
@@ -698,15 +867,45 @@ function EnterpriseSheetForm({
 
   return (
     <div className="space-y-4">
+      {isDraft && !activeEnterpriseId && (
+        <p className="rounded-xl border border-emerald-200 bg-emerald-50 px-4 py-3 text-sm text-emerald-800">
+          Saisissez ou sélectionnez le nom de l&apos;entreprise — la fiche se crée automatiquement pour
+          renseigner le lot, les montants et les coordonnées.
+        </p>
+      )}
+
       <div className="rounded-xl border border-slate-200 bg-slate-50/50 p-4">
         <p className="mb-3 text-xs font-semibold uppercase tracking-wide text-slate-500">Renseigné par DANOBAT</p>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Field label="Nom de l'entreprise">
-            <AutocompleteInput value={form.name} onChange={(value) => set("name", value)} onSelect={(option) => applyCompanyAdminFields(option.data, setForm)} options={companyOptions} disabled={!canEdit} className={`${danobatInput} ${dirtyTextClass(form.name, savedForm.name, !canEdit)}`} placeholder="Rechercher…" />
+            <AutocompleteInput
+              value={form.name}
+              onChange={(value) => set("name", value)}
+              onSelect={(option) => handleCompanySelect(option.data)}
+              options={companyOptions}
+              disabled={!canEdit || creating}
+              className={`${danobatInput} ${dirtyTextClass(form.name, savedForm.name, !canEdit)}`}
+              placeholder="Rechercher ou saisir…"
+              onBlur={handleNameBlur}
+            />
           </Field>
-          <Field label="N° du lot"><input className={inputClass("lot_number")} value={form.lot_number} onChange={(event) => set("lot_number", event.target.value)} disabled={!canEdit} /></Field>
+          <Field label="N° du lot">
+            <input
+              className={inputClass("lot_number")}
+              value={form.lot_number}
+              onChange={(event) => set("lot_number", event.target.value)}
+              onFocus={handleNameBlur}
+              disabled={!secondaryFieldsEnabled || creating}
+            />
+          </Field>
           <Field label="Intitulé du lot" className="sm:col-span-2">
-            <input className={inputClass("designation")} value={form.designation} onChange={(event) => set("designation", event.target.value)} disabled={!canEdit} />
+            <input
+              className={inputClass("designation")}
+              value={form.designation}
+              onChange={(event) => set("designation", event.target.value)}
+              onFocus={handleNameBlur}
+              disabled={!secondaryFieldsEnabled || creating}
+            />
           </Field>
         </div>
 
@@ -718,7 +917,7 @@ function EnterpriseSheetForm({
               savedValue={savedForm.contract_amount_ht}
               onChange={(value) => set("contract_amount_ht", value)}
               inputClassName={`${danobatInput} tabular-nums`}
-              disabled={!canEdit}
+              disabled={!secondaryFieldsEnabled || creating}
             />
           </Field>
           <Field label="TVA" error={fieldErrors.vat_rate}>
@@ -729,7 +928,7 @@ function EnterpriseSheetForm({
               savedValue={savedForm.vat_rate}
               onChange={(value) => set("vat_rate", value)}
               inputClassName={`${danobatInput} tabular-nums text-sm`}
-              disabled={!canEdit}
+              disabled={!secondaryFieldsEnabled || creating}
               onBlur={() => validateField("vat_rate", validatePercent)}
             />
           </Field>
@@ -741,7 +940,7 @@ function EnterpriseSheetForm({
               savedValue={savedForm.prorata_percent}
               onChange={(value) => set("prorata_percent", value)}
               inputClassName={`${danobatInput} tabular-nums text-sm`}
-              disabled={!canEdit}
+              disabled={!secondaryFieldsEnabled || creating}
               onBlur={() => validateField("prorata_percent", validatePercent)}
             />
           </Field>
@@ -753,7 +952,7 @@ function EnterpriseSheetForm({
               savedValue={savedForm.avancement_max_avant_dgd}
               onChange={(value) => set("avancement_max_avant_dgd", value)}
               inputClassName={`${danobatInput} tabular-nums text-sm`}
-              disabled={!canEdit}
+              disabled={!secondaryFieldsEnabled || creating}
               onBlur={() => validateField("avancement_max_avant_dgd", validatePercent)}
             />
           </Field>
@@ -767,13 +966,13 @@ function EnterpriseSheetForm({
           <div>
             <label className={labelClass}>Adresse postale</label>
             <div className="grid gap-2">
-              <input className={inputClass("enterprise_address", enterpriseInput)} placeholder="N° et rue" value={form.enterprise_address} onChange={(event) => set("enterprise_address", event.target.value)} disabled={!canEdit} />
+              <input className={inputClass("enterprise_address", enterpriseInput)} placeholder="N° et rue" value={form.enterprise_address} onChange={(event) => set("enterprise_address", event.target.value)} onFocus={handleNameBlur} disabled={!secondaryFieldsEnabled || creating} />
               <div className="grid gap-2 sm:grid-cols-2">
                 <div>
-                  <input className={inputClass("enterprise_postal_code", enterpriseInput)} placeholder="CP" value={form.enterprise_postal_code} onChange={(event) => set("enterprise_postal_code", event.target.value)} onBlur={() => validateField("enterprise_postal_code", validatePostalCode)} disabled={!canEdit} />
+                  <input className={inputClass("enterprise_postal_code", enterpriseInput)} placeholder="CP" value={form.enterprise_postal_code} onChange={(event) => set("enterprise_postal_code", event.target.value)} onBlur={() => validateField("enterprise_postal_code", validatePostalCode)} onFocus={handleNameBlur} disabled={!secondaryFieldsEnabled || creating} />
                   {fieldErrors.enterprise_postal_code && <p className="mt-1 text-xs text-red-600">{fieldErrors.enterprise_postal_code}</p>}
                 </div>
-                <input className={inputClass("enterprise_city", enterpriseInput)} placeholder="Ville" value={form.enterprise_city} onChange={(event) => set("enterprise_city", event.target.value)} disabled={!canEdit} />
+                <input className={inputClass("enterprise_city", enterpriseInput)} placeholder="Ville" value={form.enterprise_city} onChange={(event) => set("enterprise_city", event.target.value)} onFocus={handleNameBlur} disabled={!secondaryFieldsEnabled || creating} />
               </div>
             </div>
           </div>
@@ -784,8 +983,8 @@ function EnterpriseSheetForm({
                   value={form[key]}
                   onChange={(value) => set(key, value)}
                   projectId={projectId}
-                  enterpriseId={enterprise.id}
-                  disabled={!canEdit}
+                  enterpriseId={activeEnterpriseId ?? ""}
+                  disabled={!secondaryFieldsEnabled || creating}
                   inputClassName={enterpriseInput}
                   savedValue={savedForm[key]}
                   invitationSentAt={localInvitations[form[key].trim().toLowerCase()] ?? null}
@@ -795,14 +994,14 @@ function EnterpriseSheetForm({
                 />
               </Field>
             ))}
-            <Field label="Signataire"><input className={inputClass("signataire_name", enterpriseInput)} value={form.signataire_name} onChange={(event) => set("signataire_name", event.target.value)} disabled={!canEdit} /></Field>
+            <Field label="Signataire"><input className={inputClass("signataire_name", enterpriseInput)} value={form.signataire_name} onChange={(event) => set("signataire_name", event.target.value)} onFocus={handleNameBlur} disabled={!secondaryFieldsEnabled || creating} /></Field>
             <Field label="N° SIRET" error={fieldErrors.siret}>
               <AutocompleteInput
                 value={form.siret}
                 onChange={(value) => set("siret", value)}
-                onSelect={(option) => applyCompanyAdminFields(option.data, setForm)}
+                onSelect={(option) => handleCompanySelect(option.data)}
                 options={siretOptions}
-                disabled={!canEdit}
+                disabled={!secondaryFieldsEnabled || creating}
                 className={inputClass("siret", enterpriseInput)}
                 placeholder="Rechercher par SIRET…"
               />
@@ -812,8 +1011,8 @@ function EnterpriseSheetForm({
                 value={form.email_sav}
                 onChange={(value) => set("email_sav", value)}
                 projectId={projectId}
-                enterpriseId={enterprise.id}
-                disabled={!canEdit}
+                enterpriseId={activeEnterpriseId ?? ""}
+                disabled={!secondaryFieldsEnabled || creating}
                 inputClassName={enterpriseInput}
                 savedValue={savedForm.email_sav}
                 invitationSentAt={localInvitations[form.email_sav.trim().toLowerCase()] ?? null}
@@ -822,17 +1021,22 @@ function EnterpriseSheetForm({
                 }
               />
             </Field>
-            <Field label="Tél. Accueil" error={fieldErrors.phone_accueil}><input className={inputClass("phone_accueil", enterpriseInput)} value={form.phone_accueil} onChange={(event) => set("phone_accueil", event.target.value)} onBlur={() => validateField("phone_accueil", validatePhone)} disabled={!canEdit} /></Field>
-            <Field label="Tél. Travaux" error={fieldErrors.phone_travaux}><input className={inputClass("phone_travaux", enterpriseInput)} value={form.phone_travaux} onChange={(event) => set("phone_travaux", event.target.value)} onBlur={() => validateField("phone_travaux", validatePhone)} disabled={!canEdit} /></Field>
+            <Field label="Tél. Accueil" error={fieldErrors.phone_accueil}><input className={inputClass("phone_accueil", enterpriseInput)} value={form.phone_accueil} onChange={(event) => set("phone_accueil", event.target.value)} onBlur={() => validateField("phone_accueil", validatePhone)} onFocus={handleNameBlur} disabled={!secondaryFieldsEnabled || creating} /></Field>
+            <Field label="Tél. Travaux" error={fieldErrors.phone_travaux}><input className={inputClass("phone_travaux", enterpriseInput)} value={form.phone_travaux} onChange={(event) => set("phone_travaux", event.target.value)} onBlur={() => validateField("phone_travaux", validatePhone)} onFocus={handleNameBlur} disabled={!secondaryFieldsEnabled || creating} /></Field>
           </div>
-          <LogoUploader label="Logo entreprise" currentPath={enterprise.logo_path} onUpload={onUploadLogo} disabled={!canEdit} />
+          <LogoUploader
+            label="Logo entreprise"
+            currentPath={enterprise?.logo_path ?? null}
+            onUpload={isDraft ? handleLogoUpload : onUploadLogo}
+            disabled={!secondaryFieldsEnabled || creating}
+          />
         </div>
       </div>
 
       {canEdit && (
         <div className="flex flex-wrap items-center gap-3">
-          <button type="button" onClick={save} disabled={isPending} className="rounded-xl bg-emerald-600 px-5 py-2.5 font-semibold text-white hover:bg-emerald-500 disabled:opacity-50">
-            {isPending ? "Enregistrement…" : "Enregistrer la fiche entreprise"}
+          <button type="button" onClick={save} disabled={isPending || creating} className="rounded-xl bg-emerald-600 px-5 py-2.5 font-semibold text-white hover:bg-emerald-500 disabled:opacity-50">
+            {isPending || creating ? "Enregistrement…" : isDraft ? "Créer et enregistrer l'entreprise" : "Enregistrer la fiche entreprise"}
           </button>
           {message && <span className="text-sm font-medium text-emerald-700">{message}</span>}
           {error && <span className="text-sm font-medium text-red-700">{error}</span>}

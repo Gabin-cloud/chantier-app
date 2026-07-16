@@ -16,6 +16,7 @@ type AutocompleteInputProps<T> = {
   placeholder?: string;
   disabled?: boolean;
   className?: string;
+  onBlur?: () => void;
 };
 
 export function AutocompleteInput<T>({
@@ -26,6 +27,7 @@ export function AutocompleteInput<T>({
   placeholder,
   disabled,
   className,
+  onBlur,
 }: AutocompleteInputProps<T>) {
   const listId = useId();
   const containerRef = useRef<HTMLDivElement>(null);
@@ -58,6 +60,7 @@ export function AutocompleteInput<T>({
           setOpen(true);
         }}
         onFocus={() => setOpen(true)}
+        onBlur={onBlur}
         autoComplete="off"
       />
       {open && value.trim() && filtered.length > 0 && (
