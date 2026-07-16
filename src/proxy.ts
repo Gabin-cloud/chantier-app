@@ -43,11 +43,10 @@ export async function proxy(request: NextRequest) {
       },
     });
 
-    const { data: userData, error: userError } = await supabase.auth.getUser();
-    if (userError) {
-      return supabaseResponse;
-    }
-    const user = userData.user;
+    const { data: userData } = await supabase.auth.getUser();
+    // Pas de session = visiteur anonyme (getUser peut renvoyer une erreur
+    // Auth session missing — ce n'est pas un crash).
+    const user = userData.user ?? null;
 
     const { pathname } = request.nextUrl;
     const ua = request.headers.get("user-agent") ?? "";
