@@ -2,6 +2,8 @@ import { AuthForm } from "@/components/auth/AuthForm";
 import { SupabaseSetupNotice } from "@/components/SupabaseSetupNotice";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
+export const dynamic = "force-dynamic";
+
 type LoginPageProps = {
   searchParams: Promise<{ redirect?: string }>;
 };
