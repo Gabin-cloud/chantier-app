@@ -1,7 +1,6 @@
 "use client";
 
-import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useState, useTransition } from "react";
 import { upsertAmendment } from "@/lib/actions/finance";
 import { FormField, financeInputClass } from "@/components/finance/FormField";
 import { MoneyInput } from "@/components/finance/MoneyInput";
@@ -47,9 +46,8 @@ function AmendmentEditForm({
   lotId: string;
   amendment: FinancialAmendment;
   onCancel: () => void;
-  onSaved: () => void;
+  onSaved: (saved: AmendmentFormData) => void;
 }) {
-  const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -80,8 +78,7 @@ function AmendmentEditForm({
         setError(result.error);
         return;
       }
-      router.refresh();
-      onSaved();
+      onSaved(parsed.data);
     });
   }
 
@@ -176,14 +173,24 @@ function AmendmentEditForm({
 
 export function AmendmentsTracker({ project, lots }: AmendmentsTrackerProps) {
   const [editing, setEditing] = useState<EditState | null>(null);
-  const [savedTick, setSavedTick] = useState(0);
+  const [savedOverrides, setSavedOverrides] = useState<
+    Record<string, Partial<FinancialAmendment>>
+  >({});
+
+  useEffect(() => {
+    setSavedOverrides({});
+    setEditing(null);
+  }, [project.id, lots]);
 
   const lotsWithAmendments = lots
     .map((lot) => ({
       lot,
-      amendments: [...(lot.amendments ?? [])].sort(
-        (a, b) => a.amendment_number - b.amendment_number
-      ),
+      amendments: [...(lot.amendments ?? [])]
+        .map((amendment) => ({
+          ...amendment,
+          ...savedOverrides[amendment.id],
+        }))
+        .sort((a, b) => a.amendment_number - b.amendment_number),
     }))
     .filter((entry) => entry.amendments.length > 0);
 
@@ -213,7 +220,7 @@ export function AmendmentsTracker({ project, lots }: AmendmentsTrackerProps) {
       </div>
 
       {lotsWithAmendments.map(({ lot, amendments }) => (
-        <div key={`${lot.id}-${savedTick}`} className="space-y-3">
+        <div key={lot.id} className="space-y-3">
           <h3 className="text-sm font-semibold text-slate-800">
             Lot {lot.lot_number} — {lot.designation} ({lot.name})
           </h3>
@@ -226,9 +233,21 @@ export function AmendmentsTracker({ project, lots }: AmendmentsTrackerProps) {
                     lotId={lot.id}
                     amendment={amendment}
                     onCancel={() => setEditing(null)}
-                    onSaved={() => {
+                    onSaved={(saved) => {
+                      setSavedOverrides((current) => ({
+                        ...current,
+                        [amendment.id]: {
+                          amendment_number: saved.amendment_number,
+                          designation: saved.designation ?? null,
+                          os_number: saved.os_number ?? null,
+                          amount_ht: saved.amount_ht,
+                          amendment_type: saved.amendment_type ?? "ts",
+                          signature_status:
+                            saved.signature_status ?? "chez_entreprise",
+                          internal_comment: saved.internal_comment ?? null,
+                        },
+                      }));
                       setEditing(null);
-                      setSavedTick((value) => value + 1);
                     }}
                   />
                 ) : (
