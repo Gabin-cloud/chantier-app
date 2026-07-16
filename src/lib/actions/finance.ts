@@ -9,6 +9,7 @@ import { createClient } from "@/lib/supabase/server";
 import type {
   AmendmentFormData,
   DelegationFormData,
+  FinancialSituationDelegation,
   LotFormData,
   ProjectFinancialData,
   SituationFormData,
@@ -25,6 +26,7 @@ function financePaths(projectId: string) {
     `/pc/projets/${projectId}/suivi-financier`,
     `/pc/projets/${projectId}/suivi-financier/synthese`,
     `/pc/projets/${projectId}/suivi-financier/avenants`,
+    `/pc/projets/${projectId}/suivi-financier/situations`,
   ];
 }
 
@@ -64,7 +66,10 @@ export async function getProjectFinancialData(projectId: string): Promise<Projec
       enterprises(
         *,
         financial_amendments(*),
-        financial_situations(*)
+        financial_situations(
+          *,
+          financial_situation_delegations(*)
+        )
       ),
       financial_bank_guarantees(*)`
     )
@@ -87,7 +92,20 @@ export async function getProjectFinancialData(projectId: string): Promise<Projec
       enterprise.amendments = (enterprise.financial_amendments ?? []).map(
         normalizeAmendment
       );
-      enterprise.situations = enterprise.financial_situations ?? [];
+      enterprise.situations = (enterprise.financial_situations ?? []).map(
+        (situation: {
+          financial_situation_delegations?: FinancialSituationDelegation[];
+          [key: string]: unknown;
+        }) => {
+          const { financial_situation_delegations, ...rest } = situation;
+          return {
+            ...rest,
+            delegations: [...(financial_situation_delegations ?? [])].sort(
+              (a, b) => a.sort_order - b.sort_order
+            ),
+          };
+        }
+      );
       delete enterprise.financial_amendments;
       delete enterprise.financial_situations;
 

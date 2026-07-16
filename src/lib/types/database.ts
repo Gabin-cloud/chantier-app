@@ -176,6 +176,7 @@ export type FinancialSituation = {
   invoice_file_name: string | null;
   created_at: string;
   updated_at: string;
+  delegations?: FinancialSituationDelegation[];
 };
 
 export type FinancialSituationDelegation = {
