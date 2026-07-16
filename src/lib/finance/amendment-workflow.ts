@@ -11,25 +11,21 @@ export const AMENDMENT_SIGNATURE_STATUS_LABELS: Record<
   AmendmentSignatureStatus,
   string
 > = {
-  devis_recu_non_valide: "Devis reçu non validé",
-  devis_valide_avenant_a_faire: "Devis validé, avenant à faire",
   chez_entreprise: "Avenant chez entreprise",
-  chez_moe: "Avenant chez le MOE",
+  chez_mou: "Avenant chez le MOU",
   valide_classe: "Avenant validé + classé",
 };
 
-/** Statuts affichés avec couleur de fond dans la synthèse (comme l'Excel métier). */
-export const COLORED_SIGNATURE_STATUSES: AmendmentSignatureStatus[] = [
-  "chez_entreprise",
-  "chez_moe",
-  "valide_classe",
-];
+export const AMENDMENT_SIGNATURE_STATUSES = Object.keys(
+  AMENDMENT_SIGNATURE_STATUS_LABELS
+) as AmendmentSignatureStatus[];
 
-export const AMENDMENT_SIGNATURE_STATUS_COLORS: Partial<
-  Record<AmendmentSignatureStatus, string>
+export const AMENDMENT_SIGNATURE_STATUS_COLORS: Record<
+  AmendmentSignatureStatus,
+  string
 > = {
-  chez_entreprise: "bg-amber-100",
-  chez_moe: "bg-sky-100",
+  chez_entreprise: "bg-yellow-100",
+  chez_mou: "bg-orange-100",
   valide_classe: "bg-emerald-100",
 };
 
@@ -49,9 +45,25 @@ export function computeAmendmentColumnCount(
   return Math.max(DEFAULT_AMENDMENT_COLUMNS, maxAmendmentNumber);
 }
 
+const LEGACY_SIGNATURE_STATUS_MAP: Record<string, AmendmentSignatureStatus> = {
+  devis_recu_non_valide: "chez_entreprise",
+  devis_valide_avenant_a_faire: "chez_entreprise",
+  chez_moe: "chez_mou",
+  chez_entreprise: "chez_entreprise",
+  chez_mou: "chez_mou",
+  valide_classe: "valide_classe",
+};
+
+export function normalizeSignatureStatus(
+  status?: string | null
+): AmendmentSignatureStatus {
+  if (!status) return "chez_entreprise";
+  return LEGACY_SIGNATURE_STATUS_MAP[status] ?? "chez_entreprise";
+}
+
 type RawAmendment = {
   amendment_type?: AmendmentType | null;
-  signature_status?: AmendmentSignatureStatus | null;
+  signature_status?: string | null;
   internal_comment?: string | null;
 };
 
@@ -59,7 +71,15 @@ export function normalizeAmendment<T extends RawAmendment>(amendment: T) {
   return {
     ...amendment,
     amendment_type: amendment.amendment_type ?? "ts",
-    signature_status: amendment.signature_status ?? "devis_recu_non_valide",
+    signature_status: normalizeSignatureStatus(amendment.signature_status),
     internal_comment: amendment.internal_comment ?? null,
   };
+}
+
+/** Action attendue de notre part — règles métier à définir. */
+export function lotNeedsFinanceAction(_lot: {
+  amendments?: { signature_status: AmendmentSignatureStatus }[];
+  situations?: unknown[];
+}): boolean {
+  return false;
 }

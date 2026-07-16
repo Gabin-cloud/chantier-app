@@ -1,4 +1,8 @@
 import { parseMoneyInput } from "@/lib/finance/calculations";
+import {
+  AMENDMENT_SIGNATURE_STATUSES,
+  normalizeSignatureStatus,
+} from "@/lib/finance/amendment-workflow";
 import type {
   AmendmentFormData,
   AmendmentSignatureStatus,
@@ -6,13 +10,6 @@ import type {
 } from "@/lib/types/database";
 
 const AMENDMENT_TYPES = new Set<AmendmentType>(["ts", "tma"]);
-const SIGNATURE_STATUSES = new Set<AmendmentSignatureStatus>([
-  "devis_recu_non_valide",
-  "devis_valide_avenant_a_faire",
-  "chez_entreprise",
-  "chez_moe",
-  "valide_classe",
-]);
 
 export function parseAmendmentFormData(
   form: FormData,
@@ -31,7 +28,9 @@ export function parseAmendmentFormData(
   }
 
   const amendmentType = form.get("amendment_type") as AmendmentType;
-  const signatureStatus = form.get("signature_status") as AmendmentSignatureStatus;
+  const signatureStatus = normalizeSignatureStatus(
+    form.get("signature_status") as string
+  );
 
   return {
     ok: true,
@@ -41,9 +40,9 @@ export function parseAmendmentFormData(
       os_number: (form.get("os_number") as string).trim() || undefined,
       amount_ht,
       amendment_type: AMENDMENT_TYPES.has(amendmentType) ? amendmentType : "ts",
-      signature_status: SIGNATURE_STATUSES.has(signatureStatus)
+      signature_status: AMENDMENT_SIGNATURE_STATUSES.includes(signatureStatus)
         ? signatureStatus
-        : "devis_recu_non_valide",
+        : "chez_entreprise",
       internal_comment:
         (form.get("internal_comment") as string).trim() || undefined,
     },
@@ -56,7 +55,10 @@ export function formatAmendmentDbError(message: string): string {
     message.includes("signature_status") ||
     message.includes("internal_comment")
   ) {
-    return "La base de données n'a pas encore été mise à jour (migration 030). Exécutez : npm run db:push";
+    return "La base de données n'a pas encore été mise à jour. Exécutez : npm run db:push";
+  }
+  if (message.includes("signature_status_check")) {
+    return "Les statuts d'avenant doivent être mis à jour (migration 031). Exécutez : npm run db:push";
   }
   return message;
 }

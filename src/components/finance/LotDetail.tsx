@@ -18,6 +18,7 @@ import {
 import { parseAmendmentFormData } from "@/lib/finance/amendment-form";
 import {
   AMENDMENT_SIGNATURE_STATUS_LABELS,
+  AMENDMENT_SIGNATURE_STATUSES,
   AMENDMENT_TYPE_LABELS,
 } from "@/lib/finance/amendment-workflow";
 import type { LotWithFinancials, Project } from "@/lib/types/database";
@@ -150,16 +151,14 @@ export function LotDetail({ project, lot }: LotDetailProps) {
           <FormField label="Statut signature">
             <select
               name="signature_status"
-              defaultValue="devis_recu_non_valide"
+              defaultValue="chez_entreprise"
               className={financeInputClass}
             >
-              {Object.entries(AMENDMENT_SIGNATURE_STATUS_LABELS).map(
-                ([value, label]) => (
-                  <option key={value} value={value}>
-                    {label}
-                  </option>
-                )
-              )}
+              {AMENDMENT_SIGNATURE_STATUSES.map((value) => (
+                <option key={value} value={value}>
+                  {AMENDMENT_SIGNATURE_STATUS_LABELS[value]}
+                </option>
+              ))}
             </select>
           </FormField>
           <FormField label="Désignation">

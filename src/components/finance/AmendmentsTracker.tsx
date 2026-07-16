@@ -8,6 +8,7 @@ import { MoneyInput } from "@/components/finance/MoneyInput";
 import { parseAmendmentFormData } from "@/lib/finance/amendment-form";
 import {
   AMENDMENT_SIGNATURE_STATUS_LABELS,
+  AMENDMENT_SIGNATURE_STATUSES,
   AMENDMENT_TYPE_LABELS,
 } from "@/lib/finance/amendment-workflow";
 import { formatCurrency } from "@/lib/finance/calculations";
@@ -31,9 +32,7 @@ type EditState = {
   form: AmendmentFormData;
 };
 
-const signatureStatuses = Object.keys(
-  AMENDMENT_SIGNATURE_STATUS_LABELS
-) as AmendmentSignatureStatus[];
+const signatureStatuses = AMENDMENT_SIGNATURE_STATUSES;
 
 const amendmentTypes = Object.keys(AMENDMENT_TYPE_LABELS) as AmendmentType[];
 

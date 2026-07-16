@@ -357,7 +357,7 @@ export async function upsertAmendment(
       amount_ht: formData.amount_ht,
       amount_ttc: amountTtc,
       amendment_type: formData.amendment_type ?? "ts",
-      signature_status: formData.signature_status ?? "devis_recu_non_valide",
+      signature_status: formData.signature_status ?? "chez_entreprise",
       internal_comment: formData.internal_comment?.trim() || null,
     };
 

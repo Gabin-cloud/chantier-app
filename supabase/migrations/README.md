@@ -33,6 +33,8 @@ Ordre d’application (numéros uniques, tri alphabétique) :
 | 027 | `027_owner_directory.sql` | Annuaire maîtres d'ouvrage réutilisable (`owner_directory`) |
 | 028 | `028_operation_init_invitation.sql` | État initialisation fiche opération (`is_operation_configured`) + modèle mail invitation plateforme |
 | 029 | `029_enterprise_invitations.sql` | Journal des invitations e-mail envoyées aux entreprises |
+| 030 | `030_financial_amendment_workflow.sql` | Avenants : type TS/TMA, statut signature, commentaire interne |
+| 031 | `031_amendment_signature_statuses.sql` | Statuts avenants : chez entreprise, chez MOU, validé + classé |
 
 ## Audit base distante (2026-07)
 

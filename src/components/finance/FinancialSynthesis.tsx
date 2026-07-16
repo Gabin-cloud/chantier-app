@@ -1,22 +1,20 @@
+import { ActionDot } from "@/components/ui/ActionDot";
 import {
   AMENDMENT_SIGNATURE_STATUS_COLORS,
   AMENDMENT_SIGNATURE_STATUS_LABELS,
-  COLORED_SIGNATURE_STATUSES,
+  AMENDMENT_SIGNATURE_STATUSES,
   computeAmendmentColumnCount,
   getAmendmentAmountTextClass,
   getAmendmentCellBackground,
+  lotNeedsFinanceAction,
 } from "@/lib/finance/amendment-workflow";
 import {
   computeAmendmentsSplit,
   computeContractTtc,
   formatCurrency,
+  formatPercent,
 } from "@/lib/finance/calculations";
-import type {
-  AmendmentSignatureStatus,
-  FinancialAmendment,
-  LotWithFinancials,
-  Project,
-} from "@/lib/types/database";
+import type { FinancialAmendment, LotWithFinancials, Project } from "@/lib/types/database";
 
 type FinancialSynthesisProps = {
   project: Project;
@@ -58,6 +56,17 @@ function AmendmentAmountCell({ amendment, amount }: AmendmentCell) {
   );
 }
 
+function computeLotAdvancement(lot: LotWithFinancials, totalHt: number): number {
+  const latest = lot.situations?.[lot.situations.length - 1];
+  if (!latest || totalHt <= 0) return 0;
+
+  const worksCum =
+    Number(latest.works_cumulative_ht) +
+    Number(latest.amendment_works_cumulative_ht);
+
+  return worksCum / totalHt;
+}
+
 export function FinancialSynthesis({ project, lots }: FinancialSynthesisProps) {
   const maxAmendmentNumber = lots.reduce((max, lot) => {
     const lotMax = (lot.amendments ?? []).reduce(
@@ -75,6 +84,7 @@ export function FinancialSynthesis({ project, lots }: FinancialSynthesisProps) {
   let totalAmendmentsHt = 0;
   let totalMarketPlusAmendmentsHt = 0;
   let totalMarketPlusAmendmentsTtc = 0;
+  let totalWorksCum = 0;
   const amendmentColumnTotals = Array.from(
     { length: amendmentColumnCount },
     () => 0
@@ -90,6 +100,14 @@ export function FinancialSynthesis({ project, lots }: FinancialSynthesisProps) {
       marketPlusAmendmentsHt,
       Number(lot.vat_rate)
     );
+    const advancement = computeLotAdvancement(lot, marketPlusAmendmentsHt);
+    const needsAction = lotNeedsFinanceAction(lot);
+
+    const latest = lot.situations?.[lot.situations.length - 1];
+    const worksCum = latest
+      ? Number(latest.works_cumulative_ht) +
+        Number(latest.amendment_works_cumulative_ht)
+      : 0;
 
     totalMarketHt += contractHt;
     totalTsHt += tsHt;
@@ -97,6 +115,7 @@ export function FinancialSynthesis({ project, lots }: FinancialSynthesisProps) {
     totalAmendmentsHt += amendmentsHt;
     totalMarketPlusAmendmentsHt += marketPlusAmendmentsHt;
     totalMarketPlusAmendmentsTtc += marketPlusAmendmentsTtc;
+    totalWorksCum += worksCum;
 
     const amendmentCells: AmendmentCell[] = Array.from(
       { length: amendmentColumnCount },
@@ -120,8 +139,15 @@ export function FinancialSynthesis({ project, lots }: FinancialSynthesisProps) {
       amendmentsHt,
       marketPlusAmendmentsHt,
       marketPlusAmendmentsTtc,
+      advancement,
+      needsAction,
     };
   });
+
+  const totalAdvancement =
+    totalMarketPlusAmendmentsHt > 0
+      ? totalWorksCum / totalMarketPlusAmendmentsHt
+      : 0;
 
   return (
     <section className="overflow-x-auto rounded-2xl bg-white p-5 shadow-sm">
@@ -131,23 +157,14 @@ export function FinancialSynthesis({ project, lots }: FinancialSynthesisProps) {
       <p className="mb-4 text-sm text-slate-500">{project.name}</p>
 
       <div className="mb-4 flex flex-wrap gap-2 text-xs text-slate-600">
-        {(
-          [
-            "devis_recu_non_valide",
-            "devis_valide_avenant_a_faire",
-            ...COLORED_SIGNATURE_STATUSES,
-          ] as AmendmentSignatureStatus[]
-        ).map((status) => {
-          const color = AMENDMENT_SIGNATURE_STATUS_COLORS[status];
-          return (
-            <span
-              key={status}
-              className={`rounded px-2 py-1 ${color ?? "bg-white border border-slate-200"}`}
-            >
-              {AMENDMENT_SIGNATURE_STATUS_LABELS[status]}
-            </span>
-          );
-        })}
+        {AMENDMENT_SIGNATURE_STATUSES.map((status) => (
+          <span
+            key={status}
+            className={`rounded px-2 py-1 ${AMENDMENT_SIGNATURE_STATUS_COLORS[status]}`}
+          >
+            {AMENDMENT_SIGNATURE_STATUS_LABELS[status]}
+          </span>
+        ))}
         <span className="rounded border border-slate-200 px-2 py-1">
           <span className="font-semibold text-blue-600">Bleu</span> = montant TMA
         </span>
@@ -191,6 +208,9 @@ export function FinancialSynthesis({ project, lots }: FinancialSynthesisProps) {
               <th className="px-2 py-2 font-medium text-right">
                 Marché + avenants T.T.C.
               </th>
+              <th className="px-2 py-2 font-medium text-right">
+                % avancement situations
+              </th>
             </tr>
           </thead>
           <tbody>
@@ -204,8 +224,13 @@ export function FinancialSynthesis({ project, lots }: FinancialSynthesisProps) {
                 amendmentsHt,
                 marketPlusAmendmentsHt,
                 marketPlusAmendmentsTtc,
+                advancement,
+                needsAction,
               }) => (
-                <tr key={lot.id} className="border-b border-slate-100">
+                <tr
+                  key={lot.id}
+                  className="border-b border-slate-100 transition-colors hover:bg-slate-50"
+                >
                   <td className="px-2 py-2 font-medium whitespace-nowrap">
                     {lot.lot_number}
                   </td>
@@ -233,6 +258,12 @@ export function FinancialSynthesis({ project, lots }: FinancialSynthesisProps) {
                   </td>
                   <td className="px-2 py-2 text-right font-medium">
                     {formatCurrency(marketPlusAmendmentsTtc)}
+                  </td>
+                  <td className="px-2 py-2 text-right tabular-nums">
+                    {formatPercent(advancement)}
+                    {needsAction && (
+                      <ActionDot title="Une action est attendue de notre part" />
+                    )}
                   </td>
                 </tr>
               )
@@ -267,6 +298,9 @@ export function FinancialSynthesis({ project, lots }: FinancialSynthesisProps) {
               </td>
               <td className="px-2 py-3 text-right">
                 {formatCurrency(totalMarketPlusAmendmentsTtc)}
+              </td>
+              <td className="px-2 py-3 text-right tabular-nums">
+                {formatPercent(totalAdvancement)}
               </td>
             </tr>
           </tfoot>

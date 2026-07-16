@@ -139,10 +139,8 @@ export type FinancialBankGuarantee = {
 export type AmendmentType = "ts" | "tma";
 
 export type AmendmentSignatureStatus =
-  | "devis_recu_non_valide"
-  | "devis_valide_avenant_a_faire"
   | "chez_entreprise"
-  | "chez_moe"
+  | "chez_mou"
   | "valide_classe";
 
 export type FinancialAmendment = {
