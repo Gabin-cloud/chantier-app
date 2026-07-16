@@ -592,6 +592,9 @@ export type MarkerUpdateData = {
 
 export type GlobalRole = "super_admin" | "user";
 
+/** danobat = PC + tablette ; entreprise = portail sous-traitant uniquement */
+export type AccountKind = "danobat" | "entreprise";
+
 export type ProjectRole =
   | "admin"
   | "gestionnaire"
@@ -605,10 +608,18 @@ export type Profile = {
   email: string;
   full_name: string | null;
   global_role: GlobalRole;
+  account_kind: AccountKind;
   notify_new_projects: boolean;
   email_signature_html: string | null;
   created_at: string;
   updated_at: string;
+};
+
+export type ProjectFavorite = {
+  id: string;
+  user_id: string;
+  project_id: string;
+  created_at: string;
 };
 
 export type UserM365Connection = {
