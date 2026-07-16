@@ -13,6 +13,10 @@ concurrency:
 env:
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  # Valeurs projet (clé anon publique) — garantissent le build CI même si
+  # le projet Vercel a des variables vides / absentes.
+  NEXT_PUBLIC_SUPABASE_URL: https://diuvvnprrucdxizbujoy.supabase.co
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRpdXZ2bnBycnVjZHhpemJ1am95Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM2NzM4NTUsImV4cCI6MjA5OTI0OTg1NX0.E-ySkLxTjXUIdo_fMcPminbh1z0OocUvlqKsZbc9eRY
 
 jobs:
   deploy:
@@ -33,55 +37,69 @@ jobs:
       - name: Pull Vercel Environment Information
         run: vercel pull --yes --environment=${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }} --token=${{ secrets.VERCEL_TOKEN }}
 
-      # `vercel build` hors infra Vercel n'injecte pas toujours les env runtime.
-      # On force un .env.production lisible par Next, avec repli sur les secrets GitHub.
-      - name: Ensure Next.js env for offline vercel build
+      - name: Sync Supabase env on Vercel project + local build files
         env:
-          NEXT_PUBLIC_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
-          NEXT_PUBLIC_SUPABASE_ANON_KEY: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
-          SUPABASE_SERVICE_ROLE_KEY: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+          SECRET_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SECRET_SUPABASE_ANON: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SECRET_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
         run: |
           set -euo pipefail
-          ENV_FILE=".env.production"
-          : > "$ENV_FILE"
 
-          if [ -f .vercel/.env.production.local ]; then
-            # Ne garder que les KEY=value (ignorer les commentaires / exports)
-            grep -E '^[A-Za-z_][A-Za-z0-9_]*=' .vercel/.env.production.local >> "$ENV_FILE" || true
-          fi
-          if [ -f .vercel/.env.preview.local ]; then
-            grep -E '^[A-Za-z_][A-Za-z0-9_]*=' .vercel/.env.preview.local >> "$ENV_FILE" || true
-          fi
+          SUPABASE_URL="${SECRET_SUPABASE_URL:-$NEXT_PUBLIC_SUPABASE_URL}"
+          SUPABASE_ANON="${SECRET_SUPABASE_ANON:-$NEXT_PUBLIC_SUPABASE_ANON_KEY}"
 
-          set_env() {
-            local key="$1"
+          # Met à jour les variables du projet Vercel (runtime + prochains builds)
+          upsert_vercel_env() {
+            local name="$1"
             local value="$2"
-            [ -n "$value" ] || return 0
-            # Retire d'éventuelles guillemets autour de la valeur
-            value="${value%\"}"
-            value="${value#\"}"
-            value="${value%\'}"
-            value="${value#\'}"
-            grep -v "^${key}=" "$ENV_FILE" > "${ENV_FILE}.tmp" || true
-            mv "${ENV_FILE}.tmp" "$ENV_FILE"
-            printf '%s=%s\n' "$key" "$value" >> "$ENV_FILE"
+            local target="$3"
+            vercel env add "$name" "$target" --token="${{ secrets.VERCEL_TOKEN }}" --yes --force --value "$value" >/dev/null \
+              || vercel env update "$name" "$target" --token="${{ secrets.VERCEL_TOKEN }}" --yes --value "$value" >/dev/null \
+              || true
           }
 
-          # Toujours forcer URL + anon du projet Supabase (clé anon = publique).
-          # Les valeurs Vercel pullées sont parfois vides / incorrectes en CI offline.
-          set_env "NEXT_PUBLIC_SUPABASE_URL" "${NEXT_PUBLIC_SUPABASE_URL:-https://diuvvnprrucdxizbujoy.supabase.co}"
-          set_env "NEXT_PUBLIC_SUPABASE_ANON_KEY" "${NEXT_PUBLIC_SUPABASE_ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRpdXZ2bnBycnVjZHhpemJ1am95Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM2NzM4NTUsImV4cCI6MjA5OTI0OTg1NX0.E-ySkLxTjXUIdo_fMcPminbh1z0OocUvlqKsZbc9eRY}"
-          set_env "SUPABASE_SERVICE_ROLE_KEY" "${SUPABASE_SERVICE_ROLE_KEY:-}"
+          for target in production preview development; do
+            upsert_vercel_env "NEXT_PUBLIC_SUPABASE_URL" "$SUPABASE_URL" "$target"
+            upsert_vercel_env "NEXT_PUBLIC_SUPABASE_ANON_KEY" "$SUPABASE_ANON" "$target"
+            if [ -n "${SECRET_SERVICE_ROLE:-}" ]; then
+              upsert_vercel_env "SUPABASE_SERVICE_ROLE_KEY" "$SECRET_SERVICE_ROLE" "$target"
+            fi
+          done
 
-          echo "Env keys present for build:"
-          cut -d= -f1 "$ENV_FILE" | sort -u | sed 's/^/  - /'
-          echo "NEXT_PUBLIC_SUPABASE_URL length: $(grep '^NEXT_PUBLIC_SUPABASE_URL=' "$ENV_FILE" | head -1 | cut -d= -f2- | wc -c)"
-          echo "NEXT_PUBLIC_SUPABASE_ANON_KEY length: $(grep '^NEXT_PUBLIC_SUPABASE_ANON_KEY=' "$ENV_FILE" | head -1 | cut -d= -f2- | wc -c)"
+          # Fichiers locaux pour `vercel build` offline
+          upsert_env_file() {
+            local file="$1"
+            touch "$file"
+            for key_value in \
+              "NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}" \
+              "NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_ANON}"; do
+              local key="${key_value%%=*}"
+              local value="${key_value#*=}"
+              if grep -q "^${key}=" "$file" 2>/dev/null; then
+                grep -v "^${key}=" "$file" > "${file}.tmp" || true
+                mv "${file}.tmp" "$file"
+              fi
+              printf '%s=%s\n' "$key" "$value" >> "$file"
+            done
+            if [ -n "${SECRET_SERVICE_ROLE:-}" ]; then
+              grep -v '^SUPABASE_SERVICE_ROLE_KEY=' "$file" > "${file}.tmp" || true
+              mv "${file}.tmp" "$file"
+              printf 'SUPABASE_SERVICE_ROLE_KEY=%s\n' "$SECRET_SERVICE_ROLE" >> "$file"
+            fi
+          }
 
-          if ! grep -q '^NEXT_PUBLIC_SUPABASE_URL=https://' "$ENV_FILE" || ! grep -q '^NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ' "$ENV_FILE"; then
-            echo "::error::Missing or invalid NEXT_PUBLIC_SUPABASE_* for build"
-            exit 1
-          fi
+          upsert_env_file ".env.production"
+          upsert_env_file ".env.local"
+          mkdir -p .vercel
+          upsert_env_file ".vercel/.env.production.local"
+          [ -f .vercel/.env.preview.local ] && upsert_env_file ".vercel/.env.preview.local"
+
+          # Re-pull pour que vercel build voie les valeurs à jour
+          vercel pull --yes --environment=${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }} --token=${{ secrets.VERCEL_TOKEN }}
+          upsert_env_file ".vercel/.env.production.local"
+          upsert_env_file ".env.production"
+
+          echo "Synced Supabase env. URL len=$(printf '%s' "$SUPABASE_URL" | wc -c) anon len=$(printf '%s' "$SUPABASE_ANON" | wc -c)"
 
       - name: Build Project Artifacts
         run: |
@@ -94,7 +112,6 @@ jobs:
       - name: Deploy to Vercel
         run: |
           set -euo pipefail
-          # --archive=tgz évite la limite « api-upload-free » (>5000 fichiers)
           deploy_once() {
             if [ "${{ github.ref }}" = "refs/heads/main" ]; then
               vercel deploy --prebuilt --prod --archive=tgz --token=${{ secrets.VERCEL_TOKEN }}
