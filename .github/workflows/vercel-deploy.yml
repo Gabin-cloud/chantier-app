@@ -53,27 +53,33 @@ jobs:
             grep -E '^[A-Za-z_][A-Za-z0-9_]*=' .vercel/.env.preview.local >> "$ENV_FILE" || true
           fi
 
-          append_if_missing() {
+          set_env() {
             local key="$1"
             local value="$2"
-            if [ -n "$value" ] && ! grep -q "^${key}=" "$ENV_FILE"; then
-              printf '%s=%s\n' "$key" "$value" >> "$ENV_FILE"
-            fi
+            [ -n "$value" ] || return 0
+            # Retire d'éventuelles guillemets autour de la valeur
+            value="${value%\"}"
+            value="${value#\"}"
+            value="${value%\'}"
+            value="${value#\'}"
+            grep -v "^${key}=" "$ENV_FILE" > "${ENV_FILE}.tmp" || true
+            mv "${ENV_FILE}.tmp" "$ENV_FILE"
+            printf '%s=%s\n' "$key" "$value" >> "$ENV_FILE"
           }
 
-          append_if_missing "NEXT_PUBLIC_SUPABASE_URL" "${NEXT_PUBLIC_SUPABASE_URL:-}"
-          append_if_missing "NEXT_PUBLIC_SUPABASE_ANON_KEY" "${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}"
-          append_if_missing "SUPABASE_SERVICE_ROLE_KEY" "${SUPABASE_SERVICE_ROLE_KEY:-}"
-
-          # Fallback public (clé anon = publique par design) si absente du projet Vercel / secrets
-          append_if_missing "NEXT_PUBLIC_SUPABASE_URL" "https://diuvvnprrucdxizbujoy.supabase.co"
-          append_if_missing "NEXT_PUBLIC_SUPABASE_ANON_KEY" "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRpdXZ2bnBycnVjZHhpemJ1am95Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM2NzM4NTUsImV4cCI6MjA5OTI0OTg1NX0.E-ySkLxTjXUIdo_fMcPminbh1z0OocUvlqKsZbc9eRY"
+          # Toujours forcer URL + anon du projet Supabase (clé anon = publique).
+          # Les valeurs Vercel pullées sont parfois vides / incorrectes en CI offline.
+          set_env "NEXT_PUBLIC_SUPABASE_URL" "${NEXT_PUBLIC_SUPABASE_URL:-https://diuvvnprrucdxizbujoy.supabase.co}"
+          set_env "NEXT_PUBLIC_SUPABASE_ANON_KEY" "${NEXT_PUBLIC_SUPABASE_ANON_KEY:-eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRpdXZ2bnBycnVjZHhpemJ1am95Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM2NzM4NTUsImV4cCI6MjA5OTI0OTg1NX0.E-ySkLxTjXUIdo_fMcPminbh1z0OocUvlqKsZbc9eRY}"
+          set_env "SUPABASE_SERVICE_ROLE_KEY" "${SUPABASE_SERVICE_ROLE_KEY:-}"
 
           echo "Env keys present for build:"
           cut -d= -f1 "$ENV_FILE" | sort -u | sed 's/^/  - /'
+          echo "NEXT_PUBLIC_SUPABASE_URL length: $(grep '^NEXT_PUBLIC_SUPABASE_URL=' "$ENV_FILE" | head -1 | cut -d= -f2- | wc -c)"
+          echo "NEXT_PUBLIC_SUPABASE_ANON_KEY length: $(grep '^NEXT_PUBLIC_SUPABASE_ANON_KEY=' "$ENV_FILE" | head -1 | cut -d= -f2- | wc -c)"
 
-          if ! grep -q '^NEXT_PUBLIC_SUPABASE_URL=' "$ENV_FILE" || ! grep -q '^NEXT_PUBLIC_SUPABASE_ANON_KEY=' "$ENV_FILE"; then
-            echo "::error::Missing NEXT_PUBLIC_SUPABASE_* for build"
+          if ! grep -q '^NEXT_PUBLIC_SUPABASE_URL=https://' "$ENV_FILE" || ! grep -q '^NEXT_PUBLIC_SUPABASE_ANON_KEY=eyJ' "$ENV_FILE"; then
+            echo "::error::Missing or invalid NEXT_PUBLIC_SUPABASE_* for build"
             exit 1
           fi
 
