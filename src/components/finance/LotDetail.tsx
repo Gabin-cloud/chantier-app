@@ -15,6 +15,7 @@ import {
   computeContractTtc,
   formatCurrency,
 } from "@/lib/finance/calculations";
+import { parseAmendmentFormData } from "@/lib/finance/amendment-form";
 import {
   AMENDMENT_SIGNATURE_STATUS_LABELS,
   AMENDMENT_TYPE_LABELS,
@@ -60,35 +61,32 @@ export function LotDetail({ project, lot }: LotDetailProps) {
     setError(null);
     setSuccess(null);
 
-    const form = new FormData(e.currentTarget);
+    const formElement = e.currentTarget;
     const nextNumber =
       amendments.length > 0
         ? Math.max(...amendments.map((a) => a.amendment_number)) + 1
         : 1;
 
+    const amountField = formElement.querySelector<HTMLInputElement>(
+      'input[inputmode="decimal"]'
+    );
+    amountField?.dispatchEvent(new FocusEvent("blur", { bubbles: true }));
+
     startTransition(async () => {
-      try {
-        await upsertAmendment(project.id, lot.id, {
-          amendment_number: Number(form.get("amendment_number") || nextNumber),
-          designation: (form.get("designation") as string).trim() || undefined,
-          os_number: (form.get("os_number") as string).trim() || undefined,
-          amount_ht: Number(form.get("amount_ht")),
-          amendment_type: (form.get("amendment_type") as "ts" | "tma") || "ts",
-          signature_status:
-            (form.get("signature_status") as
-              | "devis_recu_non_valide"
-              | "devis_valide_avenant_a_faire"
-              | "chez_entreprise"
-              | "chez_moe"
-              | "valide_classe") || "devis_recu_non_valide",
-          internal_comment:
-            (form.get("internal_comment") as string).trim() || undefined,
-        });
-        e.currentTarget.reset();
-        setSuccess("Avenant ajouté.");
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Une erreur est survenue.");
+      const parsed = parseAmendmentFormData(new FormData(formElement), nextNumber);
+      if (!parsed.ok) {
+        setError(parsed.error);
+        return;
       }
+
+      const result = await upsertAmendment(project.id, lot.id, parsed.data);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+
+      formElement.reset();
+      setSuccess("Avenant ajouté.");
     });
   }
 

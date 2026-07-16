@@ -1,9 +1,11 @@
 "use client";
 
+import { useRouter } from "next/navigation";
 import { useState, useTransition } from "react";
 import { upsertAmendment } from "@/lib/actions/finance";
 import { FormField, financeInputClass } from "@/components/finance/FormField";
 import { MoneyInput } from "@/components/finance/MoneyInput";
+import { parseAmendmentFormData } from "@/lib/finance/amendment-form";
 import {
   AMENDMENT_SIGNATURE_STATUS_LABELS,
   AMENDMENT_TYPE_LABELS,
@@ -48,6 +50,7 @@ function AmendmentEditForm({
   onCancel: () => void;
   onSaved: () => void;
 }) {
+  const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
 
@@ -55,25 +58,31 @@ function AmendmentEditForm({
     e.preventDefault();
     setError(null);
 
-    const form = new FormData(e.currentTarget);
-    const payload: AmendmentFormData = {
-      amendment_number: Number(form.get("amendment_number")),
-      designation: (form.get("designation") as string).trim() || undefined,
-      os_number: (form.get("os_number") as string).trim() || undefined,
-      amount_ht: Number(form.get("amount_ht")),
-      amendment_type: form.get("amendment_type") as AmendmentType,
-      signature_status: form.get("signature_status") as AmendmentSignatureStatus,
-      internal_comment:
-        (form.get("internal_comment") as string).trim() || undefined,
-    };
+    const form = e.currentTarget;
+    const amountField = form.querySelector<HTMLInputElement>(
+      'input[inputmode="decimal"]'
+    );
+    amountField?.dispatchEvent(new FocusEvent("blur", { bubbles: true }));
+
+    const parsed = parseAmendmentFormData(new FormData(form));
+    if (!parsed.ok) {
+      setError(parsed.error);
+      return;
+    }
 
     startTransition(async () => {
-      try {
-        await upsertAmendment(projectId, lotId, payload, amendment.id);
-        onSaved();
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Une erreur est survenue.");
+      const result = await upsertAmendment(
+        projectId,
+        lotId,
+        parsed.data,
+        amendment.id
+      );
+      if (!result.ok) {
+        setError(result.error);
+        return;
       }
+      router.refresh();
+      onSaved();
     });
   }
 
