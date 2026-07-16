@@ -12,28 +12,27 @@ export default function Home() {
         Application de contrôle de chantier
       </h1>
       <p className="max-w-md text-center text-zinc-600">
-        Connectez-vous : votre compte DANOBAT ouvre l&apos;interface PC ou tablette ;
-        un compte entreprise ouvre directement le portail entreprise.
+        Sur ordinateur, un compte DANOBAT ouvre l&apos;interface PC. Les comptes
+        entreprise restent sur le portail entreprise.
       </p>
       <Link
-        href="/login"
+        href="/login?redirect=/pc"
         className="rounded-lg bg-slate-800 px-6 py-3 text-center font-medium text-white hover:bg-slate-700"
       >
-        Se connecter
+        Se connecter — Interface PC
       </Link>
-      <p className="text-sm text-zinc-400">Accès rapide (compte DANOBAT) :</p>
       <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:justify-center">
         <Link
-          href="/pc"
-          className="rounded-lg bg-white px-5 py-2.5 text-center text-sm font-medium text-slate-700 ring-1 ring-slate-200 hover:bg-slate-50"
-        >
-          Interface PC
-        </Link>
-        <Link
-          href="/tablette"
+          href="/login?redirect=/tablette"
           className="rounded-lg bg-white px-5 py-2.5 text-center text-sm font-medium text-emerald-700 ring-1 ring-emerald-200 hover:bg-emerald-50"
         >
-          Interface Tablette
+          Connexion tablette
+        </Link>
+        <Link
+          href="/login?redirect=/entreprise"
+          className="rounded-lg bg-white px-5 py-2.5 text-center text-sm font-medium text-amber-700 ring-1 ring-amber-200 hover:bg-amber-50"
+        >
+          Connexion entreprise
         </Link>
       </div>
     </main>

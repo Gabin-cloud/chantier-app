@@ -13,6 +13,10 @@ concurrency:
 env:
   VERCEL_ORG_ID: ${{ secrets.VERCEL_ORG_ID }}
   VERCEL_PROJECT_ID: ${{ secrets.VERCEL_PROJECT_ID }}
+  # Valeurs projet (clé anon publique) — garantissent le build CI même si
+  # le projet Vercel a des variables vides / absentes.
+  NEXT_PUBLIC_SUPABASE_URL: https://diuvvnprrucdxizbujoy.supabase.co
+  NEXT_PUBLIC_SUPABASE_ANON_KEY: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6ImRpdXZ2bnBycnVjZHhpemJ1am95Iiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODM2NzM4NTUsImV4cCI6MjA5OTI0OTg1NX0.E-ySkLxTjXUIdo_fMcPminbh1z0OocUvlqKsZbc9eRY
 
 jobs:
   deploy:
@@ -33,6 +37,70 @@ jobs:
       - name: Pull Vercel Environment Information
         run: vercel pull --yes --environment=${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }} --token=${{ secrets.VERCEL_TOKEN }}
 
+      - name: Sync Supabase env on Vercel project + local build files
+        env:
+          SECRET_SUPABASE_URL: ${{ secrets.NEXT_PUBLIC_SUPABASE_URL }}
+          SECRET_SUPABASE_ANON: ${{ secrets.NEXT_PUBLIC_SUPABASE_ANON_KEY }}
+          SECRET_SERVICE_ROLE: ${{ secrets.SUPABASE_SERVICE_ROLE_KEY }}
+        run: |
+          set -euo pipefail
+
+          SUPABASE_URL="${SECRET_SUPABASE_URL:-$NEXT_PUBLIC_SUPABASE_URL}"
+          SUPABASE_ANON="${SECRET_SUPABASE_ANON:-$NEXT_PUBLIC_SUPABASE_ANON_KEY}"
+
+          # Met à jour les variables du projet Vercel (runtime + prochains builds)
+          upsert_vercel_env() {
+            local name="$1"
+            local value="$2"
+            local target="$3"
+            vercel env add "$name" "$target" --token="${{ secrets.VERCEL_TOKEN }}" --yes --force --value "$value" >/dev/null \
+              || vercel env update "$name" "$target" --token="${{ secrets.VERCEL_TOKEN }}" --yes --value "$value" >/dev/null \
+              || true
+          }
+
+          for target in production preview development; do
+            upsert_vercel_env "NEXT_PUBLIC_SUPABASE_URL" "$SUPABASE_URL" "$target"
+            upsert_vercel_env "NEXT_PUBLIC_SUPABASE_ANON_KEY" "$SUPABASE_ANON" "$target"
+            if [ -n "${SECRET_SERVICE_ROLE:-}" ]; then
+              upsert_vercel_env "SUPABASE_SERVICE_ROLE_KEY" "$SECRET_SERVICE_ROLE" "$target"
+            fi
+          done
+
+          # Fichiers locaux pour `vercel build` offline
+          upsert_env_file() {
+            local file="$1"
+            touch "$file"
+            for key_value in \
+              "NEXT_PUBLIC_SUPABASE_URL=${SUPABASE_URL}" \
+              "NEXT_PUBLIC_SUPABASE_ANON_KEY=${SUPABASE_ANON}"; do
+              local key="${key_value%%=*}"
+              local value="${key_value#*=}"
+              if grep -q "^${key}=" "$file" 2>/dev/null; then
+                grep -v "^${key}=" "$file" > "${file}.tmp" || true
+                mv "${file}.tmp" "$file"
+              fi
+              printf '%s=%s\n' "$key" "$value" >> "$file"
+            done
+            if [ -n "${SECRET_SERVICE_ROLE:-}" ]; then
+              grep -v '^SUPABASE_SERVICE_ROLE_KEY=' "$file" > "${file}.tmp" || true
+              mv "${file}.tmp" "$file"
+              printf 'SUPABASE_SERVICE_ROLE_KEY=%s\n' "$SECRET_SERVICE_ROLE" >> "$file"
+            fi
+          }
+
+          upsert_env_file ".env.production"
+          upsert_env_file ".env.local"
+          mkdir -p .vercel
+          upsert_env_file ".vercel/.env.production.local"
+          [ -f .vercel/.env.preview.local ] && upsert_env_file ".vercel/.env.preview.local"
+
+          # Re-pull pour que vercel build voie les valeurs à jour
+          vercel pull --yes --environment=${{ github.ref == 'refs/heads/main' && 'production' || 'preview' }} --token=${{ secrets.VERCEL_TOKEN }}
+          upsert_env_file ".vercel/.env.production.local"
+          upsert_env_file ".env.production"
+
+          echo "Synced Supabase env. URL len=$(printf '%s' "$SUPABASE_URL" | wc -c) anon len=$(printf '%s' "$SUPABASE_ANON" | wc -c)"
+
       - name: Build Project Artifacts
         run: |
           if [ "${{ github.ref }}" = "refs/heads/main" ]; then
@@ -43,8 +111,20 @@ jobs:
 
       - name: Deploy to Vercel
         run: |
-          if [ "${{ github.ref }}" = "refs/heads/main" ]; then
-            vercel deploy --prebuilt --prod --token=${{ secrets.VERCEL_TOKEN }}
-          else
-            vercel deploy --prebuilt --token=${{ secrets.VERCEL_TOKEN }}
-          fi
+          set -euo pipefail
+          deploy_once() {
+            if [ "${{ github.ref }}" = "refs/heads/main" ]; then
+              vercel deploy --prebuilt --prod --archive=tgz --token=${{ secrets.VERCEL_TOKEN }}
+            else
+              vercel deploy --prebuilt --archive=tgz --token=${{ secrets.VERCEL_TOKEN }}
+            fi
+          }
+          for attempt in 1 2 3; do
+            if deploy_once; then
+              exit 0
+            fi
+            echo "Deploy attempt ${attempt} failed; retrying in $((attempt * 15))s..."
+            sleep $((attempt * 15))
+          done
+          echo "Deploy failed after 3 attempts"
+          exit 1

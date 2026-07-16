@@ -9,6 +9,8 @@ import { getProjects } from "@/lib/actions/projects";
 import { getProfile } from "@/lib/auth/permissions";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
+export const dynamic = "force-dynamic";
+
 export default async function TabletteHomePage() {
   if (!isSupabaseConfigured()) {
     return <SupabaseSetupNotice />;

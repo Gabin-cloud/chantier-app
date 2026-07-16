@@ -9,6 +9,8 @@ import { getEnterpriseProjectAccess } from "@/lib/actions/enterprise-access";
 import { getProfile } from "@/lib/auth/permissions";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
+export const dynamic = "force-dynamic";
+
 export default async function EntrepriseHomePage() {
   if (!isSupabaseConfigured()) {
     return <SupabaseSetupNotice />;
