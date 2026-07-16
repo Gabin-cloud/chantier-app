@@ -11,6 +11,10 @@ type SituationsSynthesisProps = {
   lots: LotWithFinancials[];
 };
 
+const cell =
+  "border border-slate-300 px-2 py-0.5 text-[11px] leading-snug align-middle";
+const amountClass = "tabular-nums text-right whitespace-nowrap";
+
 function formatProrataPercent(value: number): string {
   return new Intl.NumberFormat("fr-FR", {
     style: "percent",
@@ -19,277 +23,229 @@ function formatProrataPercent(value: number): string {
   }).format(value);
 }
 
-function AmountCell({ value }: { value: number | null }) {
-  if (value === null || value === 0) {
-    return <span className="text-slate-400">—</span>;
-  }
-  return <span className="tabular-nums">{formatCurrency(value)}</span>;
+function formatAmount(value: number | null | undefined): string {
+  if (value === null || value === undefined || value === 0) return "—";
+  return formatCurrency(value);
 }
 
-function SituationColumns({
-  columns,
-  render,
-}: {
-  columns: SituationColumnData[];
-  render: (column: SituationColumnData) => React.ReactNode;
-}) {
+function RecapStack({ block }: { block: LotSituationsSynthesis }) {
+  const { subcontractors } = block;
+
   return (
-    <>
-      {columns.map((column) => (
-        <td
-          key={column.number}
-          className="border-l border-slate-100 px-2 py-1.5 text-right align-top"
+    <div className="flex flex-col gap-1 py-1">
+      <div className="flex items-baseline justify-between gap-3 border-b border-slate-200 pb-1">
+        <span className="text-slate-700">marché de base T.T.C.</span>
+        <span className={`${amountClass} font-medium`}>
+          {formatAmount(block.contractBaseTtc)}
+        </span>
+      </div>
+      <div className="flex items-baseline justify-between gap-3 border-b border-slate-200 pb-1">
+        <span className="text-slate-700">avenant au marché</span>
+        <span className={amountClass}>{formatAmount(block.amendmentsTtc)}</span>
+      </div>
+      {subcontractors.map((subcontractor) => (
+        <div
+          key={subcontractor.name}
+          className="flex items-baseline justify-between gap-3 border-b border-amber-200 bg-amber-50/60 px-1 pb-1"
         >
-          {render(column)}
-        </td>
+          <span className="font-medium text-slate-800">{subcontractor.name}</span>
+          <span className={amountClass}>
+            {formatAmount(subcontractor.delegationAmount)}
+          </span>
+        </div>
       ))}
-    </>
+      <div className="flex items-baseline justify-between gap-3 border-b border-slate-200 pb-1 font-bold">
+        <span>total du marché T.T.C.</span>
+        <span className={amountClass}>{formatAmount(block.totalMarketTtc)}</span>
+      </div>
+      <div className="flex items-baseline justify-between gap-3">
+        <span className="text-slate-700">Prorata</span>
+        <span className={amountClass}>
+          {formatProrataPercent(block.prorataPercent)}
+          {block.prorataAmountTtc !== 0 && (
+            <span className="ml-1 font-normal text-slate-600">
+              {formatCurrency(block.prorataAmountTtc)}
+            </span>
+          )}
+        </span>
+      </div>
+    </div>
+  );
+}
+
+function SituationLabels() {
+  const labels = [
+    "situation du mois à payer",
+    "situation cumulée",
+    "date de la situation",
+    "Prorata retenue cumulée",
+  ];
+
+  return (
+    <div className="flex h-full min-h-[5.5rem] flex-col justify-between py-1 italic text-slate-600">
+      {labels.map((label) => (
+        <div key={label} className="px-1">
+          {label}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function SituationBox({ column }: { column: SituationColumnData }) {
+  if (!column.situation) {
+    return (
+      <td className={`${cell} min-w-[6.5rem] border-2 border-slate-700 p-0 align-top`}>
+        <div className="flex min-h-[5.5rem] items-center justify-center text-slate-300">
+          —
+        </div>
+      </td>
+    );
+  }
+
+  return (
+    <td className={`${cell} min-w-[6.5rem] border-2 border-slate-700 p-0 align-top`}>
+      <div className="flex min-h-[5.5rem] flex-col justify-between divide-y divide-slate-400 py-0.5">
+        <div className={`px-1.5 py-0.5 ${amountClass} font-bold text-slate-900`}>
+          <div className="flex items-baseline justify-end gap-1">
+            <span>{formatAmount(column.periodTtc)}</span>
+            {column.advancementPercent !== null && (
+              <span className="text-[10px] font-normal text-slate-500">
+                {formatPercent(column.advancementPercent)}
+              </span>
+            )}
+          </div>
+        </div>
+        <div className={`px-1.5 py-0.5 ${amountClass} text-slate-800`}>
+          {formatAmount(column.cumulativeTtc)}
+        </div>
+        <div className="px-1.5 py-0.5 text-center text-[10px] text-slate-700">
+          {column.dateLabel}
+        </div>
+        <div className={`px-1.5 py-0.5 ${amountClass} text-slate-600`}>
+          {formatAmount(column.prorataCumulativeHt)}
+        </div>
+      </div>
+    </td>
   );
 }
 
 function LotSituationsBlock({ block }: { block: LotSituationsSynthesis }) {
   const { lot, columns, subcontractors } = block;
-  const hasSubcontractors = subcontractors.length > 0;
+  const paymentRowCount = subcontractors.length * 2;
+  const totalRowSpan = 1 + paymentRowCount;
 
   return (
-    <div className="overflow-x-auto rounded-xl border border-slate-200">
-      <table className="min-w-full text-sm">
-        <thead>
-          <tr className="bg-sky-700 text-white">
-            <th
-              colSpan={2}
-              className="sticky left-0 z-10 bg-sky-700 px-3 py-2 text-left font-semibold"
-            >
-              {lot.lot_number} — {lot.designation}
-            </th>
-            <th
-              colSpan={1}
-              className="px-3 py-2 text-left font-medium text-sky-100"
-            >
-              {lot.name}
-            </th>
-            {columns.map((column) => (
-              <th
-                key={column.number}
-                className="min-w-[7.5rem] border-l border-sky-600 px-2 py-2 text-center font-semibold"
-              >
-                Situation n°{String(column.number).padStart(2, "0")}
-              </th>
-            ))}
-          </tr>
-        </thead>
-        <tbody>
-          <tr className="border-b border-slate-100 hover:bg-slate-50">
-            <td className="sticky left-0 z-10 bg-white px-3 py-1.5 font-medium text-slate-700">
-              Marché de base T.T.C.
-            </td>
-            <td className="px-3 py-1.5 text-right tabular-nums">
-              {formatCurrency(block.contractBaseTtc)}
-            </td>
-            <td className="px-3 py-1.5 text-slate-400" />
-            <SituationColumns columns={columns} render={() => null} />
-          </tr>
+    <tbody className="border-b-[3px] border-slate-400">
+      <tr className="hover:bg-slate-50/60">
+        <td
+          rowSpan={totalRowSpan}
+          className="w-[8.5rem] border border-slate-300 bg-[#4472C4] px-2 py-2 text-center align-middle font-bold text-white"
+        >
+          <div className="text-[11px] uppercase leading-tight">{lot.name}</div>
+          <div className="mt-1 text-[10px] font-normal opacity-90">
+            {lot.designation}
+          </div>
+        </td>
+        <td
+          rowSpan={totalRowSpan}
+          colSpan={2}
+          className="w-[14rem] border border-slate-300 align-top"
+        >
+          <RecapStack block={block} />
+        </td>
+        <td className="w-[9.5rem] border border-slate-300 align-top">
+          <SituationLabels />
+        </td>
+        {columns.map((column) => (
+          <SituationBox key={column.number} column={column} />
+        ))}
+      </tr>
 
-          <tr className="border-b border-slate-100 hover:bg-slate-50">
-            <td className="sticky left-0 z-10 bg-white px-3 py-1.5 font-medium text-slate-700">
-              Avenant au marché
-            </td>
-            <td className="px-3 py-1.5 text-right tabular-nums">
-              {block.amendmentsTtc !== 0
-                ? formatCurrency(block.amendmentsTtc)
-                : "—"}
-            </td>
-            <td className="px-3 py-1.5 text-slate-400" />
-            <SituationColumns columns={columns} render={() => null} />
-          </tr>
-
-          {subcontractors.map((subcontractor) => (
-            <tr
-              key={subcontractor.name}
-              className="border-b border-slate-100 bg-amber-50/40 hover:bg-slate-50"
-            >
-              <td className="sticky left-0 z-10 bg-amber-50/40 px-3 py-1.5 font-medium text-slate-700">
-                Sous-traitant — {subcontractor.name}
+      {subcontractors.flatMap((subcontractor) => [
+        <tr key={`${subcontractor.name}-period`} className="hover:bg-amber-50/40">
+          <td className={`${cell} pl-3 text-slate-600`}>
+            {subcontractor.name} — du mois
+          </td>
+          {columns.map((column) => {
+            const payment = column.subcontractorPayments.find(
+              (item) => item.name === subcontractor.name
+            );
+            return (
+              <td key={column.number} className={`${cell} ${amountClass}`}>
+                {formatAmount(payment?.periodTtc ?? null)}
               </td>
-              <td className="px-3 py-1.5 text-right tabular-nums">
-                {formatCurrency(subcontractor.delegationAmount)}
+            );
+          })}
+        </tr>,
+        <tr key={`${subcontractor.name}-cumul`} className="hover:bg-amber-50/40">
+          <td className={`${cell} pl-3 text-slate-600`}>
+            {subcontractor.name} — cumul
+          </td>
+          {columns.map((column) => {
+            const payment = column.subcontractorPayments.find(
+              (item) => item.name === subcontractor.name
+            );
+            return (
+              <td key={column.number} className={`${cell} ${amountClass}`}>
+                {formatAmount(payment?.cumulativeTtc ?? null)}
               </td>
-              <td className="px-3 py-1.5 text-xs text-slate-500">
-                Montant délégation
-              </td>
-              <SituationColumns columns={columns} render={() => null} />
-            </tr>
-          ))}
-
-          <tr className="border-b border-slate-200 bg-slate-50 hover:bg-slate-100">
-            <td className="sticky left-0 z-10 bg-slate-50 px-3 py-1.5 font-semibold text-slate-900">
-              Total du marché T.T.C.
-            </td>
-            <td className="px-3 py-1.5 text-right font-semibold tabular-nums">
-              {formatCurrency(block.totalMarketTtc)}
-            </td>
-            <td className="px-3 py-1.5" />
-            <SituationColumns columns={columns} render={() => null} />
-          </tr>
-
-          <tr className="border-b border-slate-200 hover:bg-slate-50">
-            <td className="sticky left-0 z-10 bg-white px-3 py-1.5 font-medium text-slate-700">
-              Prorata
-            </td>
-            <td className="px-3 py-1.5 text-right tabular-nums">
-              {formatProrataPercent(block.prorataPercent)}
-            </td>
-            <td className="px-3 py-1.5 text-right tabular-nums text-slate-600">
-              {block.prorataAmountTtc !== 0
-                ? formatCurrency(block.prorataAmountTtc)
-                : "—"}
-            </td>
-            <SituationColumns columns={columns} render={() => null} />
-          </tr>
-
-          <tr className="border-b border-slate-100 hover:bg-slate-50">
-            <td className="sticky left-0 z-10 bg-white px-3 py-1.5 text-slate-500" />
-            <td className="px-3 py-1.5 font-medium text-slate-700">
-              Situation du mois à payer
-            </td>
-            <td className="px-3 py-1.5" />
-            <SituationColumns
-              columns={columns}
-              render={(column) => (
-                <AmountCell value={column.periodTtc} />
-              )}
-            />
-          </tr>
-
-          <tr className="border-b border-slate-100 hover:bg-slate-50">
-            <td className="sticky left-0 z-10 bg-white px-3 py-1.5 text-slate-500" />
-            <td className="px-3 py-1.5 font-medium text-slate-700">
-              Situation cumulée
-            </td>
-            <td className="px-3 py-1.5" />
-            <SituationColumns
-              columns={columns}
-              render={(column) => (
-                <div>
-                  <AmountCell value={column.cumulativeTtc} />
-                  {column.advancementPercent !== null && column.situation && (
-                    <div className="mt-0.5 text-xs text-slate-500">
-                      {formatPercent(column.advancementPercent)}
-                    </div>
-                  )}
-                </div>
-              )}
-            />
-          </tr>
-
-          <tr className="border-b border-slate-100 hover:bg-slate-50">
-            <td className="sticky left-0 z-10 bg-white px-3 py-1.5 text-slate-500" />
-            <td className="px-3 py-1.5 font-medium text-slate-700">
-              Date de la situation
-            </td>
-            <td className="px-3 py-1.5" />
-            <SituationColumns
-              columns={columns}
-              render={(column) =>
-                column.dateLabel ? (
-                  <span className="text-slate-700">{column.dateLabel}</span>
-                ) : (
-                  <span className="text-slate-400">—</span>
-                )
-              }
-            />
-          </tr>
-
-          <tr className="border-b border-slate-100 hover:bg-slate-50">
-            <td className="sticky left-0 z-10 bg-white px-3 py-1.5 text-slate-500" />
-            <td className="px-3 py-1.5 font-medium text-slate-700">
-              Prorata retenue cumulée
-            </td>
-            <td className="px-3 py-1.5" />
-            <SituationColumns
-              columns={columns}
-              render={(column) => (
-                <AmountCell value={column.prorataCumulativeHt} />
-              )}
-            />
-          </tr>
-
-          {hasSubcontractors &&
-            subcontractors.flatMap((subcontractor) => [
-              <tr
-                key={`${subcontractor.name}-period`}
-                className="border-b border-slate-100 bg-amber-50/30 hover:bg-slate-50"
-              >
-                <td className="sticky left-0 z-10 bg-amber-50/30 px-3 py-1.5 text-slate-500" />
-                <td className="px-3 py-1.5 font-medium text-slate-700">
-                  {subcontractor.name} — du mois
-                </td>
-                <td className="px-3 py-1.5 text-xs text-slate-500">
-                  Délégation
-                </td>
-                <SituationColumns
-                  columns={columns}
-                  render={(column) => {
-                    const payment = column.subcontractorPayments.find(
-                      (item) => item.name === subcontractor.name
-                    );
-                    return (
-                      <AmountCell value={payment?.periodTtc ?? null} />
-                    );
-                  }}
-                />
-              </tr>,
-              <tr
-                key={`${subcontractor.name}-cumul`}
-                className="border-b border-slate-200 bg-amber-50/30 hover:bg-slate-50"
-              >
-                <td className="sticky left-0 z-10 bg-amber-50/30 px-3 py-1.5 text-slate-500" />
-                <td className="px-3 py-1.5 font-medium text-slate-700">
-                  {subcontractor.name} — cumul
-                </td>
-                <td className="px-3 py-1.5 text-xs text-slate-500">
-                  Délégation
-                </td>
-                <SituationColumns
-                  columns={columns}
-                  render={(column) => {
-                    const payment = column.subcontractorPayments.find(
-                      (item) => item.name === subcontractor.name
-                    );
-                    return (
-                      <AmountCell value={payment?.cumulativeTtc ?? null} />
-                    );
-                  }}
-                />
-              </tr>,
-            ])}
-        </tbody>
-      </table>
-    </div>
+            );
+          })}
+        </tr>,
+      ])}
+    </tbody>
   );
 }
 
 export function SituationsSynthesis({ project, lots }: SituationsSynthesisProps) {
-  const { blocks } = buildSituationsSynthesis(lots);
+  const { columnCount, blocks } = buildSituationsSynthesis(lots);
 
   return (
-    <section className="space-y-4">
-      <div>
-        <h2 className="text-lg font-semibold text-slate-900">
-          Synthèse des situations de travaux
+    <section className="space-y-2">
+      <div className="border-2 border-slate-700 bg-[#2F5496] px-3 py-2 text-center text-white">
+        <h2 className="text-xs font-bold uppercase tracking-wide">
+          Récapitulatif des situations de travaux des entreprises
         </h2>
-        <p className="text-sm text-slate-500">{project.name}</p>
+        <p className="text-[10px] opacity-90">{project.name}</p>
       </div>
 
+      <p className="text-[11px] font-semibold text-slate-700">en EUROS T.T.C.</p>
+
       {lots.length === 0 ? (
-        <p className="rounded-2xl bg-white p-5 text-sm text-slate-500 shadow-sm">
+        <p className="border border-slate-300 bg-white p-4 text-sm text-slate-500">
           Aucun lot configuré.
         </p>
       ) : (
-        <div className="space-y-6">
-          {blocks.map((block) => (
-            <LotSituationsBlock key={block.lot.id} block={block} />
-          ))}
+        <div className="overflow-x-auto border border-slate-400 bg-white">
+          <table className="w-full min-w-[880px] border-collapse">
+            <thead>
+              <tr className="bg-[#2F5496] text-[11px] font-bold text-white">
+                <th className={`${cell} w-[8.5rem] border-slate-500 text-left`}>
+                  Entreprise
+                </th>
+                <th
+                  colSpan={2}
+                  className={`${cell} border-slate-500 text-left`}
+                >
+                  Récapitulatif marché
+                </th>
+                <th className={`${cell} w-[9.5rem] border-slate-500`} />
+                {Array.from({ length: columnCount }, (_, index) => (
+                  <th
+                    key={index}
+                    className={`${cell} min-w-[6.5rem] border-slate-500 text-center`}
+                  >
+                    situation n°{String(index + 1).padStart(2, "0")}
+                  </th>
+                ))}
+              </tr>
+            </thead>
+
+            {blocks.map((block) => (
+              <LotSituationsBlock key={block.lot.id} block={block} />
+            ))}
+          </table>
         </div>
       )}
     </section>
