@@ -127,6 +127,35 @@ export type OwnerDirectoryEntry = {
   updated_at: string;
 };
 
+/** Étiquette dynamique pour modèles OS / acte d'engagement. */
+export type DocumentLabel = {
+  id: string;
+  key: string;
+  label: string;
+  description: string;
+  example: string;
+  category: string;
+  is_system: boolean;
+  created_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+/** Modèle de document métier lié à un maître d'ouvrage. */
+export type OwnerDocumentTemplate = {
+  id: string;
+  owner_id: string;
+  doc_type: "os" | "ae";
+  title: string;
+  body_html: string;
+  enabled_label_keys: string[];
+  source_file_path: string | null;
+  source_file_name: string | null;
+  updated_by: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
 export type FinancialBankGuarantee = {
   id: string;
   project_id: string;
