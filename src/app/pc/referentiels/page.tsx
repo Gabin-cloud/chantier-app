@@ -8,6 +8,9 @@ import {
   getCompanyDirectory,
   getOwnerDirectory,
 } from "@/lib/actions/operation-sheet";
+import { getAdminPieceTemplates } from "@/lib/actions/admin-pieces";
+import { AdminPieceTemplatesPanel } from "@/components/referentiels/AdminPieceTemplatesPanel";
+import { getProfile } from "@/lib/auth/permissions";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
 export default async function ReferentielsPage() {
@@ -16,10 +19,14 @@ export default async function ReferentielsPage() {
   }
 
   try {
-    const [companies, owners] = await Promise.all([
+    const [companies, owners, adminTemplates, profile] = await Promise.all([
       getCompanyDirectory().catch(() => []),
       getOwnerDirectory().catch(() => []),
+      getAdminPieceTemplates().catch(() => []),
+      getProfile().catch(() => null),
     ]);
+
+    const canEditTemplates = Boolean(profile);
 
     return (
       <main className="min-h-full bg-slate-50 px-4 py-6 sm:px-6">
@@ -119,6 +126,13 @@ export default async function ReferentielsPage() {
                 </div>
               )}
             </section>
+          </div>
+
+          <div className="mt-6">
+            <AdminPieceTemplatesPanel
+              templates={adminTemplates}
+              canEdit={canEditTemplates}
+            />
           </div>
         </div>
       </main>

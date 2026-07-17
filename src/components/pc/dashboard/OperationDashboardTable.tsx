@@ -3,10 +3,16 @@ import {
   formatCurrency,
   formatPercent,
 } from "@/lib/finance/calculations";
+import type { AdminPieceStatus } from "@/lib/admin-pieces/status";
+import { AdminPieceStatusBadge } from "@/components/marche/AdminPieceStatusBadge";
 import type { LotWithFinancials } from "@/lib/types/database";
 
 type OperationDashboardTableProps = {
   lots: LotWithFinancials[];
+  adminStatuses?: Record<
+    string,
+    { osAeStatus: AdminPieceStatus; otherPiecesStatus: AdminPieceStatus }
+  >;
 };
 
 /** Pastille verte (tâche terminée) ou croix rouge (tâche non terminée). */
@@ -37,7 +43,10 @@ const th =
   "border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-600";
 const td = "border border-slate-200 px-2 py-1 text-xs text-slate-700";
 
-export function OperationDashboardTable({ lots }: OperationDashboardTableProps) {
+export function OperationDashboardTable({
+  lots,
+  adminStatuses = {},
+}: OperationDashboardTableProps) {
   const rows = lots.map((lot) => {
     const contractHt = Number(lot.contract_amount_ht) || 0;
     const { totalHt: amendmentsHt } = computeAmendmentsTotals(lot.amendments);
@@ -87,8 +96,10 @@ export function OperationDashboardTable({ lots }: OperationDashboardTableProps) 
             <StatusCheck done={false} title="" /> En cours / à faire
           </span>
           <span className="inline-flex items-center gap-1">
-            <span className="inline-block h-2 w-2 rounded-full bg-blue-500 ring-2 ring-blue-100" />
-            Action attendue de notre part
+            <AdminPieceStatusBadge status="submitted" size="sm" /> À contrôler
+          </span>
+          <span className="inline-flex items-center gap-1">
+            <AdminPieceStatusBadge status="pending" size="sm" /> Non transmis
           </span>
         </div>
       </header>
@@ -144,15 +155,17 @@ export function OperationDashboardTable({ lots }: OperationDashboardTableProps) 
                     {r.lot.name}
                   </td>
                   <td className={`${td} text-center`}>
-                    <StatusCheck
-                      done={false}
-                      title="Vert lorsque l'OS et l'AE sont signés par tous et diffusés à tout le monde"
+                    <AdminPieceStatusBadge
+                      status={
+                        adminStatuses[r.lot.id]?.osAeStatus ?? "pending"
+                      }
                     />
                   </td>
                   <td className={`${td} text-center`}>
-                    <StatusCheck
-                      done={false}
-                      title="Vert lorsque toutes les pièces administratives sont conformes"
+                    <AdminPieceStatusBadge
+                      status={
+                        adminStatuses[r.lot.id]?.otherPiecesStatus ?? "pending"
+                      }
                     />
                   </td>
                   <td className={`${td} text-center`}>
