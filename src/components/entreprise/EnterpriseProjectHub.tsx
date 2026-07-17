@@ -25,6 +25,13 @@ export function EnterpriseProjectHub({
 
   const actions = [
     {
+      href: `/entreprise/projets/${project.id}/pieces-admin`,
+      label: "Pièces administratives",
+      description: "Dépôt des documents requis pour votre marché",
+      color: "bg-white border border-amber-200 text-zinc-900",
+      badge: pendingCount > 0 ? `${pendingCount} en cours` : null,
+    },
+    {
       href: `/entreprise/projets/${project.id}/sous-traitance`,
       label: "Sous-traitance",
       description: "Suivi des demandes déposées et de leur statut",

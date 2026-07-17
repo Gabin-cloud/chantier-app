@@ -1,5 +1,6 @@
 import { OperationDashboardTable } from "@/components/pc/dashboard/OperationDashboardTable";
 import { DatabaseErrorNotice } from "@/components/SupabaseSetupNotice";
+import { getEnterpriseAdminStatuses } from "@/lib/actions/admin-pieces";
 import { getOperationLots } from "@/lib/actions/dashboard";
 
 type PageProps = {
@@ -11,7 +12,11 @@ export default async function TableauDeBordPage({ params }: PageProps) {
 
   try {
     const lots = await getOperationLots(id);
-    return <OperationDashboardTable lots={lots} />;
+    const adminStatuses = await getEnterpriseAdminStatuses(
+      id,
+      lots.map((l) => l.id)
+    );
+    return <OperationDashboardTable lots={lots} adminStatuses={adminStatuses} />;
   } catch (error) {
     return (
       <DatabaseErrorNotice
