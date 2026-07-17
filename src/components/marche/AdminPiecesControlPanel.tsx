@@ -10,6 +10,7 @@ import {
   uploadAdminPieceFile,
 } from "@/lib/actions/admin-pieces";
 import { AdminPieceStatusBadge } from "@/components/marche/AdminPieceStatusBadge";
+import { AdminPieceFileAttach } from "@/components/marche/AdminPieceFileAttach";
 import { ADMIN_PIECE_STATUS_LABELS } from "@/lib/admin-pieces/status";
 import type { EnterpriseAdminControlData } from "@/lib/types/admin-pieces";
 import type { Enterprise } from "@/lib/types/database";
@@ -118,7 +119,7 @@ export function AdminPiecesControlPanel({
           pieceId,
           formData
         );
-        setMessage("Fichier déposé — en attente de contrôle.");
+        setMessage("Fichier enregistré — vous pouvez le contrôler.");
         router.refresh();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Erreur lors du dépôt.");
@@ -251,13 +252,13 @@ export function AdminPiecesControlPanel({
                       )}
                     </div>
 
-                    <div className="flex flex-wrap items-center gap-2">
+                    <div className="flex flex-wrap items-start gap-3">
                       {item.fileUrl && (
                         <a
                           href={item.fileUrl}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-violet-700 hover:bg-violet-50"
+                          className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-50"
                         >
                           Visualiser
                           {item.submission?.file_name
@@ -266,19 +267,12 @@ export function AdminPiecesControlPanel({
                         </a>
                       )}
                       {canEdit && (
-                        <label className="cursor-pointer rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50">
-                          {isPending ? "…" : "Déposer fichier"}
-                          <input
-                            type="file"
-                            className="hidden"
-                            accept=".pdf,.jpg,.jpeg,.png,.doc,.docx"
-                            onChange={(e) => {
-                              const file = e.target.files?.[0];
-                              if (file) handleUpload(item.piece.id, file);
-                              e.target.value = "";
-                            }}
-                          />
-                        </label>
+                        <AdminPieceFileAttach
+                          managerMode
+                          isPending={isPending}
+                          fileName={item.submission?.file_name}
+                          onFile={(file) => handleUpload(item.piece.id, file)}
+                        />
                       )}
                     </div>
                   </div>
@@ -360,7 +354,7 @@ export function AdminPiecesControlPanel({
                 type="button"
                 disabled={isPending}
                 onClick={openEmailPreview}
-                className="mt-3 rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-500 disabled:opacity-40"
+                className="mt-3 rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-white hover:bg-slate-700 disabled:opacity-40"
               >
                 Préparer le mail récap
               </button>

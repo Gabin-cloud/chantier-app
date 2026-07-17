@@ -531,23 +531,40 @@ export async function uploadAdminPieceFile(
 
   const { data: existing } = await supabase
     .from("enterprise_admin_submissions")
-    .select("id")
+    .select("id, status")
     .eq("enterprise_id", enterpriseId)
     .eq("project_admin_piece_id", pieceId)
     .maybeSingle();
 
-  const payload = {
+  const previousStatus = existing?.status as AdminPieceStatus | undefined;
+
+  let nextStatus: AdminPieceStatus = "submitted";
+  if (isManager && previousStatus === "validated") {
+    nextStatus = "validated";
+  } else if (isEnterprise) {
+    nextStatus = "submitted";
+  } else if (isManager && !existing) {
+    nextStatus = "submitted";
+  } else if (isManager && previousStatus) {
+    nextStatus =
+      previousStatus === "validated" ? "validated" : "submitted";
+  }
+
+  const payload: Record<string, unknown> = {
     project_id: projectId,
     enterprise_id: enterpriseId,
     project_admin_piece_id: pieceId,
-    status: "submitted" as const,
+    status: nextStatus,
     file_path: filePath,
     file_name: file.name,
-    rejection_comment: null,
     submitted_at: new Date().toISOString(),
-    reviewed_at: null,
-    reviewed_by: null,
   };
+
+  if (isEnterprise || nextStatus === "submitted") {
+    payload.rejection_comment = null;
+    payload.reviewed_at = null;
+    payload.reviewed_by = null;
+  }
 
   if (existing?.id) {
     const { error } = await supabase
@@ -556,9 +573,12 @@ export async function uploadAdminPieceFile(
       .eq("id", existing.id);
     if (error) throw new Error(error.message);
   } else {
-    const { error } = await supabase
-      .from("enterprise_admin_submissions")
-      .insert(payload);
+    const { error } = await supabase.from("enterprise_admin_submissions").insert({
+      ...payload,
+      rejection_comment: null,
+      reviewed_at: null,
+      reviewed_by: null,
+    });
     if (error) throw new Error(error.message);
   }
 

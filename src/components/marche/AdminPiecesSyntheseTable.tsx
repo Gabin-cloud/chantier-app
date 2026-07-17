@@ -5,6 +5,7 @@ import {
   AdminPieceStatusBadge,
   AdminPieceStatusLegend,
 } from "@/components/marche/AdminPieceStatusBadge";
+import { SlantedColumnHeader } from "@/components/marche/SlantedColumnHeader";
 import { aggregateAdminPieceStatuses } from "@/lib/admin-pieces/status";
 import type { AdminSyntheseData } from "@/lib/types/admin-pieces";
 
@@ -15,7 +16,7 @@ type AdminPiecesSyntheseTableProps = {
 
 const th =
   "border border-slate-200 px-2 py-1 text-[11px] font-semibold text-slate-600";
-const td = "border border-slate-200 px-2 py-1 text-xs text-slate-700";
+const td = "border border-slate-200 px-1.5 py-1 text-xs text-slate-700";
 
 export function AdminPiecesSyntheseTable({
   projectId,
@@ -39,26 +40,33 @@ export function AdminPiecesSyntheseTable({
         </p>
       ) : (
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[900px] border-collapse">
+          <table className="w-full min-w-[720px] border-collapse">
             <thead>
               <tr>
                 <th className={`${th} bg-slate-100`} colSpan={3}>
                   Entreprise
                 </th>
-                <th className={`${th} bg-amber-50`} colSpan={pieces.length + 1}>
+                <th
+                  className={`${th} bg-amber-50`}
+                  colSpan={pieces.length + (otherPieces.length > 0 ? 1 : 0)}
+                >
                   Pièces administratives
                 </th>
               </tr>
               <tr className="bg-slate-50">
-                <th className={th}>N° lot</th>
-                <th className={th}>Lot</th>
-                <th className={th}>Entreprise</th>
+                <th className={`${th} w-[3rem] text-center`}>N° lot</th>
+                <th className={`${th} min-w-[5rem]`}>Lot</th>
+                <th className={`${th} min-w-[7rem]`}>Entreprise</th>
                 {pieces.map((piece) => (
-                  <th key={piece.id} className={`${th} min-w-[72px] text-center`}>
-                    {piece.name}
-                  </th>
+                  <SlantedColumnHeader
+                    key={piece.id}
+                    label={piece.name}
+                    title={piece.control_notes || piece.name}
+                  />
                 ))}
-                <th className={`${th} min-w-[80px] text-center`}>Pièces admin</th>
+                {otherPieces.length > 0 && (
+                  <SlantedColumnHeader label="Pièces admin" angle={65} />
+                )}
               </tr>
             </thead>
             <tbody>
@@ -81,23 +89,24 @@ export function AdminPiecesSyntheseTable({
                     <td className={`${td} font-medium text-slate-900`}>
                       <Link
                         href={`/pc/projets/${projectId}/marche/pieces?enterprise=${row.enterprise.id}`}
-                        className="text-violet-700 hover:underline"
+                        className="text-slate-900 hover:underline"
                       >
                         {row.enterprise.name}
                       </Link>
                     </td>
                     {row.cells.map((cell) => (
-                      <td key={cell.piece.id} className={`${td} text-center`}>
-                        <AdminPieceStatusBadge status={cell.status} />
+                      <td
+                        key={cell.piece.id}
+                        className={`${td} w-[2rem] min-w-[2rem] text-center`}
+                      >
+                        <AdminPieceStatusBadge status={cell.status} size="sm" />
                       </td>
                     ))}
-                    <td className={`${td} text-center`}>
-                      {otherPieces.length > 0 ? (
-                        <AdminPieceStatusBadge status={recapStatus} />
-                      ) : (
-                        <span className="text-slate-300">—</span>
-                      )}
-                    </td>
+                    {otherPieces.length > 0 && (
+                      <td className={`${td} w-[2rem] min-w-[2rem] text-center`}>
+                        <AdminPieceStatusBadge status={recapStatus} size="sm" />
+                      </td>
+                    )}
                   </tr>
                 );
               })}
