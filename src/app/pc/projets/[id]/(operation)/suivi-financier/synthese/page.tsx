@@ -1,10 +1,35 @@
-import { PlaceholderPanel } from "@/components/pc/PlaceholderPanel";
+import { FinancialSynthesis } from "@/components/finance/FinancialSynthesis";
+import {
+  DatabaseErrorNotice,
+  SupabaseSetupNotice,
+} from "@/components/SupabaseSetupNotice";
+import { getProjectFinancialData } from "@/lib/actions/finance";
+import { isSupabaseConfigured } from "@/lib/supabase/config";
 
-export default function FinanceSynthesePage() {
-  return (
-    <PlaceholderPanel
-      title="Tableau de bord de synthèse financière"
-      description="Vue d'ensemble financière de l'opération."
-    />
-  );
+type PageProps = {
+  params: Promise<{ id: string }>;
+};
+
+export default async function FinanceSynthesePage({ params }: PageProps) {
+  if (!isSupabaseConfigured()) {
+    return <SupabaseSetupNotice />;
+  }
+
+  const { id } = await params;
+
+  try {
+    const project = await getProjectFinancialData(id);
+
+    return (
+      <FinancialSynthesis project={project} lots={project.enterprises ?? []} />
+    );
+  } catch (error) {
+    return (
+      <DatabaseErrorNotice
+        message={
+          error instanceof Error ? error.message : "Projet introuvable."
+        }
+      />
+    );
+  }
 }

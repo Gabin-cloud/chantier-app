@@ -2,15 +2,20 @@
 
 import { revalidatePath } from "next/cache";
 import { requireFinanceAccess } from "@/lib/actions/members";
+import { formatAmendmentDbError } from "@/lib/finance/amendment-form";
 import { computeAmendmentTtc } from "@/lib/finance/calculations";
+import { normalizeAmendment } from "@/lib/finance/amendment-workflow";
 import { createClient } from "@/lib/supabase/server";
 import type {
   AmendmentFormData,
   DelegationFormData,
+  FinancialSituationDelegation,
   LotFormData,
   ProjectFinancialData,
   SituationFormData,
 } from "@/lib/types/database";
+
+export type FinanceActionResult = { ok: true } | { ok: false; error: string };
 
 function financePaths(projectId: string) {
   return [
@@ -18,6 +23,10 @@ function financePaths(projectId: string) {
     `/pc/projets/${projectId}/finance/lots`,
     `/pc/projets/${projectId}/finance/recap`,
     `/pc/projets/${projectId}/finance/situations`,
+    `/pc/projets/${projectId}/suivi-financier`,
+    `/pc/projets/${projectId}/suivi-financier/synthese`,
+    `/pc/projets/${projectId}/suivi-financier/avenants`,
+    `/pc/projets/${projectId}/suivi-financier/situations`,
   ];
 }
 
@@ -57,7 +66,10 @@ export async function getProjectFinancialData(projectId: string): Promise<Projec
       enterprises(
         *,
         financial_amendments(*),
-        financial_situations(*)
+        financial_situations(
+          *,
+          financial_situation_delegations(*)
+        )
       ),
       financial_bank_guarantees(*)`
     )
@@ -77,8 +89,23 @@ export async function getProjectFinancialData(projectId: string): Promise<Projec
     );
 
     for (const enterprise of data.enterprises) {
-      enterprise.amendments = enterprise.financial_amendments ?? [];
-      enterprise.situations = enterprise.financial_situations ?? [];
+      enterprise.amendments = (enterprise.financial_amendments ?? []).map(
+        normalizeAmendment
+      );
+      enterprise.situations = (enterprise.financial_situations ?? []).map(
+        (situation: {
+          financial_situation_delegations?: FinancialSituationDelegation[];
+          [key: string]: unknown;
+        }) => {
+          const { financial_situation_delegations, ...rest } = situation;
+          return {
+            ...rest,
+            delegations: [...(financial_situation_delegations ?? [])].sort(
+              (a, b) => a.sort_order - b.sort_order
+            ),
+          };
+        }
+      );
       delete enterprise.financial_amendments;
       delete enterprise.financial_situations;
 
@@ -116,7 +143,7 @@ export async function getLot(projectId: string, lotId: string) {
 
   if (error) throw new Error(error.message);
 
-  data.amendments = data.financial_amendments ?? [];
+  data.amendments = (data.financial_amendments ?? []).map(normalizeAmendment);
   data.situations = data.financial_situations ?? [];
   delete data.financial_amendments;
   delete data.financial_situations;
@@ -161,7 +188,9 @@ export async function getSituation(
   }
 
   const enterprise = data.enterprise;
-  enterprise.amendments = enterprise.financial_amendments ?? [];
+  enterprise.amendments = (enterprise.financial_amendments ?? []).map(
+    normalizeAmendment
+  );
   enterprise.situations = enterprise.financial_situations ?? [];
   delete enterprise.financial_amendments;
   delete enterprise.financial_situations;
@@ -312,70 +341,98 @@ export async function upsertAmendment(
   lotId: string,
   formData: AmendmentFormData,
   amendmentId?: string
-) {
-  await requireFinanceAccess(projectId);
-  const supabase = await createClient();
+): Promise<FinanceActionResult> {
+  try {
+    await requireFinanceAccess(projectId);
 
-  const { data: lot, error: lotError } = await supabase
-    .from("enterprises")
-    .select("vat_rate")
-    .eq("id", lotId)
-    .eq("project_id", projectId)
-    .single();
+    if (!Number.isFinite(formData.amount_ht)) {
+      return { ok: false, error: "Montant H.T. invalide." };
+    }
 
-  if (lotError) throw new Error(lotError.message);
+    const supabase = await createClient();
 
-  const amountTtc = computeAmendmentTtc(
-    formData.amount_ht,
-    Number(lot.vat_rate ?? 20)
-  );
-
-  const payload = {
-    enterprise_id: lotId,
-    amendment_number: formData.amendment_number,
-    designation: formData.designation || null,
-    os_number: formData.os_number || null,
-    amount_ht: formData.amount_ht,
-    amount_ttc: amountTtc,
-  };
-
-  if (amendmentId) {
-    const { error } = await supabase
-      .from("financial_amendments")
-      .update(payload)
-      .eq("id", amendmentId)
-      .eq("enterprise_id", lotId);
-
-    if (error) throw new Error(error.message);
-
-    await logAudit(
-      projectId,
-      lotId,
-      "amendment",
-      amendmentId,
-      "update",
-      `Avenant n°${formData.amendment_number} mis à jour`
-    );
-  } else {
-    const { data, error } = await supabase
-      .from("financial_amendments")
-      .insert(payload)
-      .select("id")
+    const { data: lot, error: lotError } = await supabase
+      .from("enterprises")
+      .select("vat_rate")
+      .eq("id", lotId)
+      .eq("project_id", projectId)
       .single();
 
-    if (error) throw new Error(error.message);
+    if (lotError) {
+      return { ok: false, error: lotError.message };
+    }
 
-    await logAudit(
-      projectId,
-      lotId,
-      "amendment",
-      data.id,
-      "create",
-      `Avenant n°${formData.amendment_number} créé`
+    const amountTtc = computeAmendmentTtc(
+      formData.amount_ht,
+      Number(lot.vat_rate ?? 20)
     );
-  }
 
-  revalidateFinance(projectId);
+    const payload = {
+      enterprise_id: lotId,
+      amendment_number: formData.amendment_number,
+      designation: formData.designation || null,
+      os_number: formData.os_number || null,
+      amount_ht: formData.amount_ht,
+      amount_ttc: amountTtc,
+      amendment_type: formData.amendment_type ?? "ts",
+      signature_status: formData.signature_status ?? "chez_entreprise",
+      internal_comment: formData.internal_comment?.trim() || null,
+    };
+
+    if (amendmentId) {
+      const { error } = await supabase
+        .from("financial_amendments")
+        .update(payload)
+        .eq("id", amendmentId)
+        .eq("enterprise_id", lotId);
+
+      if (error) {
+        return { ok: false, error: formatAmendmentDbError(error.message) };
+      }
+
+      await logAudit(
+        projectId,
+        lotId,
+        "amendment",
+        amendmentId,
+        "update",
+        `Avenant n°${formData.amendment_number} mis à jour`
+      );
+    } else {
+      const { data, error } = await supabase
+        .from("financial_amendments")
+        .insert(payload)
+        .select("id")
+        .single();
+
+      if (error) {
+        return { ok: false, error: formatAmendmentDbError(error.message) };
+      }
+
+      await logAudit(
+        projectId,
+        lotId,
+        "amendment",
+        data.id,
+        "create",
+        `Avenant n°${formData.amendment_number} créé`
+      );
+    }
+
+    revalidateFinance(projectId);
+    return { ok: true };
+  } catch (error) {
+    const message =
+      error instanceof Error ? error.message : "Une erreur est survenue.";
+    if (message.includes("Droits insuffisants")) {
+      return {
+        ok: false,
+        error:
+          "Droits insuffisants. Seuls les rôles admin, gestionnaire ou financier peuvent modifier un avenant.",
+      };
+    }
+    return { ok: false, error: message };
+  }
 }
 
 export async function deleteAmendment(

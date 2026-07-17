@@ -1,10 +1,35 @@
-import { PlaceholderPanel } from "@/components/pc/PlaceholderPanel";
+import { AmendmentsTracker } from "@/components/finance/AmendmentsTracker";
+import {
+  DatabaseErrorNotice,
+  SupabaseSetupNotice,
+} from "@/components/SupabaseSetupNotice";
+import { getProjectFinancialData } from "@/lib/actions/finance";
+import { isSupabaseConfigured } from "@/lib/supabase/config";
 
-export default function FinanceAvenantsPage() {
-  return (
-    <PlaceholderPanel
-      title="Suivi des avenants"
-      description="Suivi des avenants aux marchés."
-    />
-  );
+type PageProps = {
+  params: Promise<{ id: string }>;
+};
+
+export default async function FinanceAvenantsPage({ params }: PageProps) {
+  if (!isSupabaseConfigured()) {
+    return <SupabaseSetupNotice />;
+  }
+
+  const { id } = await params;
+
+  try {
+    const project = await getProjectFinancialData(id);
+
+    return (
+      <AmendmentsTracker project={project} lots={project.enterprises ?? []} />
+    );
+  } catch (error) {
+    return (
+      <DatabaseErrorNotice
+        message={
+          error instanceof Error ? error.message : "Projet introuvable."
+        }
+      />
+    );
+  }
 }
