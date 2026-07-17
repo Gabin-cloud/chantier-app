@@ -15,6 +15,12 @@ import {
   computeContractTtc,
   formatCurrency,
 } from "@/lib/finance/calculations";
+import { parseAmendmentFormData } from "@/lib/finance/amendment-form";
+import {
+  AMENDMENT_SIGNATURE_STATUS_LABELS,
+  AMENDMENT_SIGNATURE_STATUSES,
+  AMENDMENT_TYPE_LABELS,
+} from "@/lib/finance/amendment-workflow";
 import type { LotWithFinancials, Project } from "@/lib/types/database";
 
 type LotDetailProps = {
@@ -56,25 +62,32 @@ export function LotDetail({ project, lot }: LotDetailProps) {
     setError(null);
     setSuccess(null);
 
-    const form = new FormData(e.currentTarget);
+    const formElement = e.currentTarget;
     const nextNumber =
       amendments.length > 0
         ? Math.max(...amendments.map((a) => a.amendment_number)) + 1
         : 1;
 
+    const amountField = formElement.querySelector<HTMLInputElement>(
+      'input[inputmode="decimal"]'
+    );
+    amountField?.dispatchEvent(new FocusEvent("blur", { bubbles: true }));
+
     startTransition(async () => {
-      try {
-        await upsertAmendment(project.id, lot.id, {
-          amendment_number: Number(form.get("amendment_number") || nextNumber),
-          designation: (form.get("designation") as string).trim() || undefined,
-          os_number: (form.get("os_number") as string).trim() || undefined,
-          amount_ht: Number(form.get("amount_ht")),
-        });
-        e.currentTarget.reset();
-        setSuccess("Avenant ajouté.");
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Une erreur est survenue.");
+      const parsed = parseAmendmentFormData(new FormData(formElement), nextNumber);
+      if (!parsed.ok) {
+        setError(parsed.error);
+        return;
       }
+
+      const result = await upsertAmendment(project.id, lot.id, parsed.data);
+      if (!result.ok) {
+        setError(result.error);
+        return;
+      }
+
+      formElement.reset();
+      setSuccess("Avenant ajouté.");
     });
   }
 
@@ -129,6 +142,25 @@ export function LotDetail({ project, lot }: LotDetailProps) {
               className={financeInputClass}
             />
           </FormField>
+          <FormField label="Type">
+            <select name="amendment_type" defaultValue="ts" className={financeInputClass}>
+              <option value="ts">{AMENDMENT_TYPE_LABELS.ts}</option>
+              <option value="tma">{AMENDMENT_TYPE_LABELS.tma}</option>
+            </select>
+          </FormField>
+          <FormField label="Statut signature">
+            <select
+              name="signature_status"
+              defaultValue="chez_entreprise"
+              className={financeInputClass}
+            >
+              {AMENDMENT_SIGNATURE_STATUSES.map((value) => (
+                <option key={value} value={value}>
+                  {AMENDMENT_SIGNATURE_STATUS_LABELS[value]}
+                </option>
+              ))}
+            </select>
+          </FormField>
           <FormField label="Désignation">
             <input name="designation" className={financeInputClass} />
           </FormField>
@@ -137,6 +169,14 @@ export function LotDetail({ project, lot }: LotDetailProps) {
           </FormField>
           <FormField label="Montant H.T.">
             <MoneyInput name="amount_ht" defaultValue={0} required />
+          </FormField>
+          <FormField label="Commentaire interne" className="sm:col-span-2 lg:col-span-4">
+            <textarea
+              name="internal_comment"
+              rows={2}
+              className={financeInputClass}
+              placeholder="Rappel interne (visible au survol dans la synthèse financière)"
+            />
           </FormField>
           <div className="sm:col-span-2 lg:col-span-4">
             <button
@@ -164,9 +204,14 @@ export function LotDetail({ project, lot }: LotDetailProps) {
                     {a.designation && ` — ${a.designation}`}
                   </p>
                   <p className="text-sm text-slate-500">
+                    {AMENDMENT_TYPE_LABELS[a.amendment_type]} ·{" "}
+                    {AMENDMENT_SIGNATURE_STATUS_LABELS[a.signature_status]} ·{" "}
                     {formatCurrency(Number(a.amount_ht))} H.T. ·{" "}
                     {formatCurrency(Number(a.amount_ttc))} T.T.C.
                   </p>
+                  {a.internal_comment && (
+                    <p className="text-sm text-slate-500">{a.internal_comment}</p>
+                  )}
                 </div>
                 <button
                   type="button"

@@ -1,6 +1,7 @@
 "use server";
 
 import { requireProjectAccess } from "@/lib/auth/permissions";
+import { normalizeAmendment } from "@/lib/finance/amendment-workflow";
 import { createClient } from "@/lib/supabase/server";
 import type {
   Enterprise,
@@ -39,9 +40,9 @@ export async function getOperationLots(
     const { financial_amendments, financial_situations, ...enterprise } = row;
     return {
       ...enterprise,
-      amendments: [...(financial_amendments ?? [])].sort(
-        (a, b) => a.amendment_number - b.amendment_number
-      ),
+      amendments: [...(financial_amendments ?? [])]
+        .map(normalizeAmendment)
+        .sort((a, b) => a.amendment_number - b.amendment_number),
       situations: [...(financial_situations ?? [])].sort(
         (a, b) => a.situation_number - b.situation_number
       ),

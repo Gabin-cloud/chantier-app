@@ -32,6 +32,23 @@ export function computeAmendmentsTotals(amendments: FinancialAmendment[]) {
   return { totalHt: round2(totalHt), totalTtc: round2(totalTtc) };
 }
 
+export function computeAmendmentsSplit(amendments: FinancialAmendment[]) {
+  let tsHt = 0;
+  let tmaHt = 0;
+
+  for (const amendment of amendments) {
+    const amount = Number(amendment.amount_ht);
+    if (amendment.amendment_type === "tma") {
+      tmaHt += amount;
+    } else {
+      tsHt += amount;
+    }
+  }
+
+  const totalHt = tsHt + tmaHt;
+  return { tsHt: round2(tsHt), tmaHt: round2(tmaHt), totalHt: round2(totalHt) };
+}
+
 export function computeAmendmentTtc(amountHt: number, vatRate: number): number {
   return round2(amountHt * (1 + vatRate / 100));
 }
