@@ -1,0 +1,26 @@
+<?xml version="1.0" encoding="UTF-8" standalone="yes"?>
+<!-- Manifeste statique — préférez /api/word/manifest pour l'URL de production à jour. -->
+<OfficeApp xmlns="http://schemas.microsoft.com/office/appforoffice/1.1"
+  xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+  xmlns:bt="http://schemas.microsoft.com/office/officeappbasictypes/1.0"
+  xsi:type="TaskPaneApp">
+  <Id>b4e8f1a2-6c3d-4e5f-8a9b-0c1d2e3f4a5b</Id>
+  <Version>1.0.0.0</Version>
+  <ProviderName>Chantier App</ProviderName>
+  <DefaultLocale>fr-FR</DefaultLocale>
+  <DisplayName DefaultValue="Chantier App - Documents"/>
+  <Description DefaultValue="Inserer et remplir les etiquettes OS / acte d'engagement depuis la base chantier."/>
+  <IconUrl DefaultValue="https://chantier-app-kappa.vercel.app/icons/icon-192.png"/>
+  <HighResolutionIconUrl DefaultValue="https://chantier-app-kappa.vercel.app/icons/icon-512.png"/>
+  <SupportUrl DefaultValue="https://chantier-app-kappa.vercel.app/pc"/>
+  <AppDomains>
+    <AppDomain>chantier-app-kappa.vercel.app</AppDomain>
+  </AppDomains>
+  <Hosts>
+    <Host Name="Document"/>
+  </Hosts>
+  <DefaultSettings>
+    <SourceLocation DefaultValue="https://chantier-app-kappa.vercel.app/word/taskpane"/>
+  </DefaultSettings>
+  <Permissions>ReadWriteDocument</Permissions>
+</OfficeApp>

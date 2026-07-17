@@ -19,10 +19,12 @@ declare namespace Office {
 
   enum HostType {
     Outlook = "Outlook",
+    Word = "Word",
   }
 
   const HostType: {
     Outlook: "Outlook";
+    Word: "Word";
   };
 
   interface AttachmentDetails {
