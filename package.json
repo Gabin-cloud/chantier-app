@@ -14,7 +14,8 @@
     "desktop:dev": "concurrently -k \"npm run dev\" \"wait-on http://localhost:3000/pc && electron .\"",
     "pack:desktop": "electron-builder --win --publish never",
     "dist:desktop": "npm run pack:desktop",
-    "outlook:manifest": "node -e \"const u=process.env.NEXT_PUBLIC_APP_URL||'http://localhost:3000';console.log(u.replace(/\\/$/,'')+'/api/outlook/manifest')\""
+    "outlook:manifest": "node -e \"const u=process.env.NEXT_PUBLIC_APP_URL||'http://localhost:3000';console.log(u.replace(/\\/$/,'')+'/api/outlook/manifest')\"",
+    "word:manifest": "node -e \"const u=process.env.NEXT_PUBLIC_APP_URL||'http://localhost:3000';console.log(u.replace(/\\/$/,'')+'/api/word/manifest')\""
   },
   "dependencies": {
     "@napi-rs/canvas": "^1.0.2",
