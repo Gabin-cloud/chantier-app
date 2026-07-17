@@ -16,6 +16,7 @@ import {
   type DocumentLabelDefinition,
 } from "@/lib/documents/document-labels";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient, isAdminClientConfigured } from "@/lib/supabase/admin";
 
 const TEMPLATE_BUCKET = "financial-files";
 
@@ -357,22 +358,33 @@ export async function importOwnerDocumentWord(
     }
 
     const safeName = file.name.replace(/[^a-zA-Z0-9._-]+/g, "_");
-    const filePath = `owner-templates/${ownerId}/${docType}/${Date.now()}_${safeName}`;
-    const supabase = await createClient();
+    // Premier segment = UUID MOA (requis par les policies storage financial-files).
+    const filePath = `${ownerId}/owner-document-templates/${docType}/${Date.now()}_${safeName}`;
 
-    const { error: uploadError } = await supabase.storage
-      .from(TEMPLATE_BUCKET)
-      .upload(filePath, buffer, {
-        contentType:
-          file.type ||
-          "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-        upsert: true,
-      });
+    let storedFilePath: string | null = null;
+    if (isAdminClientConfigured()) {
+      const admin = createAdminClient();
+      const { error: uploadError } = await admin.storage
+        .from(TEMPLATE_BUCKET)
+        .upload(filePath, buffer, {
+          contentType:
+            file.type ||
+            "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+          upsert: true,
+        });
 
-    if (uploadError) {
-      return { ok: false, error: uploadError.message };
+      if (uploadError) {
+        console.error("[importOwnerDocumentWord] storage upload", uploadError.message);
+      } else {
+        storedFilePath = filePath;
+      }
+    } else {
+      console.warn(
+        "[importOwnerDocumentWord] SUPABASE_SERVICE_ROLE_KEY absente — Word converti sans archivage storage."
+      );
     }
 
+    const supabase = await createClient();
     const defaults = defaultTemplate(ownerId, docType);
     const { error: upsertError } = await supabase.from("owner_document_templates").upsert(
       {
@@ -381,7 +393,7 @@ export async function importOwnerDocumentWord(
         title: DOCUMENT_DOC_TYPE_LABELS[docType],
         body_html: bodyHtml,
         enabled_label_keys: defaults.enabledLabelKeys,
-        source_file_path: filePath,
+        source_file_path: storedFilePath,
         source_file_name: file.name,
         updated_by: user.id,
       },
