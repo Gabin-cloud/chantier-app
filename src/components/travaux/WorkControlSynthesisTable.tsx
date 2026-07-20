@@ -63,6 +63,9 @@ export function WorkControlSynthesisTable({
             <span className="font-semibold text-red-600">Droite</span> : non-conformités
           </span>
           <span>Bas : taux de conformité</span>
+          <span className="text-slate-400">
+            · Par lot : non-conformités attribuées sur tablette
+          </span>
         </div>
       </header>
 

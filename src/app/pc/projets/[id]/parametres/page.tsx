@@ -14,27 +14,35 @@ import {
   getCompanyDirectory,
   getOwnerDirectory,
 } from "@/lib/actions/operation-sheet";
+import { getProjectConfigBundle } from "@/lib/actions/project-config";
 import { getProject } from "@/lib/actions/projects";
+import { getWorkControlPlanTypes } from "@/lib/actions/work-control";
 import type { Enterprise } from "@/lib/types/database";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
 type PageProps = {
   params: Promise<{ id: string }>;
+  searchParams: Promise<{ tab?: string }>;
 };
 
-export default async function PcParametresPage({ params }: PageProps) {
+export default async function PcParametresPage({ params, searchParams }: PageProps) {
   if (!isSupabaseConfigured()) {
     return <SupabaseSetupNotice />;
   }
 
   const { id } = await params;
+  const { tab } = await searchParams;
+  const initialTab = tab === "controles" ? "controles" : "fiche";
 
   try {
-    const [project, directory, ownerDirectory, projectRole] = await Promise.all([
+    const [project, directory, ownerDirectory, projectRole, controlsBundle, planTypes] =
+      await Promise.all([
       getProject(id),
       getCompanyDirectory().catch(() => []),
       getOwnerDirectory().catch(() => []),
       getProjectRole(id),
+      getProjectConfigBundle(id).catch(() => null),
+      getWorkControlPlanTypes(id).catch(() => []),
     ]);
 
     if (!projectRole) {
@@ -65,6 +73,12 @@ export default async function PcParametresPage({ params }: PageProps) {
             canEdit={canEdit}
             invitationMap={invitationMap}
             backHref={`/pc/projets/${id}/tableau-de-bord`}
+            phases={controlsBundle?.phases ?? []}
+            zones={controlsBundle?.zones ?? []}
+            checklistItems={controlsBundle?.checklistItems ?? []}
+            planTypes={planTypes}
+            canEditControls={canEdit || canPlans}
+            initialTab={initialTab}
           />
         </div>
       </main>

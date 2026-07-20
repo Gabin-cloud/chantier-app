@@ -515,6 +515,7 @@ export type Marker = {
   location_label: string | null;
   location_preset_id: string | null;
   checklist_item_id: string | null;
+  plan_level_id: string | null;
   control_result: ControlResult | null;
   created_at: string;
   updated_at: string;
@@ -634,7 +635,9 @@ export type MarkerUpdateData = {
   location_label?: string | null;
   location_preset_id?: string | null;
   checklist_item_id?: string | null;
+  plan_level_id?: string | null;
   control_result?: ControlResult | null;
+  preset_comment?: string | null;
 };
 
 export type GlobalRole = "super_admin" | "user";

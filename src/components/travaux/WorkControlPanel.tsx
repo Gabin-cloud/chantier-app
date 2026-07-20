@@ -1,15 +1,10 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import Link from "next/link";
+import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
-import { AppFormField } from "@/components/ui/AppFormField";
-import {
-  addPlanLevel,
-  deleteWorkControlItem,
-  updateWorkControlExecution,
-  upsertWorkControlItem,
-} from "@/lib/actions/work-control";
-import { addVisitPhase } from "@/lib/actions/phases";
+import { useTransition } from "react";
+import { updateWorkControlExecutionAdmin } from "@/lib/actions/work-control";
 import {
   isWorkControlItemGreen,
   WORK_CONTROL_STATUS_LABELS,
@@ -21,9 +16,8 @@ import { CONTROL_RESULT_LABELS } from "@/lib/types/database";
 type WorkControlPanelProps = {
   projectId: string;
   data: WorkControlPanelData;
-  canEdit: boolean;
   canAdmin: boolean;
-  initialEnterpriseId?: string;
+  settingsHref: string;
 };
 
 function statusBg(status: WorkControlItemView["status"]): string {
@@ -52,9 +46,8 @@ function StatusBadge({ status }: { status: WorkControlItemView["status"] }) {
 export function WorkControlPanel({
   projectId,
   data,
-  canEdit,
   canAdmin,
-  initialEnterpriseId,
+  settingsHref,
 }: WorkControlPanelProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -63,18 +56,6 @@ export function WorkControlPanel({
     data.phases[0]?.phase.id ?? ""
   );
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set());
-  const [selectedEnterpriseId, setSelectedEnterpriseId] = useState(
-    initialEnterpriseId ?? data.enterprises[0]?.id ?? ""
-  );
-  const [showAdminForm, setShowAdminForm] = useState(false);
-  const [editingItemId, setEditingItemId] = useState<string | null>(null);
-  const [formLabel, setFormLabel] = useState("");
-  const [formPlanTypeId, setFormPlanTypeId] = useState("");
-  const [formHelp, setFormHelp] = useState("");
-  const [formPresets, setFormPresets] = useState("");
-  const [newPhaseName, setNewPhaseName] = useState("");
-  const [newLevelName, setNewLevelName] = useState("");
-  const [addLevelForPlan, setAddLevelForPlan] = useState<string | null>(null);
 
   const activePhase = useMemo(
     () => data.phases.find((p) => p.phase.id === activePhaseId),
@@ -90,92 +71,21 @@ export function WorkControlPanel({
     });
   }
 
-  function resetForm() {
-    setEditingItemId(null);
-    setFormLabel("");
-    setFormPlanTypeId("");
-    setFormHelp("");
-    setFormPresets("");
-    setShowAdminForm(false);
-  }
-
-  function openEditItem(item: WorkControlItemView) {
-    setEditingItemId(item.id);
-    setFormLabel(item.label);
-    setFormPlanTypeId(item.planTypeId ?? "");
-    setFormHelp(item.helpComment);
-    setFormPresets(item.presetComments.join("\n"));
-    setShowAdminForm(true);
-  }
-
-  function handleSaveItem(e: React.FormEvent) {
-    e.preventDefault();
-    if (!activePhaseId || !formLabel.trim()) return;
-    setError(null);
-    startTransition(async () => {
-      try {
-        await upsertWorkControlItem(projectId, {
-          phaseId: activePhaseId,
-          itemId: editingItemId ?? undefined,
-          label: formLabel,
-          planTypeId: formPlanTypeId || null,
-          helpComment: formHelp,
-          presetComments: formPresets
-            .split("\n")
-            .map((s) => s.trim())
-            .filter(Boolean),
-        });
-        resetForm();
-        router.refresh();
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Erreur.");
-      }
-    });
-  }
-
-  function handleDeleteItem(itemId: string) {
-    if (!confirm("Supprimer ce point de contrôle ?")) return;
-    setError(null);
-    startTransition(async () => {
-      try {
-        await deleteWorkControlItem(projectId, itemId);
-        router.refresh();
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Erreur.");
-      }
-    });
-  }
-
-  function handleAddPhase(e: React.FormEvent) {
-    e.preventDefault();
-    if (!newPhaseName.trim()) return;
-    setError(null);
-    startTransition(async () => {
-      try {
-        const phase = await addVisitPhase(projectId, newPhaseName);
-        setNewPhaseName("");
-        setActivePhaseId(phase.id);
-        router.refresh();
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Erreur.");
-      }
-    });
-  }
-
-  function handleExecutionUpdate(
+  function handleAdminUpdate(
     checklistItemId: string,
     planLevelId: string,
-    patch: Parameters<typeof updateWorkControlExecution>[1] extends infer _T
-      ? Omit<Parameters<typeof updateWorkControlExecution>[1], "checklistItemId" | "planLevelId">
-      : never
+    patch: {
+      inAttestation?: boolean;
+      attestationDate?: string | null;
+      adminWaived?: boolean;
+    }
   ) {
     setError(null);
     startTransition(async () => {
       try {
-        await updateWorkControlExecution(projectId, {
+        await updateWorkControlExecutionAdmin(projectId, {
           checklistItemId,
           planLevelId,
-          enterpriseId: selectedEnterpriseId || null,
           ...patch,
         });
         router.refresh();
@@ -185,65 +95,23 @@ export function WorkControlPanel({
     });
   }
 
-  function handleAddLevel(planId: string) {
-    if (!newLevelName.trim()) return;
-    setError(null);
-    startTransition(async () => {
-      try {
-        await addPlanLevel(projectId, planId, newLevelName);
-        setNewLevelName("");
-        setAddLevelForPlan(null);
-        router.refresh();
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Erreur.");
-      }
-    });
-  }
-
   return (
     <div className="space-y-4">
+      <div className="rounded-lg border border-sky-100 bg-sky-50 px-3 py-2 text-sm text-sky-900">
+        Les résultats de contrôle sont saisis sur la{" "}
+        <strong>tablette</strong> (visites terrain). Ce tableau est en lecture
+        seule, mis à jour automatiquement. Configuration des phases et points :{" "}
+        <Link href={settingsHref} className="font-semibold underline">
+          Paramètres → Panneau de contrôle
+        </Link>
+        .
+      </div>
+
       {error && (
         <p className="rounded-lg border border-red-200 bg-red-50 px-3 py-2 text-sm text-red-700">
           {error}
         </p>
       )}
-
-      <div className="flex flex-wrap items-end gap-3 rounded-lg border border-slate-200 bg-white px-3 py-3">
-        <label className="text-xs font-medium text-slate-600">
-          Entreprise (lot) pour les saisies
-          <select
-            value={selectedEnterpriseId}
-            onChange={(e) => setSelectedEnterpriseId(e.target.value)}
-            className="mt-1 block w-56 rounded border border-slate-200 px-2 py-1.5 text-sm"
-          >
-            {data.enterprises.map((e) => (
-              <option key={e.id} value={e.id}>
-                {e.lot_number ? `Lot ${e.lot_number} — ` : ""}
-                {e.name}
-              </option>
-            ))}
-          </select>
-        </label>
-
-        {canAdmin && (
-          <form onSubmit={handleAddPhase} className="flex items-end gap-2">
-            <AppFormField
-              label="Nouvelle phase"
-              name="phase_name"
-              value={newPhaseName}
-              onChange={setNewPhaseName}
-              placeholder="Ex. Gros œuvre"
-            />
-            <button
-              type="submit"
-              disabled={isPending}
-              className="rounded bg-slate-800 px-3 py-1.5 text-xs font-semibold text-white"
-            >
-              Ajouter phase
-            </button>
-          </form>
-        )}
-      </div>
 
       <div className="flex flex-wrap gap-1 border-b border-slate-200 pb-1">
         {data.phases.map(({ phase, summary }) => (
@@ -267,97 +135,21 @@ export function WorkControlPanel({
 
       {activePhase && (
         <section className="rounded-lg border border-slate-200 bg-white">
-          <header className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-200 px-3 py-2">
-            <div>
-              <h3 className="text-sm font-semibold text-slate-900">
-                {activePhase.phase.name}
-              </h3>
-              <p className="text-[11px] text-slate-500">
-                {activePhase.summary.conform} conforme(s) ·{" "}
-                {activePhase.summary.nonConform} non conforme(s) ·{" "}
-                {activePhase.summary.pending} en attente
-              </p>
-            </div>
-            {canAdmin && (
-              <button
-                type="button"
-                onClick={() => {
-                  resetForm();
-                  setShowAdminForm(true);
-                }}
-                className="rounded bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white"
-              >
-                + Point de contrôle
-              </button>
-            )}
+          <header className="border-b border-slate-200 px-3 py-2">
+            <h3 className="text-sm font-semibold text-slate-900">
+              {activePhase.phase.name}
+            </h3>
+            <p className="text-[11px] text-slate-500">
+              {activePhase.summary.conform} conforme(s) ·{" "}
+              {activePhase.summary.nonConform} non conforme(s) ·{" "}
+              {activePhase.summary.pending} en attente
+            </p>
           </header>
-
-          {showAdminForm && canAdmin && (
-            <form
-              onSubmit={handleSaveItem}
-              className="grid gap-3 border-b border-slate-100 bg-slate-50 px-3 py-3 md:grid-cols-2"
-            >
-              <AppFormField
-                label="Nom du contrôle"
-                name="control_label"
-                value={formLabel}
-                onChange={setFormLabel}
-                required
-              />
-              <label className="text-xs font-medium text-slate-600">
-                Support (type de plan)
-                <select
-                  value={formPlanTypeId}
-                  onChange={(e) => setFormPlanTypeId(e.target.value)}
-                  className="mt-1 block w-full rounded border border-slate-200 px-2 py-1.5 text-sm"
-                >
-                  <option value="">— Non défini —</option>
-                  {data.planTypes.map((t) => (
-                    <option key={t.id} value={t.id}>
-                      {t.name}
-                    </option>
-                  ))}
-                </select>
-              </label>
-              <AppFormField
-                label="Commentaire d'aide"
-                name="help_comment"
-                value={formHelp}
-                onChange={setFormHelp}
-                rows={2}
-                className="md:col-span-2"
-              />
-              <AppFormField
-                label="Réponses types tablette (une par ligne)"
-                name="preset_comments"
-                value={formPresets}
-                onChange={setFormPresets}
-                rows={3}
-                className="md:col-span-2"
-              />
-              <div className="flex gap-2 md:col-span-2">
-                <button
-                  type="submit"
-                  disabled={isPending}
-                  className="rounded bg-emerald-700 px-3 py-1.5 text-xs font-semibold text-white"
-                >
-                  {editingItemId ? "Enregistrer" : "Créer"}
-                </button>
-                <button
-                  type="button"
-                  onClick={resetForm}
-                  className="rounded border border-slate-200 px-3 py-1.5 text-xs"
-                >
-                  Annuler
-                </button>
-              </div>
-            </form>
-          )}
 
           {activePhase.items.length === 0 ? (
             <p className="px-3 py-6 text-sm text-slate-500">
-              Aucun point de contrôle pour cette phase.
-              {canAdmin && " Ajoutez-en via le bouton ci-dessus."}
+              Aucun point de contrôle. Configurez-les dans les paramètres du
+              projet.
             </p>
           ) : (
             <div className="divide-y divide-slate-100">
@@ -395,30 +187,6 @@ export function WorkControlPanel({
                           </p>
                         )}
                       </div>
-                      {canAdmin && (
-                        <span className="flex shrink-0 gap-1">
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              openEditItem(item);
-                            }}
-                            className="text-[11px] text-slate-500 hover:text-slate-800"
-                          >
-                            Modifier
-                          </button>
-                          <button
-                            type="button"
-                            onClick={(e) => {
-                              e.stopPropagation();
-                              handleDeleteItem(item.id);
-                            }}
-                            className="text-[11px] text-red-600"
-                          >
-                            Suppr.
-                          </button>
-                        </span>
-                      )}
                     </button>
 
                     {expanded && (
@@ -442,13 +210,16 @@ export function WorkControlPanel({
                                   Résultat
                                 </th>
                                 <th className="border border-slate-200 px-2 py-1">
-                                  Rapport
+                                  Entreprise (NC)
+                                </th>
+                                <th className="border border-slate-200 px-2 py-1">
+                                  Commentaire
                                 </th>
                                 <th className="border border-slate-200 px-2 py-1">
                                   Date retour
                                 </th>
                                 <th className="border border-slate-200 px-2 py-1">
-                                  En attestation
+                                  Attestation
                                 </th>
                                 {canAdmin && (
                                   <th className="border border-slate-200 px-2 py-1">
@@ -460,6 +231,11 @@ export function WorkControlPanel({
                             <tbody>
                               {item.levels.map((lv) => {
                                 const ex = lv.execution;
+                                const enterpriseName = ex?.enterprise_id
+                                  ? data.enterprises.find(
+                                      (e) => e.id === ex.enterprise_id
+                                    )?.name ?? "—"
+                                  : "—";
                                 return (
                                   <tr
                                     key={lv.level.id}
@@ -477,119 +253,34 @@ export function WorkControlPanel({
                                       <div className="text-[11px] text-slate-500">
                                         {lv.level.name}
                                       </div>
-                                      {canEdit && addLevelForPlan === lv.planId && (
-                                        <div className="mt-1 flex gap-1">
-                                          <input
-                                            value={newLevelName}
-                                            onChange={(e) =>
-                                              setNewLevelName(e.target.value)
-                                            }
-                                            placeholder="Ex. RDC A"
-                                            className="w-24 rounded border px-1 py-0.5 text-[11px]"
-                                          />
-                                          <button
-                                            type="button"
-                                            onClick={() => handleAddLevel(lv.planId)}
-                                            className="text-[10px] text-emerald-700"
-                                          >
-                                            OK
-                                          </button>
-                                        </div>
-                                      )}
-                                      {canEdit && addLevelForPlan !== lv.planId && (
-                                        <button
-                                          type="button"
-                                          onClick={() => {
-                                            setAddLevelForPlan(lv.planId);
-                                            setNewLevelName("");
-                                          }}
-                                          className="mt-0.5 text-[10px] text-slate-400 hover:text-slate-600"
-                                        >
-                                          + Diviser le plan
-                                        </button>
-                                      )}
                                     </td>
                                     <td className="border border-slate-200 px-2 py-1">
-                                      {canEdit ? (
-                                        <input
-                                          type="date"
-                                          value={ex?.control_date ?? ""}
-                                          onChange={(e) =>
-                                            handleExecutionUpdate(
-                                              item.id,
-                                              lv.level.id,
-                                              {
-                                                controlDate: e.target.value || null,
-                                                controlResult:
-                                                  ex?.control_result ?? "pending",
-                                              }
-                                            )
-                                          }
-                                          className="w-full rounded border px-1 py-0.5"
-                                        />
-                                      ) : (
-                                        (ex?.control_date ?? "—")
-                                      )}
+                                      {ex?.control_date ?? "—"}
                                     </td>
                                     <td className="border border-slate-200 px-2 py-1">
-                                      {canEdit && !ex?.admin_waived ? (
-                                        <select
-                                          value={ex?.control_result ?? "pending"}
-                                          onChange={(e) =>
-                                            handleExecutionUpdate(
-                                              item.id,
-                                              lv.level.id,
-                                              {
-                                                controlResult: e.target
-                                                  .value as "pending" | "ok" | "ko" | "partial",
-                                                controlDate:
-                                                  ex?.control_date ??
-                                                  new Date().toISOString().slice(0, 10),
-                                              }
-                                            )
-                                          }
-                                          className="w-full rounded border px-1 py-0.5"
-                                        >
-                                          <option value="pending">À contrôler</option>
-                                          {(Object.keys(CONTROL_RESULT_LABELS) as Array<
-                                            keyof typeof CONTROL_RESULT_LABELS
-                                          >).map((k) => (
-                                            <option key={k} value={k}>
-                                              {CONTROL_RESULT_LABELS[k]}
-                                            </option>
-                                          ))}
-                                        </select>
-                                      ) : ex?.admin_waived ? (
-                                        "Dispensé"
-                                      ) : (
-                                        (ex?.control_result &&
-                                          CONTROL_RESULT_LABELS[
-                                            ex.control_result as keyof typeof CONTROL_RESULT_LABELS
-                                          ]) ??
-                                        "—"
-                                      )}
+                                      {ex?.admin_waived
+                                        ? "Dispensé"
+                                        : ex?.control_result &&
+                                            ex.control_result !== "pending"
+                                          ? CONTROL_RESULT_LABELS[
+                                              ex.control_result as keyof typeof CONTROL_RESULT_LABELS
+                                            ]
+                                          : "À contrôler"}
                                     </td>
                                     <td className="border border-slate-200 px-2 py-1">
-                                      {ex?.report_path ? (
-                                        <a
-                                          href={ex.report_path}
-                                          target="_blank"
-                                          rel="noreferrer"
-                                          className="text-emerald-700 hover:underline"
-                                        >
-                                          PDF
-                                        </a>
-                                      ) : (
-                                        "—"
-                                      )}
+                                      {enterpriseName}
                                     </td>
                                     <td className="border border-slate-200 px-2 py-1">
-                                      {canEdit ? (
+                                      {ex?.preset_comment ?? ex?.notes ?? "—"}
+                                    </td>
+                                    <td className="border border-slate-200 px-2 py-1">
+                                      {canAdmin ? (
                                         <input
                                           type="date"
                                           value={ex?.attestation_date ?? ""}
+                                          disabled={isPending}
                                           onChange={(e) =>
-                                            handleExecutionUpdate(
+                                            handleAdminUpdate(
                                               item.id,
                                               lv.level.id,
                                               {
@@ -605,12 +296,13 @@ export function WorkControlPanel({
                                       )}
                                     </td>
                                     <td className="border border-slate-200 px-2 py-1 text-center">
-                                      {canEdit ? (
+                                      {canAdmin ? (
                                         <input
                                           type="checkbox"
                                           checked={ex?.in_attestation ?? false}
+                                          disabled={isPending}
                                           onChange={(e) =>
-                                            handleExecutionUpdate(
+                                            handleAdminUpdate(
                                               item.id,
                                               lv.level.id,
                                               { inAttestation: e.target.checked }
@@ -628,9 +320,10 @@ export function WorkControlPanel({
                                         <input
                                           type="checkbox"
                                           checked={ex?.admin_waived ?? false}
+                                          disabled={isPending}
                                           title="Pas besoin de contrôler ce niveau"
                                           onChange={(e) =>
-                                            handleExecutionUpdate(
+                                            handleAdminUpdate(
                                               item.id,
                                               lv.level.id,
                                               { adminWaived: e.target.checked }
@@ -645,21 +338,6 @@ export function WorkControlPanel({
                             </tbody>
                           </table>
                         )}
-                        {item.presetComments.length > 0 && canEdit && (
-                          <div className="mt-2 flex flex-wrap gap-1">
-                            <span className="text-[10px] text-slate-500">
-                              Réponses types :
-                            </span>
-                            {item.presetComments.map((c) => (
-                              <span
-                                key={c}
-                                className="rounded bg-slate-100 px-1.5 py-0.5 text-[10px]"
-                              >
-                                {c}
-                              </span>
-                            ))}
-                          </div>
-                        )}
                       </div>
                     )}
                   </div>
@@ -671,8 +349,8 @@ export function WorkControlPanel({
       )}
 
       <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
-        <strong>Légende :</strong> vert = conforme, dispensé par l&apos;admin, ou non-conformité
-        levée en attestation entreprise. Rouge = non-conformité en attente de retour.
+        <strong>Légende :</strong> vert = conforme, dispensé admin, ou NC levée en
+        attestation. Les saisies terrain se font via les visites tablette.
       </div>
     </div>
   );

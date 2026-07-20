@@ -56,6 +56,7 @@ export function GlobalProjectConfig({ projects }: GlobalProjectConfigProps) {
           phases={bundle.phases}
           zones={bundle.zones}
           checklistItems={bundle.checklistItems}
+          planTypes={bundle.planTypes}
           canManageMembers={bundle.canManageMembers}
           canEditPlans={bundle.canEditPlans}
           canEdit={bundle.canEdit}

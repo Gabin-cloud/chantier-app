@@ -18,6 +18,7 @@ import { getProjectChecklistItems } from "@/lib/actions/checklist";
 import { getProjectPhases } from "@/lib/actions/phases";
 import { getProjectZones } from "@/lib/actions/zones";
 import { getProject } from "@/lib/actions/projects";
+import { getWorkControlPlanTypes } from "@/lib/actions/work-control";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
 type PageProps = {
@@ -32,7 +33,7 @@ export default async function ParametresPage({ params }: PageProps) {
   const { id } = await params;
 
   try {
-    const [project, plans, planFolders, phases, checklistItems, zones, members, enterpriseAccess, locations, projectRole] = await Promise.all([
+    const [project, plans, planFolders, phases, checklistItems, zones, members, enterpriseAccess, locations, projectRole, planTypes] = await Promise.all([
       getProject(id),
       getPlansWithUrls(id),
       getPlanFolders(id),
@@ -43,6 +44,7 @@ export default async function ParametresPage({ params }: PageProps) {
       getEnterpriseAccessForProject(id).catch(() => []),
       getProjectLocations(id).catch(() => []),
       getProjectRole(id),
+      getWorkControlPlanTypes(id).catch(() => []),
     ]);
 
     if (!projectRole) {
@@ -80,6 +82,7 @@ export default async function ParametresPage({ params }: PageProps) {
             phases={phases}
             zones={zones}
             checklistItems={checklistItems}
+            planTypes={planTypes}
             locations={locations}
             members={members}
             enterpriseAccess={enterpriseAccess}

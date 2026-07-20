@@ -28,6 +28,7 @@ type ProjectSettingsProps = {
   phases?: VisitPhase[];
   zones?: PhaseZone[];
   checklistItems?: PhaseChecklistItem[];
+  planTypes?: import("@/lib/types/work-control").WorkControlPlanType[];
   locations: ProjectLocation[];
   members: ProjectMemberWithProfile[];
   enterpriseAccess?: EnterpriseAccessWithProfile[];
@@ -50,6 +51,7 @@ export function ProjectSettings({
   phases = [],
   zones = [],
   checklistItems = [],
+  planTypes = [],
   locations,
   members,
   enterpriseAccess = [],
@@ -170,6 +172,7 @@ export function ProjectSettings({
           phases={phases}
           zones={zones}
           checklistItems={checklistItems}
+          planTypes={planTypes}
           canEdit={canEdit}
         />
       )}

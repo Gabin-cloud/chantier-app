@@ -10,6 +10,7 @@ import { getPlanFolders, getPlansWithUrls } from "@/lib/actions/plans";
 import { getProjectPhases } from "@/lib/actions/phases";
 import { getProjectZones } from "@/lib/actions/zones";
 import { getVisitReportUrl } from "@/lib/actions/visit-reports";
+import { getWorkPlansByType } from "@/lib/actions/work-control";
 import { getProject } from "@/lib/actions/projects";
 import { getMarkerPhotoUrl, getVisit } from "@/lib/actions/visits";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
@@ -26,7 +27,7 @@ export default async function VisitePage({ params }: PageProps) {
   const { id, visiteId } = await params;
 
   try {
-    const [{ visit, markers }, plans, planFolders, phases, project, allChecklistItems, zones] =
+    const [{ visit, markers }, plans, planFolders, phases, project, allChecklistItems, zones, workPlans] =
       await Promise.all([
       getVisit(visiteId),
       getPlansWithUrls(id),
@@ -35,7 +36,12 @@ export default async function VisitePage({ params }: PageProps) {
       getProject(id),
       getProjectChecklistItems(id),
       getProjectZones(id),
+      getWorkPlansByType(id).catch(() => ({ plans: [], planTypes: [] })),
     ]);
+
+    const planLevelsByPlan = Object.fromEntries(
+      workPlans.plans.map((p) => [p.id, p.levels])
+    );
 
     const phaseName = phases.find((p) => p.id === visit.phase_id)?.name ?? null;
     const zoneName = zones.find((z) => z.id === visit.zone_id)?.name ?? null;
@@ -101,6 +107,7 @@ export default async function VisitePage({ params }: PageProps) {
           plans={plans}
           planFolders={planFolders}
           checklistItems={checklistItems}
+          planLevelsByPlan={planLevelsByPlan}
           enterprises={project.enterprises}
           locations={locations}
           initialMarkers={markersWithPhotos}
