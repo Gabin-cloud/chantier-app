@@ -279,16 +279,17 @@ export function ControlLibraryPanel({ items, canEdit }: ControlLibraryPanelProps
                   />
                 </td>
                 <td className="px-1 py-1">
-                  <input
+                  <textarea
                     value={row.preset_comments}
                     disabled={!canEdit || isPending}
+                    rows={2}
                     onChange={(e) =>
                       updateRow(index, { preset_comments: e.target.value })
                     }
                     onBlur={() => row.label.trim() && saveRow(index)}
-                    placeholder="Une remarque NC par ligne"
+                    placeholder={"Une remarque NC par ligne\nEx. : Manque joint\nEx. : Fixation insuffisante"}
                     title="Remarques types si non conforme (une par ligne)"
-                    className="w-full rounded border border-transparent bg-transparent px-2 py-1.5 hover:border-slate-200 focus:border-violet-300 focus:bg-white focus:outline-none disabled:opacity-60"
+                    className="w-full resize-y rounded border border-transparent bg-transparent px-2 py-1.5 text-sm hover:border-slate-200 focus:border-violet-300 focus:bg-white focus:outline-none disabled:opacity-60"
                   />
                 </td>
                 <td className="px-1 py-1">

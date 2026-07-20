@@ -20,8 +20,18 @@ type WorkControlAttestationCellProps = {
 
 function fileLabel(execution: WorkControlExecution | null): string | null {
   if (!execution?.report_path) return null;
-  if (execution.report_file_name) return execution.report_file_name;
-  return execution.report_path.split("/").pop() ?? "Attestation.pdf";
+  const raw =
+    execution.report_file_name ??
+    execution.report_path.split("/").pop() ??
+    "Attestation.pdf";
+  if (
+    execution.notes === "Levée terrain" ||
+    /rapport/i.test(raw) ||
+    !execution.report_path.includes("/work-control/")
+  ) {
+    return "Rapport de visite";
+  }
+  return raw;
 }
 
 export function WorkControlAttestationCell({

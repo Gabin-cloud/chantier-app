@@ -333,28 +333,18 @@ export function PlanViewer({
     const viewport = viewportRef.current;
     if (!viewport) return;
 
+    // Suivre la taille du viewport sans recentrer/dézoomer : l'ouverture du
+    // formulaire pastille réduisait la hauteur et déclenchait un fitToViewport.
     const observer = new ResizeObserver(() => {
-      const width = viewport.clientWidth;
-      const height = viewport.clientHeight;
-      const prev = viewportSizeRef.current;
-
-      if (prev.width === 0 && prev.height === 0) {
-        viewportSizeRef.current = { width, height };
-        return;
-      }
-
-      const widthDelta = Math.abs(width - prev.width);
-      const heightDelta = Math.abs(height - prev.height);
-      viewportSizeRef.current = { width, height };
-
-      if (widthDelta > 120 || heightDelta > 120) {
-        fitToViewport();
-      }
+      viewportSizeRef.current = {
+        width: viewport.clientWidth,
+        height: viewport.clientHeight,
+      };
     });
 
     observer.observe(viewport);
     return () => observer.disconnect();
-  }, [pdfReady, fitToViewport]);
+  }, [pdfReady]);
 
   function zoomBy(factor: number) {
     const viewport = viewportRef.current;

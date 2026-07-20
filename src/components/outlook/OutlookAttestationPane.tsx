@@ -85,12 +85,13 @@ export function OutlookAttestationPane({ projects }: OutlookAttestationPaneProps
           if (!checklistItemId || !planLevelId) continue;
           const formData = new FormData();
           formData.set("file", file);
-          await uploadWorkControlAttestation(
-            projectId,
-            checklistItemId,
-            planLevelId,
-            formData
-          );
+            await uploadWorkControlAttestation(
+              projectId,
+              checklistItemId,
+              planLevelId,
+              formData,
+              { skipRevalidate: true }
+            );
           done++;
         }
         setMessage(

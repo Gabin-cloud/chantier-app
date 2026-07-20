@@ -14,6 +14,8 @@ function safeRedirectPath(value: FormDataEntryValue | null) {
     path.startsWith("/pc") ||
     path.startsWith("/tablette") ||
     path.startsWith("/entreprise") ||
+    path.startsWith("/outlook") ||
+    path.startsWith("/word") ||
     path === "/"
   ) {
     return path;

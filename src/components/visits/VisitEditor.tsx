@@ -206,8 +206,8 @@ export function VisitEditor({
 
   const [selectedPlanId, setSelectedPlanId] = useState(plans[0]?.id ?? "");
   const [selectedMarkerId, setSelectedMarkerId] = useState<string | null>(null);
-  const [addMode, setAddMode] = useState(false);
-  const [drawMode, setDrawMode] = useState(false);
+  /** Outil actif : pastille (défaut) ou dessin — toujours l'un des deux. */
+  const [placeTool, setPlaceTool] = useState<"pastille" | "dessin">("pastille");
   const [showPlanPicker, setShowPlanPicker] = useState(false);
   const [drawColor, setDrawColor] = useState<string>(DRAW_COLOR_PRESETS[1]);
   const [drawWidth, setDrawWidth] = useState<number>(DRAW_WIDTH_PRESETS[1]);
@@ -256,6 +256,8 @@ export function VisitEditor({
     selectedMarker != null &&
     !unlockedMarkerIds.has(selectedMarker.id);
   const isCompleted = visit.status === "completed";
+  const addMode = !isCompleted && placeTool === "pastille";
+  const drawMode = !isCompleted && placeTool === "dessin";
   const currentStrokes = drawingsByPlan[selectedPlanId] ?? [];
 
   const selectedEnterprise = useMemo(
@@ -341,8 +343,6 @@ export function VisitEditor({
     );
     setPresetCommentDraft("");
     setControlResultDraft(marker.control_result ?? "");
-    setAddMode(false);
-    setDrawMode(false);
   }
 
   function handleChecklistItemChange(itemId: string) {
@@ -355,6 +355,12 @@ export function VisitEditor({
   function handlePlanClick(xPercent: number, yPercent: number) {
     if (!addMode || !selectedPlan || isCompleted) return;
 
+    const previous = [...markers]
+      .filter((m) => m.visit_id === visit.id)
+      .sort((a, b) => b.marker_number - a.marker_number)[0];
+    const inheritedEnterpriseId = previous?.enterprise_id ?? null;
+    const inheritedTrade = previous?.trade ?? null;
+
     startTransition(async () => {
       try {
         setError(null);
@@ -363,21 +369,30 @@ export function VisitEditor({
           projectId,
           selectedPlanId,
           xPercent,
-          yPercent
+          yPercent,
+          {
+            control_result: "ko",
+            enterprise_id: inheritedEnterpriseId,
+            trade: inheritedTrade,
+          }
         );
         const withPhoto: MarkerWithPhoto = {
           ...newMarker,
           status: "a_traiter",
-          enterprise_id: null,
-          trade: null,
+          enterprise_id: inheritedEnterpriseId,
+          trade: inheritedTrade,
           location_label: null,
           location_preset_id: null,
-          checklist_item_id: visit.checklist_item_id ?? newMarker.checklist_item_id ?? null,
-          control_result: null,
+          checklist_item_id:
+            visit.checklist_item_id ?? newMarker.checklist_item_id ?? null,
+          control_result: "ko",
           photo_public_url: null,
         };
         setMarkers((prev) => [...prev, withPhoto]);
         selectMarker(withPhoto);
+        setControlResultDraft("ko");
+        setEnterpriseDraft(inheritedEnterpriseId ?? "");
+        setTradeDraft(inheritedTrade ?? "");
       } catch (err) {
         setError(err instanceof Error ? err.message : "Impossible d'ajouter la pastille.");
       }
@@ -832,18 +847,30 @@ export function VisitEditor({
 
           <div className="flex shrink-0 flex-wrap gap-2">
             {!isCompleted && (
-              <button
-                type="button"
-                onClick={() => {
-                  setDrawMode((v) => !v);
-                  setAddMode(false);
-                }}
-                className={`min-h-10 rounded-lg px-4 py-2 text-sm font-bold ${
-                  drawMode ? "bg-orange-500 text-white" : "bg-zinc-100 text-zinc-800"
-                }`}
-              >
-                {drawMode ? "Dessin actif" : "✏️ Dessin"}
-              </button>
+              <div className="flex overflow-hidden rounded-lg border border-zinc-200">
+                <button
+                  type="button"
+                  onClick={() => setPlaceTool("pastille")}
+                  className={`min-h-10 px-3 py-2 text-sm font-bold ${
+                    placeTool === "pastille"
+                      ? "bg-amber-500 text-white"
+                      : "bg-white text-zinc-700 hover:bg-zinc-50"
+                  }`}
+                >
+                  Pastille
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setPlaceTool("dessin")}
+                  className={`min-h-10 px-3 py-2 text-sm font-bold ${
+                    placeTool === "dessin"
+                      ? "bg-orange-500 text-white"
+                      : "bg-white text-zinc-700 hover:bg-zinc-50"
+                  }`}
+                >
+                  Dessin
+                </button>
+              </div>
             )}
             {!isCompleted && drawMode && (
               <button
@@ -901,30 +928,16 @@ export function VisitEditor({
 
         {!isCompleted && (
           <div
-            className={`flex shrink-0 items-center justify-between gap-3 border-b px-3 py-1.5 ${
-              addMode
+            className={`flex shrink-0 items-center gap-3 border-b px-3 py-1.5 ${
+              placeTool === "pastille"
                 ? "border-amber-200 bg-amber-50"
-                : "border-zinc-200 bg-white"
+                : "border-orange-200 bg-orange-50"
             }`}
           >
-            <button
-              type="button"
-              onClick={() => {
-                setAddMode((v) => !v);
-                setDrawMode(false);
-              }}
-              className={`rounded-lg px-3 py-1.5 text-xs font-bold ${
-                addMode
-                  ? "bg-amber-500 text-white"
-                  : "bg-zinc-100 text-zinc-800"
-              }`}
-            >
-              {addMode ? "Nouvelle pastille" : "+ Nouvelle pastille"}
-            </button>
-            <p className="min-w-0 flex-1 text-xs text-zinc-600">
-              {addMode
-                ? "Touchez le plan pour placer une pastille"
-                : "Activez pour ajouter une pastille sur le plan"}
+            <p className="min-w-0 flex-1 text-xs font-medium text-zinc-700">
+              {placeTool === "pastille"
+                ? "Mode pastille — touchez le plan pour placer"
+                : "Mode dessin — glissez sur le plan pour tracer"}
             </p>
           </div>
         )}

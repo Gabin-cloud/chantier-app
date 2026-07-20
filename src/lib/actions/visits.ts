@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireProjectAccess, requireProjectRoles } from "@/lib/auth/permissions";
 import { createClient } from "@/lib/supabase/server";
-import type { MarkerUpdateData, MarkerWithLinks, VisitFormData } from "@/lib/types/database";
+import type { ControlResult, MarkerUpdateData, MarkerWithLinks, VisitFormData } from "@/lib/types/database";
 import { computeVisitControlSummary } from "@/lib/control-summary";
 import { ensureDefaultPhases } from "@/lib/actions/phases";
 import {
@@ -200,7 +200,12 @@ export async function createMarker(
   projectId: string,
   planId: string,
   xPercent: number,
-  yPercent: number
+  yPercent: number,
+  defaults?: {
+    control_result?: ControlResult | null;
+    enterprise_id?: string | null;
+    trade?: string | null;
+  }
 ) {
   await requireProjectRoles(projectId, ["admin", "gestionnaire", "terrain"]);
   const supabase = await createClient();
@@ -241,6 +246,10 @@ export async function createMarker(
       y_percent: yPercent,
       marker_number: markerNumber,
       checklist_item_id: visit.checklist_item_id ?? null,
+      status: "a_traiter",
+      control_result: defaults?.control_result ?? "ko",
+      enterprise_id: defaults?.enterprise_id ?? null,
+      trade: defaults?.trade ?? null,
     })
     .select("*")
     .single();
@@ -294,6 +303,7 @@ export async function updateMarker(
           visitId,
           controlDate: new Date().toISOString().slice(0, 10),
           notes: "Levée terrain",
+          attachVisitReport: true,
         });
       } catch {
         // optional
@@ -302,6 +312,7 @@ export async function updateMarker(
 
     revalidatePath(`/tablette/projets/${projectId}/visites/${visitId}`);
     revalidatePath(`/pc/projets/${projectId}/suivi-travaux/controle`);
+    revalidatePath(`/pc/projets/${projectId}/suivi-travaux/synthese`);
     return;
   }
 
