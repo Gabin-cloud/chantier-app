@@ -699,6 +699,8 @@ export type MarkerUpdateData = {
   unlock_edit?: boolean;
   /** Lever la pastille uniquement (visite antérieure). */
   resolve_only?: boolean;
+  /** Annuler la levée : status a_traiter (sans unlock requis). */
+  unresolve_only?: boolean;
 };
 
 export type GlobalRole = "super_admin" | "user";

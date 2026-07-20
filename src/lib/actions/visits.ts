@@ -305,6 +305,55 @@ export async function updateMarker(
     return;
   }
 
+  if (data.unresolve_only) {
+    // Autorisé sans unlock (y compris pastilles de visite antérieure).
+    const updatePayload: {
+      status: string;
+      updated_at: string;
+      control_result?: string;
+    } = {
+      status: "a_traiter",
+      updated_at: new Date().toISOString(),
+    };
+
+    // La levée avait synchronisé le PC en "ok" : remettre "ko" si entreprise connue.
+    if (existing.enterprise_id) {
+      updatePayload.control_result = "ko";
+    }
+
+    const { data: marker, error } = await supabase
+      .from("markers")
+      .update(updatePayload)
+      .eq("id", markerId)
+      .select("checklist_item_id, plan_id, plan_level_id, enterprise_id, control_result")
+      .single();
+    if (error) throw new Error(error.message);
+
+    if (marker?.checklist_item_id && marker.plan_id && marker.enterprise_id) {
+      try {
+        const planLevelId = await resolvePlanLevelId(
+          marker.plan_id,
+          marker.plan_level_id
+        );
+        await syncWorkControlExecutionFromMarker(projectId, {
+          checklistItemId: marker.checklist_item_id,
+          planLevelId,
+          controlResult: "ko",
+          enterpriseId: marker.enterprise_id,
+          visitId,
+          controlDate: new Date().toISOString().slice(0, 10),
+          notes: "Délevée terrain",
+        });
+      } catch {
+        // optional
+      }
+    }
+
+    revalidatePath(`/tablette/projets/${projectId}/visites/${visitId}`);
+    revalidatePath(`/pc/projets/${projectId}/suivi-travaux/controle`);
+    return;
+  }
+
   if (isPriorVisit && !data.unlock_edit) {
     throw new Error(
       "Pastille verrouillée (visite antérieure). Déverrouillez ou levez-la uniquement."
