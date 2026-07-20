@@ -77,7 +77,7 @@ export default async function VisitePage({ params }: PageProps) {
 
     return (
       <main className="tablette-page flex min-h-0 flex-col bg-zinc-100">
-        <header className="flex shrink-0 items-center gap-3 border-b border-zinc-200 bg-white px-3 py-2.5 sm:px-4">
+        <header className="flex shrink-0 items-center gap-3 border-b border-zinc-200 bg-white px-3 py-1.5 sm:px-4">
           <Link
             href={`/tablette/projets/${id}/visites`}
             className="shrink-0 rounded-lg px-2 py-1.5 text-sm font-medium text-zinc-500 hover:bg-zinc-100 hover:text-zinc-700"
@@ -85,10 +85,10 @@ export default async function VisitePage({ params }: PageProps) {
             ← Visites
           </Link>
           <div className="min-w-0 flex-1">
-            <h1 className="truncate text-base font-bold text-zinc-900 sm:text-lg">
+            <h1 className="truncate text-sm font-semibold text-zinc-900">
               {visit.title}
             </h1>
-            <p className="truncate text-xs text-zinc-500 sm:text-sm">
+            <p className="truncate text-[10px] text-zinc-500 sm:text-xs">
               {visitDate}
               {phaseName ? ` · ${phaseName}` : ""}
               {controlLabel ? ` · ${controlLabel}` : ""}

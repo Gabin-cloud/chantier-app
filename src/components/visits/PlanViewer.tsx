@@ -8,7 +8,7 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { getPlanPdfData } from "@/lib/actions/plans";
-import type { ControlResult, DrawingStroke } from "@/lib/types/database";
+import type { ControlResult, DrawingStroke, MarkerStatus } from "@/lib/types/database";
 import { markerControlHex } from "@/lib/types/database";
 
 export type PlanViewerMarker = {
@@ -17,6 +17,7 @@ export type PlanViewerMarker = {
   y_percent: number;
   marker_number: number;
   control_result?: ControlResult | null;
+  status?: MarkerStatus;
 };
 
 type Size = { width: number; height: number };
@@ -672,7 +673,10 @@ export function PlanViewer({
                       style={{
                         left: `${marker.x_percent}%`,
                         top: `${marker.y_percent}%`,
-                        backgroundColor: markerControlHex(marker.control_result),
+                        backgroundColor: markerControlHex(
+                          marker.control_result,
+                          marker.status
+                        ),
                       }}
                       onClick={(e) => {
                       e.stopPropagation();
