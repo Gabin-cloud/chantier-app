@@ -289,8 +289,20 @@ export async function uploadPlan(
     throw new Error(error.message);
   }
 
+  try {
+    await supabase.from("work_control_plan_levels").insert({
+      plan_id: data.id,
+      name: data.name,
+      sort_order: 0,
+    });
+  } catch {
+    // migration 039 optionnelle
+  }
+
   revalidatePath(`/tablette/projets/${projectId}/parametres`);
   revalidatePath(`/pc/projets/${projectId}/parametres`);
+  revalidatePath(`/pc/projets/${projectId}/suivi-travaux/rapport`);
+  revalidatePath(`/pc/projets/${projectId}/suivi-travaux/plans`);
 
   return data;
 }
