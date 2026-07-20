@@ -193,15 +193,15 @@ export function FileSortForm({
     if (notes) formData.append("notes", notes);
 
     startTransition(async () => {
-      const result = await classifyIncomingFile(projectId, formData);
-      if (!result.ok) {
-        setError(normalizeClassifyError(result.error));
-        return;
-      }
+      try {
+        const result = await classifyIncomingFile(projectId, formData);
+        if (!result.ok) {
+          setError(normalizeClassifyError(result.error));
+          return;
+        }
 
-      let lifted = 0;
-      if (category === "levee_controle") {
-        try {
+        let lifted = 0;
+        if (category === "levee_controle") {
           for (const key of selectedNcKeys) {
             const [checklistItemId, planLevelId] = key.split("::");
             if (!checklistItemId || !planLevelId) continue;
@@ -211,31 +211,43 @@ export function FileSortForm({
               projectId,
               checklistItemId,
               planLevelId,
-              attForm
+              attForm,
+              { skipRevalidate: true }
             );
             lifted++;
           }
-        } catch (err) {
-          setError(
-            err instanceof Error
-              ? `Classé, mais levée NC incomplète : ${err.message}`
-              : "Classé, mais levée NC incomplète."
+        }
+
+        const message =
+          category === "levee_controle"
+            ? `« ${result.fileName} » classé en ${INCOMING_FILE_CATEGORY_LABELS[category]} — ${lifted} point(s) levé(s).`
+            : `« ${result.fileName} » classé en ${INCOMING_FILE_CATEGORY_LABELS[category]}.`;
+        setSuccess(message);
+        setCategory(null);
+        setEnterpriseId(null);
+        setSituationId(null);
+        setSelectedNcKeys([]);
+        onSuccess?.(message);
+        onClassified?.();
+      } catch (err) {
+        const raw = err instanceof Error ? err.message : "Erreur de classement.";
+        // Outlook taskpane : revalidate/RSC peut throw après un save réussi
+        if (raw.includes("Server Components render")) {
+          setSuccess(
+            "Fichier probablement classé. Actualisez le volet si besoin."
           );
+          setCategory(null);
+          setEnterpriseId(null);
+          setSituationId(null);
+          setSelectedNcKeys([]);
+          onSuccess?.(
+            "Fichier probablement classé. Actualisez le volet si besoin."
+          );
+          onClassified?.();
           return;
         }
+        setError(normalizeClassifyError(raw));
       }
-
-      const message =
-        category === "levee_controle"
-          ? `« ${result.fileName} » classé en ${INCOMING_FILE_CATEGORY_LABELS[category]} — ${lifted} point(s) levé(s).`
-          : `« ${result.fileName} » classé en ${INCOMING_FILE_CATEGORY_LABELS[category]}.`;
-      setSuccess(message);
-      setCategory(null);
-      setEnterpriseId(null);
-      setSituationId(null);
-      setSelectedNcKeys([]);
-      onSuccess?.(message);
-      onClassified?.();
     });
   }
 

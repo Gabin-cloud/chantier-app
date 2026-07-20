@@ -66,13 +66,21 @@ export function matchesMarkerFilters(
     return false;
   }
 
-  if (isAttestedByExecution(marker.checklist_item_id, marker.plan_level_id, executionMap)) {
-    if (!filters.states.includes("levee")) return false;
-  }
-
+  // Ne forcer "levée" que si la pastille elle-même est levée (ou attestée ET déjà levée).
+  // Sinon une attestation PC masquait aussi les pastilles « À lever » du même point.
   const visual = getTabletMarkerVisualState(marker.control_result, marker.status);
+  const attested = isAttestedByExecution(
+    marker.checklist_item_id,
+    marker.plan_level_id,
+    executionMap
+  );
+  const effective: TabletMarkerVisualState =
+    visual === "levee" || (attested && marker.status === "levee")
+      ? "levee"
+      : visual;
+
   if (filters.states.length === 0) return true;
-  return filters.states.includes(visual);
+  return filters.states.includes(effective);
 }
 
 export function isPriorVisitMarker(markerVisitId: string, currentVisitId: string) {

@@ -330,7 +330,9 @@ export async function getWorkControlSynthesis(
     const enterpriseExecutions = executionList.filter(
       (e) =>
         e.enterprise_id === enterprise.id &&
-        (e.control_result === "ko" || e.admin_waived)
+        (e.control_result === "ok" ||
+          e.control_result === "ko" ||
+          e.admin_waived)
     );
 
     const total = computeSynthesisCell(enterpriseExecutions);
@@ -373,6 +375,34 @@ export async function getWorkControlPanel(
       const level = await ensurePlanDefaultLevel(plan.id, plan.name);
       if (!levelsByPlan.has(plan.id)) levelsByPlan.set(plan.id, []);
       levelsByPlan.get(plan.id)!.push(level);
+    }
+  }
+
+  // Levées terrain : rattacher le rapport de visite si report_path manquant
+  const visitIdsNeedingReport = [
+    ...new Set(
+      [...executionByKey.values()]
+        .filter((ex) => ex.visit_id && !ex.report_path)
+        .map((ex) => ex.visit_id as string)
+    ),
+  ];
+  if (visitIdsNeedingReport.length > 0) {
+    const { data: reports } = await ctx.supabase
+      .from("visit_reports")
+      .select("visit_id, file_path")
+      .in("visit_id", visitIdsNeedingReport);
+    const reportByVisit = new Map(
+      (reports ?? []).map((r) => [r.visit_id as string, r.file_path as string])
+    );
+    for (const [key, ex] of executionByKey) {
+      if (ex.report_path || !ex.visit_id) continue;
+      const path = reportByVisit.get(ex.visit_id);
+      if (!path) continue;
+      executionByKey.set(key, {
+        ...ex,
+        report_path: path,
+        report_file_name: path.split("/").pop() ?? "rapport-visite.pdf",
+      });
     }
   }
 
@@ -542,6 +572,8 @@ export async function syncWorkControlExecutionFromMarker(
     controlDate: string;
     presetComment?: string | null;
     notes?: string | null;
+    /** Lier le PDF de rapport de visite (levée terrain). */
+    attachVisitReport?: boolean;
   }
 ) {
   await requireProjectRoles(projectId, ["admin", "gestionnaire", "terrain"]);
@@ -552,7 +584,7 @@ export async function syncWorkControlExecutionFromMarker(
       ? data.enterpriseId ?? null
       : null;
 
-  const payload = {
+  const payload: Record<string, unknown> = {
     checklist_item_id: data.checklistItemId,
     plan_level_id: data.planLevelId,
     enterprise_id: enterpriseId,
@@ -563,6 +595,19 @@ export async function syncWorkControlExecutionFromMarker(
     notes: data.notes?.trim() || null,
     updated_at: new Date().toISOString(),
   };
+
+  if (data.attachVisitReport) {
+    const { data: report } = await supabase
+      .from("visit_reports")
+      .select("file_path")
+      .eq("visit_id", data.visitId)
+      .maybeSingle();
+    if (report?.file_path) {
+      payload.report_path = report.file_path;
+      payload.report_file_name =
+        report.file_path.split("/").pop() ?? "rapport-visite.pdf";
+    }
+  }
 
   const { error } = await supabase
     .from("work_control_executions")
@@ -596,7 +641,8 @@ export async function updateWorkControlExecutionAdmin(
     reportPath?: string | null;
     reportFileName?: string | null;
     visitId?: string | null;
-  }
+  },
+  options?: { skipRevalidate?: boolean }
 ) {
   await requireProjectRoles(projectId, ["admin", "gestionnaire", "financier"]);
 
@@ -645,10 +691,12 @@ export async function updateWorkControlExecutionAdmin(
     if (error) throw new Error(error.message);
   }
 
-  revalidateWorkControl(projectId);
-  revalidatePath(`/tablette/projets/${projectId}/parametres`);
-  revalidatePath(`/pc/projets/${projectId}/parametres`);
-  revalidatePath(`/pc/parametres`);
+  if (!options?.skipRevalidate) {
+    revalidateWorkControl(projectId);
+    revalidatePath(`/tablette/projets/${projectId}/parametres`);
+    revalidatePath(`/pc/projets/${projectId}/parametres`);
+    revalidatePath(`/pc/parametres`);
+  }
 }
 
 export async function getWorkPlansByType(
@@ -803,7 +851,8 @@ export async function uploadWorkControlAttestation(
   projectId: string,
   checklistItemId: string,
   planLevelId: string,
-  formData: FormData
+  formData: FormData,
+  options?: { skipRevalidate?: boolean }
 ) {
   // Outlook / finance : admin, gestionnaire et financier
   await requireProjectRoles(projectId, ["admin", "gestionnaire", "financier"]);
@@ -834,11 +883,13 @@ export async function uploadWorkControlAttestation(
     reportFileName: file.name,
     inAttestation: true,
     attestationDate: today,
-  });
+  }, { skipRevalidate: options?.skipRevalidate });
 
   await closeMarkersAfterAttestation(supabase, checklistItemId, planLevelId);
-  revalidatePath(`/tablette/projets/${projectId}/visites`);
-  revalidatePath(`/pc/projets/${projectId}/suivi-travaux/controle`);
+  if (!options?.skipRevalidate) {
+    revalidatePath(`/tablette/projets/${projectId}/visites`);
+    revalidatePath(`/pc/projets/${projectId}/suivi-travaux/controle`);
+  }
 }
 
 export async function linkVisitReportToExecution(
