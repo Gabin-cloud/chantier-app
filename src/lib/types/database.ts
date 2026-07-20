@@ -231,6 +231,56 @@ export type FinancialAuditLog = {
   created_at: string;
 };
 
+export type PrevisionnelColumnType =
+  | "situation_amount"
+  | "situation_percent"
+  | "manual_cumulative"
+  | "manual_monthly"
+  | "manual_percent";
+
+export type FinancialPrevisionnelColumn = {
+  id: string;
+  project_id: string;
+  sort_order: number;
+  column_type: PrevisionnelColumnType;
+  month_date: string | null;
+  label: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type FinancialPrevisionnelCell = {
+  id: string;
+  column_id: string;
+  enterprise_id: string;
+  raw_value: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type FinancialPrevisionnelComment = {
+  id: string;
+  project_id: string;
+  enterprise_id: string;
+  comment: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PrevisionnelData = {
+  columns: FinancialPrevisionnelColumn[];
+  cells: FinancialPrevisionnelCell[];
+  comments: FinancialPrevisionnelComment[];
+};
+
+export const PREVISIONNEL_COLUMN_TYPE_LABELS: Record<PrevisionnelColumnType, string> = {
+  situation_amount: "Montant cumulé des situations (choix du mois)",
+  situation_percent: "Pourcentage cumulé des situations (choix du mois)",
+  manual_cumulative: "Montant cumulé saisi à la main",
+  manual_monthly: "Montant du mois facturé (saisie manuelle)",
+  manual_percent: "Pourcentage cumulé saisi à la main",
+};
+
 export type IncomingFileCategory =
   | "facture"
   | "devis"
