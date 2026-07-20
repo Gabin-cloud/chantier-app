@@ -16,5 +16,6 @@ export function computeVisitControlSummary(
   if (results.length === 0) return "pending";
   if (results.every((r) => r === "ok")) return "ok";
   if (results.every((r) => r === "ko")) return "ko";
+  if (results.some((r) => r === "ko")) return "partial";
   return "partial";
 }

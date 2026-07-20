@@ -349,7 +349,8 @@ export async function updateMarker(
       marker.plan_id &&
       (marker.control_result === "ok" ||
         marker.control_result === "ko" ||
-        marker.control_result === "partial")
+        marker.control_result === "deferred" ||
+        marker.control_result === "pending")
     ) {
       try {
         const planLevelId = await resolvePlanLevelId(

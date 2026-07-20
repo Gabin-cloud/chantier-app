@@ -15,16 +15,16 @@ import type { VisitPhase } from "@/lib/types/database";
 import { CONTROL_RESULT_LABELS } from "@/lib/types/database";
 
 function rowBackground(row: ControlBoardRow): string {
-  const hasOpenNc =
-    row.controlResult === "ko" ||
-    (row.controlResult === "partial" && !row.nonConformityResolved);
+  const hasOpenNc = row.controlResult === "ko" && !row.nonConformityResolved;
 
   if (hasOpenNc) return "bg-red-50";
   if (row.controlResult === "ok" && row.attestationDate) return "bg-emerald-50";
   if (row.controlResult === "ok") return "bg-green-50";
-  if (row.controlResult === "partial" && row.nonConformityResolved) {
+  if (row.controlResult === "ko" && row.nonConformityResolved) {
     return "bg-emerald-50";
   }
+  if (row.controlResult === "deferred") return "bg-blue-50";
+  if (row.controlResult === "pending") return "bg-amber-50";
   return "bg-white";
 }
 

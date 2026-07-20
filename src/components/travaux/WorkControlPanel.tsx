@@ -242,10 +242,13 @@ export function WorkControlPanel({
                                     className={
                                       ex?.admin_waived || ex?.control_result === "ok"
                                         ? "bg-emerald-50/50"
-                                        : ex?.control_result === "ko" ||
-                                            ex?.control_result === "partial"
+                                        : ex?.control_result === "ko"
                                           ? "bg-red-50/50"
-                                          : ""
+                                          : ex?.control_result === "deferred"
+                                            ? "bg-blue-50/50"
+                                            : ex?.control_result === "pending"
+                                              ? "bg-amber-50/50"
+                                              : ""
                                     }
                                   >
                                     <td className="border border-slate-200 px-2 py-1">

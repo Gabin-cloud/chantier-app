@@ -355,6 +355,9 @@ export type ControlLibraryItem = {
   phase_name: string;
   zone_name: string;
   label: string;
+  plan_support_name: string;
+  help_comment: string;
+  preset_comments: string[];
   sort_order: number;
   created_at: string;
 };
@@ -449,12 +452,23 @@ export type PlanDrawing = {
   updated_at: string;
 };
 
-export type ControlResult = "ok" | "ko" | "partial";
+export type ControlResult = "ok" | "ko" | "deferred" | "pending";
 
 export const CONTROL_RESULT_LABELS: Record<ControlResult, string> = {
   ok: "Conforme",
-  ko: "Non conforme",
-  partial: "Partiel",
+  ko: "À lever",
+  deferred: "À contrôler plus tard",
+  pending: "En attente",
+};
+
+export const CONTROL_RESULT_COLORS: Record<
+  ControlResult,
+  { bg: string; text: string; hex: string }
+> = {
+  ok: { bg: "bg-emerald-600", text: "text-white", hex: "#059669" },
+  ko: { bg: "bg-red-600", text: "text-white", hex: "#dc2626" },
+  deferred: { bg: "bg-blue-600", text: "text-white", hex: "#2563eb" },
+  pending: { bg: "bg-amber-400", text: "text-zinc-900", hex: "#fbbf24" },
 };
 
 export type VisitControlSummary = "pending" | "ok" | "partial" | "ko";
@@ -483,6 +497,7 @@ export type PhaseChecklistItem = {
   label: string;
   sort_order: number;
   plan_type_id: string | null;
+  library_item_id: string | null;
   help_comment: string;
   preset_comments: string[];
   created_at: string;

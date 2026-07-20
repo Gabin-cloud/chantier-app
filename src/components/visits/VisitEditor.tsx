@@ -30,6 +30,7 @@ import type {
   VisitControlSummary,
 } from "@/lib/types/database";
 import {
+  CONTROL_RESULT_COLORS,
   CONTROL_RESULT_LABELS,
   DRAW_COLOR_PRESETS,
   DRAW_WIDTH_PRESETS,
@@ -69,6 +70,7 @@ type VisitEditorProps = {
   locations: ProjectLocation[];
   initialMarkers: MarkerWithPhoto[];
   initialDrawings: PlanDrawing[];
+  inheritedControlResults?: Record<string, ControlResult>;
 };
 
 const STATUS_OPTIONS: MarkerStatus[] = [
@@ -94,6 +96,7 @@ export function VisitEditor({
   locations: initialLocations,
   initialMarkers,
   initialDrawings,
+  inheritedControlResults = {},
 }: VisitEditorProps) {
   const router = useRouter();
   const [markers, setMarkers] = useState(initialMarkers);
@@ -236,6 +239,13 @@ export function VisitEditor({
     setControlResultDraft(marker.control_result ?? "");
     setAddMode(false);
     setDrawMode(false);
+  }
+
+  function handleChecklistItemChange(itemId: string) {
+    setChecklistItemDraft(itemId);
+    if (itemId && !controlResultDraft && inheritedControlResults[itemId]) {
+      setControlResultDraft(inheritedControlResults[itemId]);
+    }
   }
 
   function handlePlanClick(xPercent: number, yPercent: number) {
@@ -410,14 +420,14 @@ export function VisitEditor({
       <div className="rounded-2xl bg-white p-8 text-center shadow-sm">
         <p className="text-lg font-semibold text-zinc-900">Aucun plan disponible</p>
         <p className="mt-2 text-zinc-500">
-          Importez des plans PDF dans les paramètres du projet avant de commencer
+          Importez des plans PDF dans la bibliothèque de plans avant de commencer
           une visite.
         </p>
         <Link
-          href={`/tablette/projets/${projectId}/parametres`}
+          href={`/tablette/projets/${projectId}/plans`}
           className="mt-6 inline-block rounded-xl bg-zinc-900 px-6 py-3 font-semibold text-white"
         >
-          Aller aux paramètres
+          Bibliothèque de plans
         </Link>
       </div>
     );
@@ -572,7 +582,7 @@ export function VisitEditor({
             </label>
             <select
               value={checklistItemDraft}
-              onChange={(e) => setChecklistItemDraft(e.target.value)}
+              onChange={(e) => handleChecklistItemChange(e.target.value)}
               disabled={isCompleted}
               className="mb-2 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm disabled:opacity-60"
             >
@@ -616,25 +626,27 @@ export function VisitEditor({
 
             {checklistItemDraft && (
               <div className="mb-3 flex flex-wrap gap-1.5">
-                {(["ok", "partial", "ko"] as ControlResult[]).map((result) => (
-                  <button
-                    key={result}
-                    type="button"
-                    disabled={isCompleted}
-                    onClick={() => setControlResultDraft(result)}
-                    className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
-                      controlResultDraft === result
-                        ? result === "ok"
-                          ? "bg-emerald-600 text-white"
-                          : result === "ko"
-                            ? "bg-red-600 text-white"
-                            : "bg-amber-500 text-white"
-                        : "bg-zinc-100 text-zinc-700"
-                    }`}
-                  >
-                    {CONTROL_RESULT_LABELS[result]}
-                  </button>
-                ))}
+                {(["ok", "ko", "deferred", "pending"] as ControlResult[]).map(
+                  (result) => {
+                    const colors = CONTROL_RESULT_COLORS[result];
+                    const isActive = controlResultDraft === result;
+                    return (
+                      <button
+                        key={result}
+                        type="button"
+                        disabled={isCompleted}
+                        onClick={() => setControlResultDraft(result)}
+                        className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
+                          isActive
+                            ? `${colors.bg} ${colors.text}`
+                            : "bg-zinc-100 text-zinc-700"
+                        }`}
+                      >
+                        {CONTROL_RESULT_LABELS[result]}
+                      </button>
+                    );
+                  }
+                )}
               </div>
             )}
 
@@ -666,7 +678,7 @@ export function VisitEditor({
                 </div>
               )}
 
-            {(controlResultDraft === "ko" || controlResultDraft === "partial") && (
+            {controlResultDraft === "ko" && (
               <p className="mb-2 text-[11px] text-amber-700">
                 Non-conformité : assignez l&apos;entreprise concernée ci-dessus.
               </p>

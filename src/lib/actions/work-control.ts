@@ -330,9 +330,7 @@ export async function getWorkControlSynthesis(
     const enterpriseExecutions = executionList.filter(
       (e) =>
         e.enterprise_id === enterprise.id &&
-        (e.control_result === "ko" ||
-          e.control_result === "partial" ||
-          e.admin_waived)
+        (e.control_result === "ko" || e.admin_waived)
     );
 
     const total = computeSynthesisCell(enterpriseExecutions);
@@ -409,8 +407,10 @@ export async function getWorkControlPanel(
           else conform++;
         } else if (ex.admin_waived || ex.control_result === "ok") {
           conform++;
-        } else {
+        } else if (ex.control_result === "ko") {
           nonConform++;
+        } else {
+          pending++;
         }
       }
 
@@ -548,9 +548,7 @@ export async function syncWorkControlExecutionFromMarker(
   const supabase = await createClient();
 
   const enterpriseId =
-    data.controlResult === "ko" || data.controlResult === "partial"
-      ? data.enterpriseId ?? null
-      : null;
+    data.controlResult === "ko" ? data.enterpriseId ?? null : null;
 
   const payload = {
     checklist_item_id: data.checklistItemId,
