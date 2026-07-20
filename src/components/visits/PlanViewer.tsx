@@ -8,15 +8,15 @@ import {
   type PointerEvent as ReactPointerEvent,
 } from "react";
 import { getPlanPdfData } from "@/lib/actions/plans";
-import type { DrawingStroke, MarkerStatus } from "@/lib/types/database";
-import { MARKER_STATUS_HEX } from "@/lib/types/database";
+import type { ControlResult, DrawingStroke } from "@/lib/types/database";
+import { markerControlHex } from "@/lib/types/database";
 
 export type PlanViewerMarker = {
   id: string;
   x_percent: number;
   y_percent: number;
   marker_number: number;
-  status?: MarkerStatus;
+  control_result?: ControlResult | null;
 };
 
 type Size = { width: number; height: number };
@@ -663,19 +663,18 @@ export function PlanViewer({
               </svg>
               <div className="pointer-events-none absolute inset-0">
                 {markers.map((marker) => {
-                  const status = marker.status ?? "a_traiter";
                   const isSelected = selectedMarkerId === marker.id;
                   return (
-                  <button
-                    key={marker.id}
-                    type="button"
-                    data-plan-marker
-                    style={{
-                      left: `${marker.x_percent}%`,
-                      top: `${marker.y_percent}%`,
-                      backgroundColor: MARKER_STATUS_HEX[status],
-                    }}
-                    onClick={(e) => {
+                    <button
+                      key={marker.id}
+                      type="button"
+                      data-plan-marker
+                      style={{
+                        left: `${marker.x_percent}%`,
+                        top: `${marker.y_percent}%`,
+                        backgroundColor: markerControlHex(marker.control_result),
+                      }}
+                      onClick={(e) => {
                       e.stopPropagation();
                       onMarkerClick?.(marker.id);
                     }}

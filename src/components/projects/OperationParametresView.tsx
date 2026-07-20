@@ -124,7 +124,6 @@ export function OperationParametresView({
           <PhaseManager
             projectId={project.id}
             phases={phases}
-            zones={zones}
             checklistItems={checklistItems}
             planTypes={planTypes}
             canEdit={canEditControls}

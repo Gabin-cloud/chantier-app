@@ -170,7 +170,6 @@ export function ProjectSettings({
         <PhaseManager
           projectId={project.id}
           phases={phases}
-          zones={zones}
           checklistItems={checklistItems}
           planTypes={planTypes}
           canEdit={canEdit}

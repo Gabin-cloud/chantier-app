@@ -8,7 +8,6 @@ import { getProjectChecklistItems, getPlanDrawings } from "@/lib/actions/checkli
 import { getProjectLocations } from "@/lib/actions/locations";
 import { getPlanFolders, getPlansWithUrls } from "@/lib/actions/plans";
 import { getProjectPhases } from "@/lib/actions/phases";
-import { getProjectZones } from "@/lib/actions/zones";
 import { getVisitReportUrl } from "@/lib/actions/visit-reports";
 import { getWorkPlansByType } from "@/lib/actions/work-control";
 import { getProject } from "@/lib/actions/projects";
@@ -28,7 +27,7 @@ export default async function VisitePage({ params }: PageProps) {
   const { id, visiteId } = await params;
 
   try {
-    const [{ visit, markers }, plans, planFolders, phases, project, allChecklistItems, zones, workPlans] =
+    const [{ visit, markers }, plans, planFolders, phases, project, allChecklistItems, workPlans] =
       await Promise.all([
       getVisit(visiteId),
       getPlansWithUrls(id),
@@ -36,7 +35,6 @@ export default async function VisitePage({ params }: PageProps) {
       getProjectPhases(id),
       getProject(id),
       getProjectChecklistItems(id),
-      getProjectZones(id),
       getWorkPlansByType(id).catch(() => ({ plans: [], planTypes: [] })),
     ]);
 
@@ -45,11 +43,8 @@ export default async function VisitePage({ params }: PageProps) {
     );
 
     const phaseName = phases.find((p) => p.id === visit.phase_id)?.name ?? null;
-    const zoneName = zones.find((z) => z.id === visit.zone_id)?.name ?? null;
     const checklistItems = allChecklistItems.filter(
-      (item) =>
-        item.phase_id === visit.phase_id &&
-        (!visit.zone_id || item.zone_id === visit.zone_id)
+      (item) => item.phase_id === visit.phase_id
     );
     const controlLabel =
       checklistItems.find((i) => i.id === visit.checklist_item_id)?.label ?? null;
@@ -94,7 +89,6 @@ export default async function VisitePage({ params }: PageProps) {
             <p className="truncate text-xs text-zinc-500 sm:text-sm">
               {visitDate}
               {phaseName ? ` · ${phaseName}` : ""}
-              {zoneName ? ` · ${zoneName}` : ""}
               {controlLabel ? ` · ${controlLabel}` : ""}
             </p>
           </div>
@@ -104,7 +98,6 @@ export default async function VisitePage({ params }: PageProps) {
           projectId={id}
           visit={visit}
           phaseName={phaseName}
-          zoneName={zoneName}
           controlLabel={controlLabel}
           reportUrl={reportUrl}
           plans={plans}

@@ -73,7 +73,6 @@ export function OperationAdvancedSettings({
         <PhaseManager
           projectId={projectId}
           phases={phases}
-          zones={zones}
           checklistItems={checklistItems}
           planTypes={planTypes}
           canEdit={canEdit}

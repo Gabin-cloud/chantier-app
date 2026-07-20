@@ -34,8 +34,7 @@ import {
   CONTROL_RESULT_LABELS,
   DRAW_COLOR_PRESETS,
   DRAW_WIDTH_PRESETS,
-  MARKER_STATUS_COLORS,
-  MARKER_STATUS_LABELS,
+  markerControlHex,
   VISIT_CONTROL_SUMMARY_LABELS,
 } from "@/lib/types/database";
 import { computeVisitControlSummary } from "@/lib/control-summary";
@@ -73,13 +72,7 @@ type VisitEditorProps = {
   inheritedControlResults?: Record<string, ControlResult>;
 };
 
-const STATUS_OPTIONS: MarkerStatus[] = [
-  "a_traiter",
-  "en_cours",
-  "rejetee",
-  "levee",
-  "constat",
-];
+const CONTROL_STATUS_OPTIONS: ControlResult[] = ["ko", "ok", "deferred", "pending"];
 
 export function VisitEditor({
   projectId,
@@ -177,16 +170,6 @@ export function VisitEditor({
     () => planLevelsByPlan[selectedPlanId] ?? [],
     [planLevelsByPlan, selectedPlanId]
   );
-
-  const checklistItemsByZone = useMemo(() => {
-    const map = new Map<string, PhaseChecklistItem[]>();
-    for (const item of filteredChecklistItems) {
-      const zone = item.zone_name || zoneName || "Général";
-      if (!map.has(zone)) map.set(zone, []);
-      map.get(zone)!.push(item);
-    }
-    return map;
-  }, [filteredChecklistItems, zoneName]);
 
   const scheduleSaveDrawings = useCallback(
     (planId: string, strokes: DrawingStroke[]) => {
@@ -473,7 +456,6 @@ export function VisitEditor({
           <p className="text-xs text-zinc-500">
             {planMarkers.length} sur ce plan
             {phaseName ? ` · ${phaseName}` : ""}
-            {zoneName ? ` · ${zoneName}` : ""}
             {controlLabel ? ` · ${controlLabel}` : ""}
           </p>
         </div>
@@ -500,18 +482,25 @@ export function VisitEditor({
                     >
                       <div className="flex items-center gap-2.5">
                         <span
-                          className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white ${
-                            MARKER_STATUS_COLORS[marker.status ?? "a_traiter"]
-                          }`}
+                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white"
+                          style={{
+                            backgroundColor: markerControlHex(marker.control_result),
+                          }}
                         >
                           {marker.marker_number}
                         </span>
                         <div className="min-w-0 flex-1">
                           <p className="truncate text-sm font-medium text-zinc-900">
-                            {marker.remark || "Sans remarque"}
+                            {marker.remark ||
+                              filteredChecklistItems.find(
+                                (i) => i.id === marker.checklist_item_id
+                              )?.label ||
+                              "Sans remarque"}
                           </p>
                           <p className="text-xs text-zinc-500">
-                            {MARKER_STATUS_LABELS[marker.status ?? "a_traiter"]}
+                            {marker.control_result
+                              ? CONTROL_RESULT_LABELS[marker.control_result]
+                              : "À contrôler"}
                             {loc ? ` · ${loc}` : ""}
                           </p>
                         </div>
@@ -530,25 +519,63 @@ export function VisitEditor({
         {selectedMarker && (
           <div className="max-h-[50vh] shrink-0 overflow-y-auto border-t border-zinc-100 px-4 py-3">
             <h3 className="mb-2 text-sm font-semibold text-zinc-900">
-              Réserve n°{selectedMarker.marker_number}
+              Pastille n°{selectedMarker.marker_number}
             </h3>
 
-            <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-zinc-500">
-              Statut
+            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-zinc-500">
+              Point de contrôle
             </label>
             <select
-              value={statusDraft}
-              onChange={(e) => setStatusDraft(e.target.value as MarkerStatus)}
+              value={checklistItemDraft}
+              onChange={(e) => handleChecklistItemChange(e.target.value)}
               disabled={isCompleted}
-              className="mb-3 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm disabled:opacity-60"
+              className="mb-2 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm disabled:opacity-60"
             >
-              {STATUS_OPTIONS.map((status) => (
-                <option key={status} value={status}>
-                  {MARKER_STATUS_LABELS[status]}
+              <option value="">— Choisir un point —</option>
+              {filteredChecklistItems.map((item) => (
+                <option key={item.id} value={item.id}>
+                  {item.label}
                 </option>
               ))}
             </select>
 
+            {selectedChecklistItem?.help_comment && (
+              <p className="mb-2 rounded-lg bg-sky-50 px-2 py-1.5 text-xs text-sky-900">
+                {selectedChecklistItem.help_comment}
+              </p>
+            )}
+
+            {checklistItemDraft && (
+              <div className="mb-3">
+                <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                  Résultat
+                </p>
+                <div className="flex flex-wrap gap-1.5">
+                  {CONTROL_STATUS_OPTIONS.map((result) => {
+                    const colors = CONTROL_RESULT_COLORS[result];
+                    const isActive = controlResultDraft === result;
+                    return (
+                      <button
+                        key={result}
+                        type="button"
+                        disabled={isCompleted}
+                        onClick={() => setControlResultDraft(result)}
+                        className={`rounded-lg px-3 py-2 text-xs font-semibold ${
+                          isActive
+                            ? `${colors.bg} ${colors.text}`
+                            : "bg-zinc-100 text-zinc-700"
+                        }`}
+                      >
+                        {CONTROL_RESULT_LABELS[result]}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+            )}
+
+            {controlResultDraft === "ko" && (
+              <>
             <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-zinc-500">
               Entreprise
             </label>
@@ -576,38 +603,13 @@ export function VisitEditor({
                 Corps de métier : {selectedEnterprise.trade}
               </p>
             )}
-
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-zinc-500">
-              Point de contrôle
-            </label>
-            <select
-              value={checklistItemDraft}
-              onChange={(e) => handleChecklistItemChange(e.target.value)}
-              disabled={isCompleted}
-              className="mb-2 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm disabled:opacity-60"
-            >
-              <option value="">— Choisir un point —</option>
-              {[...checklistItemsByZone.entries()].map(([zone, items]) => (
-                <optgroup key={zone} label={zone}>
-                  {items.map((item) => (
-                    <option key={item.id} value={item.id}>
-                      {item.label}
-                    </option>
-                  ))}
-                </optgroup>
-              ))}
-            </select>
-
-            {selectedChecklistItem?.help_comment && (
-              <p className="mb-2 rounded-lg bg-sky-50 px-2 py-1.5 text-xs text-sky-900">
-                {selectedChecklistItem.help_comment}
-              </p>
+              </>
             )}
 
             {planLevels.length > 1 && (
               <>
                 <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                  Niveau / zone du plan
+                  Niveau du plan
                 </label>
                 <select
                   value={planLevelDraft}
@@ -622,32 +624,6 @@ export function VisitEditor({
                   ))}
                 </select>
               </>
-            )}
-
-            {checklistItemDraft && (
-              <div className="mb-3 flex flex-wrap gap-1.5">
-                {(["ok", "ko", "deferred", "pending"] as ControlResult[]).map(
-                  (result) => {
-                    const colors = CONTROL_RESULT_COLORS[result];
-                    const isActive = controlResultDraft === result;
-                    return (
-                      <button
-                        key={result}
-                        type="button"
-                        disabled={isCompleted}
-                        onClick={() => setControlResultDraft(result)}
-                        className={`rounded-lg px-3 py-1.5 text-xs font-semibold ${
-                          isActive
-                            ? `${colors.bg} ${colors.text}`
-                            : "bg-zinc-100 text-zinc-700"
-                        }`}
-                      >
-                        {CONTROL_RESULT_LABELS[result]}
-                      </button>
-                    );
-                  }
-                )}
-              </div>
             )}
 
             {selectedChecklistItem &&
@@ -949,7 +925,7 @@ export function VisitEditor({
                 x_percent: m.x_percent,
                 y_percent: m.y_percent,
                 marker_number: m.marker_number,
-                status: m.status ?? "a_traiter",
+                control_result: m.control_result,
               }))}
               strokes={currentStrokes}
               onStrokesChange={handleStrokesChange}
@@ -969,7 +945,7 @@ export function VisitEditor({
         <VisitReportPreview
           visit={visit}
           phaseName={phaseName ?? null}
-          zoneName={zoneName ?? null}
+          zoneName={null}
           controlLabel={controlLabel ?? null}
           reportUrl={reportUrl ?? null}
           checklistItems={checklistItems}

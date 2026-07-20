@@ -3,7 +3,6 @@
 import { revalidatePath } from "next/cache";
 import { requireProjectRoles, requireUser } from "@/lib/auth/permissions";
 import { createClient } from "@/lib/supabase/server";
-import { findOrCreatePhaseZone } from "@/lib/actions/zones";
 import { ensureDefaultPhases } from "@/lib/actions/phases";
 import type { ControlLibraryItem, ControlResult } from "@/lib/types/database";
 
@@ -37,7 +36,6 @@ function normalizeLibraryItem(row: Record<string, unknown>): ControlLibraryItem 
 export async function saveControlLibraryItem(input: {
   id?: string;
   phase_name: string;
-  zone_name: string;
   label: string;
   plan_support_name?: string;
   help_comment?: string;
@@ -48,13 +46,11 @@ export async function saveControlLibraryItem(input: {
   const supabase = await createClient();
 
   const label = input.label.trim();
-  const zoneName = input.zone_name.trim();
-  if (!label) throw new Error("Le libellé du point de contrôle est obligatoire.");
-  if (!zoneName) throw new Error("La zone est obligatoire.");
+  if (!label) throw new Error("Le point de contrôle est obligatoire.");
 
   const payload = {
     phase_name: input.phase_name.trim() || "Gros œuvre",
-    zone_name: zoneName,
+    zone_name: "",
     label,
     plan_support_name: input.plan_support_name?.trim() ?? "",
     help_comment: input.help_comment?.trim() ?? "",
@@ -155,7 +151,6 @@ export async function importControlLibraryToProject(projectId: string) {
 
     if (!phase) continue;
 
-    const zone = await findOrCreatePhaseZone(phase.id, item.zone_name);
     const planTypeId = await resolvePlanTypeId(
       supabase,
       projectId,
@@ -164,8 +159,8 @@ export async function importControlLibraryToProject(projectId: string) {
 
     const payload = {
       phase_id: phase.id,
-      zone_id: zone.id,
-      zone_name: item.zone_name,
+      zone_id: null,
+      zone_name: null,
       label: item.label,
       library_item_id: item.id,
       plan_type_id: planTypeId,
@@ -193,8 +188,8 @@ export async function importControlLibraryToProject(projectId: string) {
       .from("phase_checklist_items")
       .select("id")
       .eq("phase_id", phase.id)
-      .eq("zone_id", zone.id)
       .eq("label", item.label)
+      .is("zone_id", null)
       .maybeSingle();
 
     if (existing) {
