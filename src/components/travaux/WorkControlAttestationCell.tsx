@@ -18,6 +18,12 @@ type WorkControlAttestationCellProps = {
   attestationUrl: string | null;
 };
 
+function fileLabel(execution: WorkControlExecution | null): string | null {
+  if (!execution?.report_path) return null;
+  if (execution.report_file_name) return execution.report_file_name;
+  return execution.report_path.split("/").pop() ?? "Attestation.pdf";
+}
+
 export function WorkControlAttestationCell({
   projectId,
   checklistItemId,
@@ -32,6 +38,9 @@ export function WorkControlAttestationCell({
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [dragOver, setDragOver] = useState(false);
+
+  const name = fileLabel(execution);
+  const date = execution?.attestation_date ?? null;
 
   function uploadFile(file: File) {
     setError(null);
@@ -73,20 +82,46 @@ export function WorkControlAttestationCell({
     });
   }
 
-  if (!canAdmin) {
-    return attestationUrl ? (
-      <a
-        href={attestationUrl}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="text-violet-700 underline"
-      >
-        PDF
-      </a>
-    ) : (
-      "—"
+  if (name && attestationUrl) {
+    return (
+      <div className="min-w-[9rem] space-y-1">
+        <a
+          href={attestationUrl}
+          target="_blank"
+          rel="noopener noreferrer"
+          className="block truncate text-[11px] font-semibold text-emerald-800 underline"
+          title={name}
+        >
+          {name}
+        </a>
+        {date && <p className="text-[10px] text-slate-500">{date}</p>}
+        {canAdmin && (
+          <button
+            type="button"
+            disabled={isPending}
+            onClick={() => inputRef.current?.click()}
+            className="text-[10px] text-violet-700 hover:underline disabled:opacity-40"
+          >
+            Remplacer
+          </button>
+        )}
+        <input
+          ref={inputRef}
+          type="file"
+          accept="application/pdf,.pdf"
+          className="hidden"
+          disabled={isPending}
+          onChange={(e) => {
+            const file = e.target.files?.[0];
+            if (file) uploadFile(file);
+          }}
+        />
+        {error && <p className="text-[10px] text-red-600">{error}</p>}
+      </div>
     );
   }
+
+  if (!canAdmin) return <span className="text-slate-400">—</span>;
 
   return (
     <div className="min-w-[10rem] space-y-1">
@@ -127,9 +162,6 @@ export function WorkControlAttestationCell({
         >
           Déposer PDF
         </button>
-        {execution?.attestation_date && (
-          <p className="mt-0.5 text-slate-500">{execution.attestation_date}</p>
-        )}
       </div>
       {visitId && (
         <button
@@ -140,16 +172,6 @@ export function WorkControlAttestationCell({
         >
           Lier rapport visite
         </button>
-      )}
-      {attestationUrl && (
-        <a
-          href={attestationUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="block text-[10px] text-emerald-700 underline"
-        >
-          Ouvrir attestation
-        </a>
       )}
       {error && <p className="text-[10px] text-red-600">{error}</p>}
     </div>

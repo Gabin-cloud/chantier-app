@@ -35,6 +35,7 @@ export type WorkControlExecution = {
   admin_waived_at: string | null;
   preset_comment: string | null;
   notes: string | null;
+  report_file_name?: string | null;
   created_at: string;
   updated_at: string;
 };
@@ -55,36 +56,57 @@ export const WORK_CONTROL_STATUS_LABELS: Record<WorkControlItemStatus, string> =
 };
 
 export function resolveWorkControlItemStatus(
-  executions: Pick<
-    WorkControlExecution,
-    | "control_result"
-    | "admin_waived"
-    | "in_attestation"
-    | "attestation_date"
-  >[]
+  executions: Array<
+    | Pick<
+        WorkControlExecution,
+        | "control_result"
+        | "admin_waived"
+        | "in_attestation"
+        | "attestation_date"
+      >
+    | null
+    | undefined
+  >
 ): WorkControlItemStatus {
   if (!executions.length) return "pending";
 
-  const allDone = executions.every(
-    (e) =>
-      e.admin_waived ||
-      e.control_result === "ok" ||
-      (e.control_result === "ko" && e.in_attestation)
-  );
+  const isLevelDone = (
+    e:
+      | Pick<
+          WorkControlExecution,
+          "control_result" | "admin_waived" | "in_attestation"
+        >
+      | null
+      | undefined
+  ) => {
+    if (!e) return false;
+    if (e.admin_waived) return true;
+    if (e.control_result === "ok") return true;
+    if (e.control_result === "ko" && e.in_attestation) return true;
+    return false;
+  };
+
+  const allDone = executions.every(isLevelDone);
 
   if (!allDone) {
     const hasOpenNc = executions.some(
       (e) =>
+        e &&
         !e.admin_waived &&
-        (e.control_result === "ko") &&
+        e.control_result === "ko" &&
         !e.in_attestation
     );
     if (hasOpenNc) return "non_conform_open";
     return "pending";
   }
 
-  if (executions.every((e) => e.admin_waived || e.control_result === "ok")) {
-    return executions.some((e) => e.admin_waived) ? "waived" : "conform";
+  const defined = executions.filter(Boolean) as Pick<
+    WorkControlExecution,
+    "control_result" | "admin_waived" | "in_attestation"
+  >[];
+
+  if (defined.every((e) => e.admin_waived || e.control_result === "ok")) {
+    return defined.some((e) => e.admin_waived) ? "waived" : "conform";
   }
 
   return "non_conform_attestation";

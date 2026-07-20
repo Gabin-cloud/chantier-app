@@ -26,6 +26,7 @@ import type {
   PlanDrawing,
   PlanFolder,
   ProjectLocation,
+  TabletMarkerVisualState,
   Visit,
   VisitControlSummary,
 } from "@/lib/types/database";
@@ -34,7 +35,9 @@ import {
   CONTROL_RESULT_LABELS,
   DRAW_COLOR_PRESETS,
   DRAW_WIDTH_PRESETS,
+  getTabletMarkerVisualState,
   markerControlHex,
+  TABLET_MARKER_STATE_LABELS,
   VISIT_CONTROL_SUMMARY_LABELS,
 } from "@/lib/types/database";
 import { computeVisitControlSummary } from "@/lib/control-summary";
@@ -42,6 +45,8 @@ import {
   DEFAULT_MARKER_FILTERS,
   isPriorVisitMarker,
   matchesMarkerFilters,
+  TABLET_FILTER_STATES,
+  toggleFilterValue,
   type MarkerListFilters,
   type WorkControlExecutionLite,
 } from "@/lib/marker-filters";
@@ -81,7 +86,93 @@ type VisitEditorProps = {
   workControlExecutions?: WorkControlExecutionMapEntry[];
 };
 
-const CONTROL_STATUS_OPTIONS: ControlResult[] = ["ko", "ok", "deferred", "pending"];
+const CONTROL_STATUS_OPTIONS: ControlResult[] = ["ko", "ok", "pending"];
+const SWIPE_RESOLVE_THRESHOLD = 80;
+
+function SwipeableMarkerRow({
+  children,
+  onResolve,
+  disabled,
+}: {
+  children: React.ReactNode;
+  onResolve: () => void;
+  disabled?: boolean;
+}) {
+  const startXRef = useRef<number | null>(null);
+  const [offsetX, setOffsetX] = useState(0);
+  const swipedRef = useRef(false);
+
+  function onPointerDown(e: React.PointerEvent<HTMLLIElement>) {
+    if (disabled) return;
+    startXRef.current = e.clientX;
+    swipedRef.current = false;
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+
+  function onPointerMove(e: React.PointerEvent<HTMLLIElement>) {
+    if (disabled || startXRef.current == null) return;
+    const dx = e.clientX - startXRef.current;
+    setOffsetX(dx);
+    if (Math.abs(dx) > 12) swipedRef.current = true;
+  }
+
+  function onPointerUp(e: React.PointerEvent<HTMLLIElement>) {
+    if (disabled || startXRef.current == null) {
+      setOffsetX(0);
+      startXRef.current = null;
+      return;
+    }
+    const dx = e.clientX - startXRef.current;
+    startXRef.current = null;
+    setOffsetX(0);
+    if (Math.abs(dx) > SWIPE_RESOLVE_THRESHOLD) {
+      onResolve();
+    }
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      // ignore
+    }
+  }
+
+  return (
+    <li
+      className="relative overflow-hidden rounded-xl"
+      onPointerDown={onPointerDown}
+      onPointerMove={onPointerMove}
+      onPointerUp={onPointerUp}
+      onPointerCancel={() => {
+        startXRef.current = null;
+        setOffsetX(0);
+      }}
+    >
+      {!disabled && Math.abs(offsetX) > 20 && (
+        <div
+          className={`absolute inset-y-0 flex w-20 items-center justify-center text-xs font-bold text-white ${
+            offsetX > 0 ? "left-0 bg-blue-600" : "right-0 bg-blue-600"
+          }`}
+        >
+          Lever
+        </div>
+      )}
+      <div
+        style={{
+          transform: `translateX(${offsetX}px)`,
+          transition: startXRef.current == null ? "transform 0.15s ease" : undefined,
+        }}
+        onClickCapture={(e) => {
+          if (swipedRef.current) {
+            e.preventDefault();
+            e.stopPropagation();
+            swipedRef.current = false;
+          }
+        }}
+      >
+        {children}
+      </div>
+    </li>
+  );
+}
 
 export function VisitEditor({
   projectId,
@@ -120,7 +211,6 @@ export function VisitEditor({
   const [drawColor, setDrawColor] = useState<string>(DRAW_COLOR_PRESETS[1]);
   const [drawWidth, setDrawWidth] = useState<number>(DRAW_WIDTH_PRESETS[1]);
   const [remarkDraft, setRemarkDraft] = useState("");
-  const [linkDraft, setLinkDraft] = useState<string[]>([]);
   const [statusDraft, setStatusDraft] = useState<MarkerStatus>("a_traiter");
   const [enterpriseDraft, setEnterpriseDraft] = useState("");
   const [tradeDraft, setTradeDraft] = useState("");
@@ -166,11 +256,6 @@ export function VisitEditor({
     !unlockedMarkerIds.has(selectedMarker.id);
   const isCompleted = visit.status === "completed";
   const currentStrokes = drawingsByPlan[selectedPlanId] ?? [];
-
-  const otherMarkers = useMemo(
-    () => markers.filter((m) => m.id !== selectedMarkerId),
-    [markers, selectedMarkerId]
-  );
 
   const selectedEnterprise = useMemo(
     () => enterprises.find((e) => e.id === enterpriseDraft) ?? null,
@@ -242,7 +327,6 @@ export function VisitEditor({
   function selectMarker(marker: MarkerWithPhoto) {
     setSelectedMarkerId(marker.id);
     setRemarkDraft(marker.remark ?? "");
-    setLinkDraft(marker.linked_marker_ids);
     setStatusDraft(marker.status ?? "a_traiter");
     setEnterpriseDraft(marker.enterprise_id ?? "");
     setTradeDraft(marker.trade ?? "");
@@ -338,7 +422,7 @@ export function VisitEditor({
 
         await updateMarker(visit.id, projectId, selectedMarker.id, {
           remark: remarkDraft,
-          linked_marker_ids: linkDraft,
+          linked_marker_ids: [],
           status: statusDraft,
           enterprise_id: enterpriseDraft || null,
           trade: (selectedEnterprise?.trade ?? tradeDraft) || null,
@@ -357,7 +441,7 @@ export function VisitEditor({
               ? {
                   ...m,
                   remark: remarkDraft,
-                  linked_marker_ids: linkDraft,
+                  linked_marker_ids: [],
                   status: statusDraft,
                   enterprise_id: enterpriseDraft || null,
                   trade: (selectedEnterprise?.trade ?? tradeDraft) || null,
@@ -376,20 +460,19 @@ export function VisitEditor({
     });
   }
 
-  function handleResolveMarker() {
-    if (!selectedMarker) return;
+  function handleResolveMarker(markerId?: string) {
+    const id = markerId ?? selectedMarker?.id;
+    if (!id) return;
     startTransition(async () => {
       try {
         setError(null);
-        await updateMarker(visit.id, projectId, selectedMarker.id, {
+        await updateMarker(visit.id, projectId, id, {
           resolve_only: true,
         });
         setMarkers((prev) =>
-          prev.map((m) =>
-            m.id === selectedMarker.id ? { ...m, status: "levee" } : m
-          )
+          prev.map((m) => (m.id === id ? { ...m, status: "levee" } : m))
         );
-        setSelectedMarkerId(null);
+        if (selectedMarkerId === id) setSelectedMarkerId(null);
       } catch (err) {
         setError(err instanceof Error ? err.message : "Erreur.");
       }
@@ -456,12 +539,6 @@ export function VisitEditor({
         setError(err instanceof Error ? err.message : "Erreur.");
       }
     });
-  }
-
-  function toggleLink(markerId: string) {
-    setLinkDraft((prev) =>
-      prev.includes(markerId) ? prev.filter((id) => id !== markerId) : [...prev, markerId]
-    );
   }
 
   function locationName(marker: MarkerWithPhoto) {
@@ -532,40 +609,55 @@ export function VisitEditor({
             {phaseName ? ` · ${phaseName}` : ""}
             {controlLabel ? ` · ${controlLabel}` : ""}
           </p>
-          <div className="mt-2 flex flex-wrap gap-1.5">
-            <select
-              value={markerFilters.enterpriseId}
-              onChange={(e) =>
-                setMarkerFilters((f) => ({ ...f, enterpriseId: e.target.value }))
-              }
-              className="rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1 text-[11px]"
-            >
-              <option value="">Toutes entreprises</option>
-              {enterprises.map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.name}
-                </option>
-              ))}
-            </select>
-            <select
-              value={markerFilters.state}
-              onChange={(e) =>
-                setMarkerFilters((f) => ({
-                  ...f,
-                  state: e.target.value as MarkerListFilters["state"],
-                }))
-              }
-              className="rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1 text-[11px]"
-            >
-              <option value="open">Non levées (défaut)</option>
-              <option value="all">Toutes</option>
-              <option value="ko">À lever</option>
-              <option value="ok">Conformes</option>
-              <option value="deferred">À contrôler plus tard</option>
-              <option value="pending">En attente</option>
-              <option value="levee">Levées terrain</option>
-              <option value="attested">Levées attestation</option>
-            </select>
+          <div className="mt-2 space-y-2">
+            <div className="flex flex-wrap gap-1.5">
+              {enterprises.map((e) => {
+                const active = markerFilters.enterpriseIds.includes(e.id);
+                return (
+                  <button
+                    key={e.id}
+                    type="button"
+                    onClick={() =>
+                      setMarkerFilters((f) => ({
+                        ...f,
+                        enterpriseIds: toggleFilterValue(f.enterpriseIds, e.id),
+                      }))
+                    }
+                    className={`rounded-lg px-2 py-1 text-[11px] font-semibold ${
+                      active
+                        ? "bg-zinc-900 text-white"
+                        : "bg-zinc-100 text-zinc-700"
+                    }`}
+                  >
+                    {e.name}
+                  </button>
+                );
+              })}
+            </div>
+            <div className="flex flex-wrap gap-1.5">
+              {TABLET_FILTER_STATES.map((state: TabletMarkerVisualState) => {
+                const active = markerFilters.states.includes(state);
+                return (
+                  <button
+                    key={state}
+                    type="button"
+                    onClick={() =>
+                      setMarkerFilters((f) => ({
+                        ...f,
+                        states: toggleFilterValue(f.states, state),
+                      }))
+                    }
+                    className={`rounded-lg px-2 py-1 text-[11px] font-semibold ${
+                      active
+                        ? "bg-zinc-900 text-white"
+                        : "bg-zinc-100 text-zinc-700"
+                    }`}
+                  >
+                    {TABLET_MARKER_STATE_LABELS[state]}
+                  </button>
+                );
+              })}
+            </div>
           </div>
         </div>
 
@@ -580,8 +672,18 @@ export function VisitEditor({
                 const loc = locationName(marker);
                 const isPrior = isPriorVisitMarker(marker.visit_id, visit.id);
                 const isLocked = isPrior && !unlockedMarkerIds.has(marker.id);
+                const visualState = getTabletMarkerVisualState(
+                  marker.control_result,
+                  marker.status
+                );
+                const canSwipeResolve =
+                  !isCompleted && marker.status !== "levee";
                 return (
-                  <li key={marker.id}>
+                  <SwipeableMarkerRow
+                    key={marker.id}
+                    disabled={!canSwipeResolve || isPending}
+                    onResolve={() => handleResolveMarker(marker.id)}
+                  >
                     <button
                       type="button"
                       onClick={() => selectMarker(marker)}
@@ -595,7 +697,10 @@ export function VisitEditor({
                         <span
                           className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white"
                           style={{
-                            backgroundColor: markerControlHex(marker.control_result),
+                            backgroundColor: markerControlHex(
+                              marker.control_result,
+                              marker.status
+                            ),
                           }}
                         >
                           {marker.marker_number}
@@ -609,9 +714,7 @@ export function VisitEditor({
                               "Sans remarque"}
                           </p>
                           <p className="text-xs text-zinc-500">
-                            {marker.control_result
-                              ? CONTROL_RESULT_LABELS[marker.control_result]
-                              : "À contrôler"}
+                            {TABLET_MARKER_STATE_LABELS[visualState]}
                             {loc ? ` · ${loc}` : ""}
                             {isPrior ? " · visite préc." : ""}
                           </p>
@@ -626,7 +729,7 @@ export function VisitEditor({
                         )}
                       </div>
                     </button>
-                  </li>
+                  </SwipeableMarkerRow>
                 );
               })}
             </ul>
@@ -663,7 +766,7 @@ export function VisitEditor({
                   <button
                     type="button"
                     disabled={isPending || isCompleted}
-                    onClick={handleResolveMarker}
+                    onClick={() => handleResolveMarker()}
                     className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
                   >
                     Lever la pastille
@@ -877,30 +980,6 @@ export function VisitEditor({
               className="mb-2 w-full resize-none rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm focus:border-zinc-400 focus:outline-none disabled:opacity-60"
             />
 
-            {otherMarkers.length > 0 && !isCompleted && (
-              <div className="mb-2">
-                <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                  Lier à d&apos;autres pastilles
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {otherMarkers.map((m) => (
-                    <button
-                      key={m.id}
-                      type="button"
-                      onClick={() => toggleLink(m.id)}
-                      className={`rounded-lg px-2.5 py-1 text-xs font-semibold ${
-                        linkDraft.includes(m.id)
-                          ? "bg-zinc-900 text-white"
-                          : "bg-zinc-100 text-zinc-700"
-                      }`}
-                    >
-                      #{m.marker_number}
-                    </button>
-                  ))}
-                </div>
-              </div>
-            )}
-
             {selectedMarker.photo_public_url && (
               <img
                 src={selectedMarker.photo_public_url}
@@ -911,15 +990,18 @@ export function VisitEditor({
 
             {!isCompleted && (
               <div className="space-y-2">
-                <label className="block">
-                  <span className="mb-1 block text-xs font-medium text-zinc-700">Photo</span>
+                <label className="inline-flex cursor-pointer items-center">
+                  <span className="sr-only">Ajouter une photo</span>
+                  <span className="inline-flex min-h-10 items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-100">
+                    📷+
+                  </span>
                   <input
                     type="file"
                     accept="image/*"
                     capture="environment"
                     onChange={handlePhotoUpload}
                     disabled={isPending}
-                    className="w-full text-xs text-zinc-600"
+                    className="hidden"
                   />
                 </label>
                 <button
@@ -983,20 +1065,6 @@ export function VisitEditor({
           </div>
 
           <div className="flex shrink-0 flex-wrap gap-2">
-            {!isCompleted && (
-              <button
-                type="button"
-                onClick={() => {
-                  setAddMode((v) => !v);
-                  setDrawMode(false);
-                }}
-                className={`min-h-10 rounded-lg px-4 py-2 text-sm font-bold ${
-                  addMode ? "bg-amber-500 text-white" : "bg-zinc-100 text-zinc-800"
-                }`}
-              >
-                {addMode ? "Pastille active" : "+ Pastille"}
-              </button>
-            )}
             {!isCompleted && (
               <button
                 type="button"
@@ -1065,6 +1133,36 @@ export function VisitEditor({
           </div>
         </div>
 
+        {!isCompleted && (
+          <div
+            className={`flex shrink-0 items-center justify-between gap-3 border-b px-3 py-1.5 ${
+              addMode
+                ? "border-amber-200 bg-amber-50"
+                : "border-zinc-200 bg-white"
+            }`}
+          >
+            <button
+              type="button"
+              onClick={() => {
+                setAddMode((v) => !v);
+                setDrawMode(false);
+              }}
+              className={`rounded-lg px-3 py-1.5 text-xs font-bold ${
+                addMode
+                  ? "bg-amber-500 text-white"
+                  : "bg-zinc-100 text-zinc-800"
+              }`}
+            >
+              {addMode ? "Nouvelle pastille" : "+ Nouvelle pastille"}
+            </button>
+            <p className="min-w-0 flex-1 text-xs text-zinc-600">
+              {addMode
+                ? "Touchez le plan pour placer une pastille"
+                : "Activez pour ajouter une pastille sur le plan"}
+            </p>
+          </div>
+        )}
+
         <div className="relative flex min-h-0 flex-1">
           {showPlanPicker && (
             <aside className="absolute left-0 top-0 z-30 flex h-full w-64 flex-col border-r border-zinc-200 bg-white shadow-lg">
@@ -1090,11 +1188,7 @@ export function VisitEditor({
             </aside>
           )}
 
-        <div
-          className={`relative min-h-0 flex-1 ${
-            addMode ? "ring-2 ring-inset ring-amber-400" : drawMode ? "ring-2 ring-inset ring-orange-400" : ""
-          }`}
-        >
+        <div className="relative min-h-0 flex-1">
           {selectedPlan && (
             <PlanViewer
               key={selectedPlan.id}
@@ -1111,6 +1205,7 @@ export function VisitEditor({
                 y_percent: m.y_percent,
                 marker_number: m.marker_number,
                 control_result: m.control_result,
+                status: m.status,
               }))}
               strokes={currentStrokes}
               onStrokesChange={handleStrokesChange}

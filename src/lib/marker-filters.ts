@@ -1,4 +1,9 @@
-import type { ControlResult, MarkerStatus } from "@/lib/types/database";
+import type {
+  ControlResult,
+  MarkerStatus,
+  TabletMarkerVisualState,
+} from "@/lib/types/database";
+import { getTabletMarkerVisualState } from "@/lib/types/database";
 
 export type WorkControlExecutionLite = {
   checklist_item_id: string;
@@ -9,17 +14,23 @@ export type WorkControlExecutionLite = {
   admin_waived: boolean;
 };
 
-export type MarkerFilterState = "open" | "all" | ControlResult | "levee" | "attested";
-
 export type MarkerListFilters = {
-  enterpriseId: string;
-  state: MarkerFilterState;
+  enterpriseIds: string[];
+  states: TabletMarkerVisualState[];
 };
 
+/** Par défaut : tout sauf Levée. */
 export const DEFAULT_MARKER_FILTERS: MarkerListFilters = {
-  enterpriseId: "",
-  state: "open",
+  enterpriseIds: [],
+  states: ["ko", "ok", "pending"],
 };
+
+export const TABLET_FILTER_STATES: TabletMarkerVisualState[] = [
+  "ko",
+  "ok",
+  "levee",
+  "pending",
+];
 
 export function executionKey(checklistItemId: string, planLevelId: string | null) {
   if (!checklistItemId || !planLevelId) return null;
@@ -37,27 +48,6 @@ export function isAttestedByExecution(
   return Boolean(ex?.in_attestation && ex?.report_path);
 }
 
-export function isMarkerOpen(
-  marker: {
-    status: MarkerStatus;
-    checklist_item_id: string | null;
-    plan_level_id: string | null;
-  },
-  executionMap: Map<string, WorkControlExecutionLite>
-): boolean {
-  if (marker.status === "levee") return false;
-  if (
-    isAttestedByExecution(
-      marker.checklist_item_id,
-      marker.plan_level_id,
-      executionMap
-    )
-  ) {
-    return false;
-  }
-  return true;
-}
-
 export function matchesMarkerFilters(
   marker: {
     status: MarkerStatus;
@@ -69,35 +59,26 @@ export function matchesMarkerFilters(
   filters: MarkerListFilters,
   executionMap: Map<string, WorkControlExecutionLite>
 ): boolean {
-  if (filters.enterpriseId && marker.enterprise_id !== filters.enterpriseId) {
+  if (
+    filters.enterpriseIds.length > 0 &&
+    (!marker.enterprise_id || !filters.enterpriseIds.includes(marker.enterprise_id))
+  ) {
     return false;
   }
 
-  const attested = isAttestedByExecution(
-    marker.checklist_item_id,
-    marker.plan_level_id,
-    executionMap
-  );
-
-  switch (filters.state) {
-    case "all":
-      return true;
-    case "open":
-      return isMarkerOpen(marker, executionMap);
-    case "levee":
-      return marker.status === "levee";
-    case "attested":
-      return attested;
-    case "ok":
-    case "ko":
-    case "deferred":
-    case "pending":
-      return marker.control_result === filters.state;
-    default:
-      return true;
+  if (isAttestedByExecution(marker.checklist_item_id, marker.plan_level_id, executionMap)) {
+    if (!filters.states.includes("levee")) return false;
   }
+
+  const visual = getTabletMarkerVisualState(marker.control_result, marker.status);
+  if (filters.states.length === 0) return true;
+  return filters.states.includes(visual);
 }
 
 export function isPriorVisitMarker(markerVisitId: string, currentVisitId: string) {
   return markerVisitId !== currentVisitId;
+}
+
+export function toggleFilterValue<T extends string>(list: T[], value: T): T[] {
+  return list.includes(value) ? list.filter((v) => v !== value) : [...list, value];
 }
