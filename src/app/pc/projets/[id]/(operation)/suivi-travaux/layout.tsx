@@ -16,7 +16,8 @@ export default async function SuiviTravauxLayout({
   const items: NavTabItem[] = [
     { href: `${base}/synthese`, label: "Synthèse" },
     { href: `${base}/controle`, label: "Contrôle" },
-    { href: `${base}/rapport`, label: "Rapport & plan" },
+    { href: `${base}/rapport`, label: "Rapport" },
+    { href: `${base}/plan`, label: "Plan" },
     { href: `${base}/plans`, label: "Suivi des plans" },
   ];
 

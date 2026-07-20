@@ -15,6 +15,7 @@ export type EmailConfirmPayload = {
   recipients: { email: string; name: string }[];
   cc: string;
   htmlBody: string;
+  resumeRequestedAt: string;
 };
 
 type RecipientRow = { id: string; email: string; name: string };
@@ -30,7 +31,8 @@ function buildPayload(
   subject: string,
   recipientRows: RecipientRow[],
   cc: string,
-  htmlBody: string
+  htmlBody: string,
+  resumeRequestedAt: string
 ): { ok: true; payload: EmailConfirmPayload } | { ok: false; error: string } {
   const trimmedSubject = subject.trim();
   const recipients = normalizeRecipients(recipientRows);
@@ -45,6 +47,9 @@ function buildPayload(
   }
   if (!trimmedBody) {
     return { ok: false, error: "Le corps du mail est obligatoire." };
+  }
+  if (!resumeRequestedAt) {
+    return { ok: false, error: "Indiquez la date de reprise demandée." };
   }
 
   const ccRecipients = parseEmailList(cc);
@@ -62,6 +67,7 @@ function buildPayload(
       recipients,
       cc: cc.trim(),
       htmlBody: trimmedBody,
+      resumeRequestedAt,
     },
   };
 }
@@ -93,6 +99,12 @@ export function EmailDraftPreviewModal({
     }))
   );
   const [formError, setFormError] = useState<string | null>(null);
+  const defaultResume = (() => {
+    const d = new Date();
+    d.setDate(d.getDate() + 15);
+    return d.toISOString().slice(0, 10);
+  })();
+  const [resumeRequestedAt, setResumeRequestedAt] = useState(defaultResume);
 
   function updateRecipient(id: string, field: "email" | "name", value: string) {
     setRecipientRows((rows) =>
@@ -113,7 +125,13 @@ export function EmailDraftPreviewModal({
 
   function submit(action: "draft" | "send") {
     setFormError(null);
-    const built = buildPayload(subject, recipientRows, cc, htmlBody);
+    const built = buildPayload(
+      subject,
+      recipientRows,
+      cc,
+      htmlBody,
+      resumeRequestedAt
+    );
     if (!built.ok) {
       setFormError(built.error);
       return;
@@ -154,6 +172,22 @@ export function EmailDraftPreviewModal({
                 onChange={(e) => setSubject(e.target.value)}
                 className={inputClass}
               />
+            </div>
+
+            <div>
+              <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-slate-500">
+                Date de reprise demandée
+              </label>
+              <input
+                type="date"
+                value={resumeRequestedAt}
+                onChange={(e) => setResumeRequestedAt(e.target.value)}
+                className={inputClass}
+              />
+              <p className="mt-1 text-[11px] text-slate-500">
+                Utilisée dans le mail (balise {"{{date_reprise}}"}) et enregistrée
+                avec le rapport.
+              </p>
             </div>
 
             <div>

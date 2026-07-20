@@ -100,6 +100,51 @@ export async function deleteControlLibraryItem(itemId: string) {
   revalidatePath("/pc/referentiels");
 }
 
+/** Renomme une phase de la bibliothèque globale (tous les points rattachés). */
+export async function renameControlLibraryPhase(
+  oldName: string,
+  newName: string
+) {
+  await requireUser();
+  const from = oldName.trim();
+  const to = newName.trim();
+  if (!from || !to) throw new Error("Nom de phase invalide.");
+  if (from === to) return;
+
+  const supabase = await createClient();
+  const { data: clash } = await supabase
+    .from("control_library_items")
+    .select("id")
+    .eq("phase_name", to)
+    .limit(1)
+    .maybeSingle();
+  if (clash) {
+    throw new Error(`La phase « ${to} » existe déjà.`);
+  }
+
+  const { error } = await supabase
+    .from("control_library_items")
+    .update({ phase_name: to })
+    .eq("phase_name", from);
+  if (error) throw new Error(error.message);
+  revalidatePath("/pc/referentiels");
+}
+
+/** Supprime une phase et tous ses points de la bibliothèque. */
+export async function deleteControlLibraryPhase(phaseName: string) {
+  await requireUser();
+  const name = phaseName.trim();
+  if (!name) throw new Error("Nom de phase invalide.");
+
+  const supabase = await createClient();
+  const { error } = await supabase
+    .from("control_library_items")
+    .delete()
+    .eq("phase_name", name);
+  if (error) throw new Error(error.message);
+  revalidatePath("/pc/referentiels");
+}
+
 async function resolvePlanTypeId(
   supabase: Awaited<ReturnType<typeof createClient>>,
   projectId: string,

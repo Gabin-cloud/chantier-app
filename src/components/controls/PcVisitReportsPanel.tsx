@@ -13,7 +13,6 @@ import {
   EmailDraftPreviewModal,
   type EmailConfirmPayload,
 } from "@/components/controls/EmailDraftPreviewModal";
-import { VISIT_CONTROL_SUMMARY_LABELS } from "@/lib/types/database";
 
 export function PcVisitReportsPanel({
   projectId,
@@ -93,6 +92,7 @@ export function PcVisitReportsPanel({
         htmlBody: payload.htmlBody,
         recipients: payload.recipients,
         cc: payload.cc,
+        resumeRequestedAt: payload.resumeRequestedAt,
       };
 
       if (mode === "draft") {
@@ -170,10 +170,10 @@ export function PcVisitReportsPanel({
             <tr>
               <th className="px-4 py-3 font-semibold">Visite</th>
               <th className="px-4 py-3 font-semibold">Date</th>
-              <th className="px-4 py-3 font-semibold">Phase / Zone</th>
-              <th className="px-4 py-3 font-semibold">Synthèse</th>
+              <th className="px-4 py-3 font-semibold">Phase</th>
+              <th className="px-4 py-3 font-semibold">Récap</th>
               <th className="px-4 py-3 font-semibold">Rapport</th>
-              <th className="px-4 py-3 font-semibold">Brouillon</th>
+              <th className="px-4 py-3 font-semibold">Envoi / reprise</th>
               {canEdit && <th className="px-4 py-3 font-semibold">Actions</th>}
             </tr>
           </thead>
@@ -194,10 +194,25 @@ export function PcVisitReportsPanel({
                 <td className="px-4 py-3 text-slate-600">
                   {[visit.phaseName, visit.zoneName].filter(Boolean).join(" · ") || "—"}
                 </td>
-                <td className="px-4 py-3">
-                  {visit.control_summary
-                    ? VISIT_CONTROL_SUMMARY_LABELS[visit.control_summary]
-                    : "—"}
+                <td className="px-4 py-3 text-xs text-slate-700">
+                  <div className="flex flex-col gap-0.5">
+                    <span>
+                      <span className="font-semibold text-emerald-700">
+                        {visit.conformCount}
+                      </span>{" "}
+                      conf.
+                      <span className="mx-1 text-slate-300">·</span>
+                      <span className="font-semibold text-red-600">
+                        {visit.nonConformCount}
+                      </span>{" "}
+                      NC
+                    </span>
+                    <span className="text-slate-500">
+                      {visit.freeRemarkCount} remarque
+                      {visit.freeRemarkCount === 1 ? "" : "s"} libre
+                      {visit.freeRemarkCount === 1 ? "" : "s"}
+                    </span>
+                  </div>
                 </td>
                 <td className="px-4 py-3">
                   {visit.reportUrl ? (
@@ -213,31 +228,44 @@ export function PcVisitReportsPanel({
                     "—"
                   )}
                 </td>
-                <td className="px-4 py-3">
-                  {visit.draftPrepared ? (
-                    <span className="text-emerald-700">Préparé</span>
-                  ) : (
-                    <span className="text-slate-400">—</span>
-                  )}
+                <td className="px-4 py-3 text-xs text-slate-600">
+                  <div className="flex flex-col gap-0.5">
+                    <span>
+                      Envoi :{" "}
+                      {visit.emailSentAt
+                        ? new Date(visit.emailSentAt).toLocaleDateString("fr-FR")
+                        : "—"}
+                    </span>
+                    <span>
+                      Reprise :{" "}
+                      {visit.resumeRequestedAt
+                        ? new Date(visit.resumeRequestedAt).toLocaleDateString(
+                            "fr-FR"
+                          )
+                        : "—"}
+                    </span>
+                  </div>
                 </td>
                 {canEdit && (
                   <td className="px-4 py-3">
                     <div className="flex flex-wrap gap-2">
-                      <button
-                        type="button"
-                        disabled={isPending}
-                        onClick={() => handleGenerate(visit.id)}
-                        className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-200"
-                      >
-                        Générer PDF
-                      </button>
+                      {!visit.reportUrl && (
+                        <button
+                          type="button"
+                          disabled={isPending}
+                          onClick={() => handleGenerate(visit.id)}
+                          className="rounded-lg bg-slate-100 px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-200"
+                        >
+                          Générer PDF
+                        </button>
+                      )}
                       <button
                         type="button"
                         disabled={isPending || visit.status !== "completed"}
                         onClick={() => handleOpenPreview(visit.id)}
                         className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white hover:bg-emerald-500 disabled:opacity-40"
                       >
-                        Composer le mail
+                        Visualiser / mail
                       </button>
                     </div>
                   </td>

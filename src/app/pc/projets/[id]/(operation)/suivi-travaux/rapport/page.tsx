@@ -1,14 +1,14 @@
+import Link from "next/link";
 import {
   DatabaseErrorNotice,
   SupabaseSetupNotice,
 } from "@/components/SupabaseSetupNotice";
-import { WorkPlansByTypeManager } from "@/components/travaux/WorkPlansByTypeManager";
+import { PcVisitReportsPanel } from "@/components/controls/PcVisitReportsPanel";
 import {
-  canAccessField,
-  canManageMembers,
-  getProjectRole,
-} from "@/lib/auth/permissions";
-import { getWorkPlansByType } from "@/lib/actions/work-control";
+  getM365DraftReadiness,
+  getPcVisitReports,
+} from "@/lib/actions/control-board";
+import { canEditProject, getProjectRole } from "@/lib/auth/permissions";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
 type PageProps = {
@@ -23,8 +23,9 @@ export default async function TravauxRapportPage({ params }: PageProps) {
   const { id } = await params;
 
   try {
-    const [plansData, projectRole] = await Promise.all([
-      getWorkPlansByType(id),
+    const [visits, m365, projectRole] = await Promise.all([
+      getPcVisitReports(id),
+      getM365DraftReadiness(),
       getProjectRole(id),
     ]);
 
@@ -32,34 +33,33 @@ export default async function TravauxRapportPage({ params }: PageProps) {
       return <DatabaseErrorNotice message="Accès refusé." />;
     }
 
-    const canPlans = canAccessField(projectRole);
-    const canAdmin = canManageMembers(projectRole);
+    const canEdit = canEditProject(projectRole);
 
     return (
       <div className="space-y-6">
         <header>
           <h2 className="text-lg font-semibold text-slate-900">
-            Rapport &amp; plans
+            Rapports de visite
           </h2>
           <p className="mt-1 text-sm text-slate-500">
-            Gérez les plans PDF par type de support (architecte, béton, ELEX,
-            plomberie…). Les types alimentent les points de contrôle.
+            PDF généré automatiquement à la fin de chaque visite. Récap
+            conformité / NC / remarques libres, puis envoi mail type aux
+            entreprises concernées (
+            <Link href="/pc/parametres" className="font-semibold text-violet-700 underline">
+              modèle dans Paramétrage
+            </Link>
+            ).
           </p>
         </header>
 
-        {canPlans ? (
-          <WorkPlansByTypeManager
-            projectId={id}
-            planTypes={plansData.planTypes}
-            plans={plansData.plans}
-            canEdit={canPlans}
-            canAdmin={canAdmin}
-          />
-        ) : (
-          <p className="text-sm text-slate-500">
-            Droits insuffisants pour gérer les plans.
-          </p>
-        )}
+        <PcVisitReportsPanel
+          projectId={id}
+          visits={visits}
+          canEdit={canEdit}
+          m365Ready={m365.ready}
+          m365Email={m365.msEmail}
+          m365Message={m365.message}
+        />
       </div>
     );
   } catch (error) {

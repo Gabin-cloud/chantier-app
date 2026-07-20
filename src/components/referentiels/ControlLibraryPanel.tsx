@@ -5,7 +5,9 @@ import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
 import {
   deleteControlLibraryItem,
+  deleteControlLibraryPhase,
   importControlLibraryToAllProjects,
+  renameControlLibraryPhase,
   saveControlLibraryItem,
 } from "@/lib/actions/control-library";
 import type { ControlLibraryItem } from "@/lib/types/database";
@@ -136,6 +138,45 @@ export function ControlLibraryPanel({ items, canEdit }: ControlLibraryPanelProps
     setRows([emptyRow(10)]);
   }
 
+  function renamePhase() {
+    const next = window.prompt("Nouveau nom de la phase", activePhase);
+    if (!next || !next.trim() || next.trim() === activePhase) return;
+    startTransition(async () => {
+      try {
+        setError(null);
+        await renameControlLibraryPhase(activePhase, next.trim());
+        setActivePhase(next.trim());
+        refresh();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Erreur renommage.");
+      }
+    });
+  }
+
+  function removePhase() {
+    const count = items.filter((i) => i.phase_name === activePhase).length;
+    if (
+      !confirm(
+        count > 0
+          ? `Supprimer la phase « ${activePhase} » et ses ${count} point(s) ?`
+          : `Supprimer la phase « ${activePhase} » ?`
+      )
+    ) {
+      return;
+    }
+    startTransition(async () => {
+      try {
+        setError(null);
+        await deleteControlLibraryPhase(activePhase);
+        const remaining = phases.filter((p) => p !== activePhase);
+        setActivePhase(remaining[0] ?? DEFAULT_PHASES[0] ?? "Gros œuvre");
+        refresh();
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Erreur suppression.");
+      }
+    });
+  }
+
   function propagateAll() {
     if (
       !confirm(
@@ -213,7 +254,7 @@ export function ControlLibraryPanel({ items, canEdit }: ControlLibraryPanelProps
           ))}
         </div>
         {canEdit && (
-          <div className="flex shrink-0 gap-1">
+          <div className="flex shrink-0 flex-wrap items-center gap-1">
             <input
               value={newPhaseName}
               onChange={(e) => setNewPhaseName(e.target.value)}
@@ -233,6 +274,22 @@ export function ControlLibraryPanel({ items, canEdit }: ControlLibraryPanelProps
               className="rounded-lg border border-slate-200 px-2 py-1.5 text-sm font-semibold text-slate-700 disabled:opacity-40"
             >
               +
+            </button>
+            <button
+              type="button"
+              onClick={renamePhase}
+              disabled={isPending}
+              className="rounded-lg border border-slate-200 px-2 py-1.5 text-xs font-semibold text-slate-700 disabled:opacity-40"
+            >
+              Renommer
+            </button>
+            <button
+              type="button"
+              onClick={removePhase}
+              disabled={isPending}
+              className="rounded-lg border border-red-200 px-2 py-1.5 text-xs font-semibold text-red-700 disabled:opacity-40"
+            >
+              Supprimer
             </button>
           </div>
         )}
