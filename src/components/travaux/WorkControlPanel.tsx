@@ -322,9 +322,10 @@ export function WorkControlPanel({
       )}
 
       <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
-        <strong>Légende :</strong> titre vert = tous les plans conformes, dispensés ou
-        NC levée en attestation. Déposez un PDF ou liez un rapport de visite dans la
-        colonne Attestation.
+        <strong>Légende :</strong> titre vert uniquement si <em>tous</em> les plans/niveaux
+        sont conformes, dispensés ou NC levée en attestation (aucun « à contrôler »
+        restant). Déposez un PDF (nom + date affichés) ou liez un rapport de visite.
+        Depuis Outlook : onglet Attestations NC.
       </div>
     </div>
   );

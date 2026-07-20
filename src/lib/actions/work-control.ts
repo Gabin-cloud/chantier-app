@@ -393,7 +393,7 @@ export async function getWorkControlPanel(
       }));
 
       const status = resolveWorkControlItemStatus(
-        levels.map((l) => l.execution).filter(Boolean) as WorkControlExecution[]
+        levels.map((l) => l.execution)
       );
 
       let conform = 0;
@@ -594,6 +594,7 @@ export async function updateWorkControlExecutionAdmin(
     attestationDate?: string | null;
     adminWaived?: boolean;
     reportPath?: string | null;
+    reportFileName?: string | null;
     visitId?: string | null;
   }
 ) {
@@ -617,6 +618,8 @@ export async function updateWorkControlExecutionAdmin(
   if (data.attestationDate !== undefined)
     payload.attestation_date = data.attestationDate;
   if (data.reportPath !== undefined) payload.report_path = data.reportPath;
+  if (data.reportFileName !== undefined)
+    payload.report_file_name = data.reportFileName;
   if (data.visitId !== undefined) payload.visit_id = data.visitId;
 
   if (data.adminWaived !== undefined) {
@@ -827,6 +830,7 @@ export async function uploadWorkControlAttestation(
     checklistItemId,
     planLevelId,
     reportPath: filePath,
+    reportFileName: file.name,
     inAttestation: true,
     attestationDate: today,
   });
@@ -855,10 +859,13 @@ export async function linkVisitReportToExecution(
     throw new Error("Aucun rapport PDF pour cette visite.");
   }
 
+  const fileName = report.file_path.split("/").pop() ?? "rapport-visite.pdf";
+
   await updateWorkControlExecutionAdmin(projectId, {
     checklistItemId,
     planLevelId,
     reportPath: report.file_path,
+    reportFileName: fileName,
     visitId,
     inAttestation: true,
     attestationDate: new Date().toISOString().slice(0, 10),
@@ -868,11 +875,51 @@ export async function linkVisitReportToExecution(
   revalidatePath(`/tablette/projets/${projectId}/visites`);
 }
 
-export async function getWorkControlAttestationUrl(
-  reportPath: string | null
-): Promise<string | null> {
-  if (!reportPath) return null;
-  const supabase = await createClient();
-  const { data } = supabase.storage.from(ATTESTATION_BUCKET).getPublicUrl(reportPath);
-  return data.publicUrl;
+export async function getOpenNcExecutionsForOutlook(
+  projectId: string
+): Promise<
+  Array<{
+    checklistItemId: string;
+    planLevelId: string;
+    itemLabel: string;
+    planName: string;
+    levelName: string;
+    enterpriseName: string | null;
+    controlDate: string | null;
+  }>
+> {
+  await requireProjectAccess(projectId);
+  const panel = await getWorkControlPanel(projectId);
+  const rows: Array<{
+    checklistItemId: string;
+    planLevelId: string;
+    itemLabel: string;
+    planName: string;
+    levelName: string;
+    enterpriseName: string | null;
+    controlDate: string | null;
+  }> = [];
+
+  for (const phase of panel.phases) {
+    for (const item of phase.items) {
+      for (const lv of item.levels) {
+        const ex = lv.execution;
+        if (!ex || ex.admin_waived) continue;
+        if (ex.control_result !== "ko" || ex.in_attestation) continue;
+        const enterpriseName = ex.enterprise_id
+          ? panel.enterprises.find((e) => e.id === ex.enterprise_id)?.name ?? null
+          : null;
+        rows.push({
+          checklistItemId: item.id,
+          planLevelId: lv.level.id,
+          itemLabel: item.label,
+          planName: lv.planName,
+          levelName: lv.level.name,
+          enterpriseName,
+          controlDate: ex.control_date,
+        });
+      }
+    }
+  }
+  return rows;
 }

@@ -472,9 +472,37 @@ export const CONTROL_RESULT_COLORS: Record<
 };
 
 /** Couleur pastille plan / liste tablette selon le résultat de contrôle. */
-export function markerControlHex(controlResult: ControlResult | null | undefined): string {
-  if (!controlResult) return "#a1a1aa";
-  return CONTROL_RESULT_COLORS[controlResult].hex;
+export function markerControlHex(
+  controlResult: ControlResult | null | undefined,
+  markerStatus?: MarkerStatus | null
+): string {
+  if (markerStatus === "levee") return "#2563eb";
+  if (!controlResult) return "#fbbf24";
+  if (controlResult === "ok") return "#059669";
+  if (controlResult === "ko") return "#dc2626";
+  if (controlResult === "pending") return "#fbbf24";
+  if (controlResult === "deferred") return "#2563eb";
+  return "#a1a1aa";
+}
+
+/** Statuts terrain affichés sur tablette (4 couleurs). */
+export type TabletMarkerVisualState = "ko" | "ok" | "levee" | "pending";
+
+export const TABLET_MARKER_STATE_LABELS: Record<TabletMarkerVisualState, string> = {
+  ko: "À lever",
+  ok: "Conforme",
+  levee: "Levée",
+  pending: "En attente",
+};
+
+export function getTabletMarkerVisualState(
+  controlResult: ControlResult | null | undefined,
+  markerStatus: MarkerStatus | null | undefined
+): TabletMarkerVisualState {
+  if (markerStatus === "levee") return "levee";
+  if (controlResult === "ok") return "ok";
+  if (controlResult === "ko") return "ko";
+  return "pending";
 }
 
 export const PLAN_SUPPORT_OPTIONS = [

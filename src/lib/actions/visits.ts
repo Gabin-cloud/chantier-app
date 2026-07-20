@@ -272,12 +272,36 @@ export async function updateMarker(
   const isPriorVisit = existing.visit_id !== visitId;
 
   if (data.resolve_only) {
-    const { error } = await supabase
+    const { data: marker, error } = await supabase
       .from("markers")
       .update({ status: "levee", updated_at: new Date().toISOString() })
-      .eq("id", markerId);
+      .eq("id", markerId)
+      .select("checklist_item_id, plan_id, plan_level_id, enterprise_id")
+      .single();
     if (error) throw new Error(error.message);
+
+    if (marker?.checklist_item_id && marker.plan_id) {
+      try {
+        const planLevelId = await resolvePlanLevelId(
+          marker.plan_id,
+          marker.plan_level_id
+        );
+        await syncWorkControlExecutionFromMarker(projectId, {
+          checklistItemId: marker.checklist_item_id,
+          planLevelId,
+          controlResult: "ok",
+          enterpriseId: marker.enterprise_id,
+          visitId,
+          controlDate: new Date().toISOString().slice(0, 10),
+          notes: "Levée terrain",
+        });
+      } catch {
+        // optional
+      }
+    }
+
     revalidatePath(`/tablette/projets/${projectId}/visites/${visitId}`);
+    revalidatePath(`/pc/projets/${projectId}/suivi-travaux/controle`);
     return;
   }
 
