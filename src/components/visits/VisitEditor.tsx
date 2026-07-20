@@ -38,6 +38,14 @@ import {
   VISIT_CONTROL_SUMMARY_LABELS,
 } from "@/lib/types/database";
 import { computeVisitControlSummary } from "@/lib/control-summary";
+import {
+  DEFAULT_MARKER_FILTERS,
+  isPriorVisitMarker,
+  matchesMarkerFilters,
+  type MarkerListFilters,
+  type WorkControlExecutionLite,
+} from "@/lib/marker-filters";
+import type { WorkControlExecutionMapEntry } from "@/lib/actions/work-control";
 import type { WorkControlPlanLevel } from "@/lib/types/work-control";
 
 type PlanWithUrl = Plan & { pdf_url: string };
@@ -70,6 +78,7 @@ type VisitEditorProps = {
   initialMarkers: MarkerWithPhoto[];
   initialDrawings: PlanDrawing[];
   inheritedControlResults?: Record<string, ControlResult>;
+  workControlExecutions?: WorkControlExecutionMapEntry[];
 };
 
 const CONTROL_STATUS_OPTIONS: ControlResult[] = ["ko", "ok", "deferred", "pending"];
@@ -90,6 +99,7 @@ export function VisitEditor({
   initialMarkers,
   initialDrawings,
   inheritedControlResults = {},
+  workControlExecutions = [],
 }: VisitEditorProps) {
   const router = useRouter();
   const [markers, setMarkers] = useState(initialMarkers);
@@ -123,11 +133,37 @@ export function VisitEditor({
   const [showReport, setShowReport] = useState(false);
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
+  const [markerFilters, setMarkerFilters] = useState<MarkerListFilters>(
+    DEFAULT_MARKER_FILTERS
+  );
+  const [unlockedMarkerIds, setUnlockedMarkerIds] = useState<Set<string>>(
+    () => new Set()
+  );
   const saveDrawingsTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
+  const executionMap = useMemo(() => {
+    const map = new Map<string, WorkControlExecutionLite>();
+    for (const ex of workControlExecutions) {
+      map.set(`${ex.checklist_item_id}:${ex.plan_level_id}`, ex);
+    }
+    return map;
+  }, [workControlExecutions]);
+
+  const visibleMarkers = useMemo(
+    () => markers.filter((m) => matchesMarkerFilters(m, markerFilters, executionMap)),
+    [markers, markerFilters, executionMap]
+  );
+
   const selectedPlan = plans.find((p) => p.id === selectedPlanId);
-  const planMarkers = markers.filter((m) => m.plan_id === selectedPlanId);
-  const selectedMarker = markers.find((m) => m.id === selectedMarkerId) ?? null;
+  const planMarkers = visibleMarkers.filter((m) => m.plan_id === selectedPlanId);
+  const selectedMarker =
+    markers.find((m) => m.id === selectedMarkerId) ?? null;
+  const selectedMarkerIsPrior =
+    selectedMarker != null && isPriorVisitMarker(selectedMarker.visit_id, visit.id);
+  const selectedMarkerLocked =
+    selectedMarkerIsPrior &&
+    selectedMarker != null &&
+    !unlockedMarkerIds.has(selectedMarker.id);
   const isCompleted = visit.status === "completed";
   const currentStrokes = drawingsByPlan[selectedPlanId] ?? [];
 
@@ -277,6 +313,14 @@ export function VisitEditor({
   async function handleSaveMarker() {
     if (!selectedMarker) return;
 
+    if (
+      (controlResultDraft === "ok" || controlResultDraft === "ko") &&
+      !enterpriseDraft
+    ) {
+      setError("Sélectionnez l'entreprise pour Conforme ou À lever.");
+      return;
+    }
+
     startTransition(async () => {
       try {
         setError(null);
@@ -304,6 +348,7 @@ export function VisitEditor({
           plan_level_id: planLevelDraft || null,
           control_result: controlResultDraft || null,
           preset_comment: presetCommentDraft || null,
+          unlock_edit: selectedMarkerIsPrior && !selectedMarkerLocked,
         });
 
         setMarkers((prev) =>
@@ -328,6 +373,35 @@ export function VisitEditor({
       } catch (err) {
         setError(err instanceof Error ? err.message : "Erreur lors de l'enregistrement.");
       }
+    });
+  }
+
+  function handleResolveMarker() {
+    if (!selectedMarker) return;
+    startTransition(async () => {
+      try {
+        setError(null);
+        await updateMarker(visit.id, projectId, selectedMarker.id, {
+          resolve_only: true,
+        });
+        setMarkers((prev) =>
+          prev.map((m) =>
+            m.id === selectedMarker.id ? { ...m, status: "levee" } : m
+          )
+        );
+        setSelectedMarkerId(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Erreur.");
+      }
+    });
+  }
+
+  function toggleUnlockMarker(markerId: string) {
+    setUnlockedMarkerIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(markerId)) next.delete(markerId);
+      else next.add(markerId);
+      return next;
     });
   }
 
@@ -452,23 +526,60 @@ export function VisitEditor({
               </a>
             )}
           </div>
-          <h2 className="text-base font-bold text-zinc-900">Réserves</h2>
+          <h2 className="text-base font-bold text-zinc-900">Pastilles</h2>
           <p className="text-xs text-zinc-500">
-            {planMarkers.length} sur ce plan
+            {planMarkers.length} visibles sur ce plan
             {phaseName ? ` · ${phaseName}` : ""}
             {controlLabel ? ` · ${controlLabel}` : ""}
           </p>
+          <div className="mt-2 flex flex-wrap gap-1.5">
+            <select
+              value={markerFilters.enterpriseId}
+              onChange={(e) =>
+                setMarkerFilters((f) => ({ ...f, enterpriseId: e.target.value }))
+              }
+              className="rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1 text-[11px]"
+            >
+              <option value="">Toutes entreprises</option>
+              {enterprises.map((e) => (
+                <option key={e.id} value={e.id}>
+                  {e.name}
+                </option>
+              ))}
+            </select>
+            <select
+              value={markerFilters.state}
+              onChange={(e) =>
+                setMarkerFilters((f) => ({
+                  ...f,
+                  state: e.target.value as MarkerListFilters["state"],
+                }))
+              }
+              className="rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1 text-[11px]"
+            >
+              <option value="open">Non levées (défaut)</option>
+              <option value="all">Toutes</option>
+              <option value="ko">À lever</option>
+              <option value="ok">Conformes</option>
+              <option value="deferred">À contrôler plus tard</option>
+              <option value="pending">En attente</option>
+              <option value="levee">Levées terrain</option>
+              <option value="attested">Levées attestation</option>
+            </select>
+          </div>
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
           {planMarkers.length === 0 ? (
             <p className="px-2 py-4 text-sm text-zinc-500">
-              Activez le mode pastille et touchez le plan.
+              Aucune pastille pour ce filtre. Activez le mode pastille et touchez le plan.
             </p>
           ) : (
             <ul className="space-y-1.5">
               {planMarkers.map((marker) => {
                 const loc = locationName(marker);
+                const isPrior = isPriorVisitMarker(marker.visit_id, visit.id);
+                const isLocked = isPrior && !unlockedMarkerIds.has(marker.id);
                 return (
                   <li key={marker.id}>
                     <button
@@ -502,8 +613,14 @@ export function VisitEditor({
                               ? CONTROL_RESULT_LABELS[marker.control_result]
                               : "À contrôler"}
                             {loc ? ` · ${loc}` : ""}
+                            {isPrior ? " · visite préc." : ""}
                           </p>
                         </div>
+                        {isLocked && (
+                          <span className="text-sm" title="Verrouillée">
+                            🔒
+                          </span>
+                        )}
                         {marker.photo_public_url && (
                           <span className="text-xs text-emerald-600">📷</span>
                         )}
@@ -518,10 +635,76 @@ export function VisitEditor({
 
         {selectedMarker && (
           <div className="max-h-[50vh] shrink-0 overflow-y-auto border-t border-zinc-100 px-4 py-3">
-            <h3 className="mb-2 text-sm font-semibold text-zinc-900">
-              Pastille n°{selectedMarker.marker_number}
-            </h3>
+            <div className="mb-2 flex items-center justify-between gap-2">
+              <h3 className="text-sm font-semibold text-zinc-900">
+                Pastille n°{selectedMarker.marker_number}
+              </h3>
+              {selectedMarkerIsPrior && (
+                <button
+                  type="button"
+                  onClick={() => toggleUnlockMarker(selectedMarker.id)}
+                  className="rounded-lg bg-zinc-100 px-2 py-1 text-[10px] font-semibold text-zinc-700"
+                  title={
+                    selectedMarkerLocked
+                      ? "Déverrouiller pour modifier"
+                      : "Reverrouiller"
+                  }
+                >
+                  {selectedMarkerLocked ? "🔒 Déverrouiller" : "🔓 Modifiable"}
+                </button>
+              )}
+            </div>
 
+            {selectedMarkerLocked && (
+              <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                Pastille d&apos;une visite antérieure — lecture seule. Vous pouvez la
+                lever (avec ou sans photo) ou déverrouiller pour modifier.
+                <div className="mt-2 flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={isPending || isCompleted}
+                    onClick={handleResolveMarker}
+                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
+                  >
+                    Lever la pastille
+                  </button>
+                  <label className="cursor-pointer rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700">
+                    Photo + lever
+                    <input
+                      type="file"
+                      accept="image/*"
+                      capture="environment"
+                      className="hidden"
+                      disabled={isCompleted}
+                      onChange={async (e) => {
+                        if (!e.target.files?.[0]) return;
+                        const formData = new FormData();
+                        formData.append("photo", e.target.files[0]);
+                        try {
+                          await uploadMarkerPhoto(
+                            visit.id,
+                            projectId,
+                            selectedMarker.id,
+                            formData
+                          );
+                          await updateMarker(visit.id, projectId, selectedMarker.id, {
+                            resolve_only: true,
+                          });
+                          router.refresh();
+                        } catch (err) {
+                          setError(
+                            err instanceof Error ? err.message : "Erreur photo."
+                          );
+                        }
+                      }}
+                    />
+                  </label>
+                </div>
+              </div>
+            )}
+
+            {!selectedMarkerLocked && (
+              <>
             <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-zinc-500">
               Point de contrôle
             </label>
@@ -574,10 +757,10 @@ export function VisitEditor({
               </div>
             )}
 
-            {controlResultDraft === "ko" && (
+            {(controlResultDraft === "ok" || controlResultDraft === "ko") && (
               <>
             <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-zinc-500">
-              Entreprise
+              Entreprise *
             </label>
             <select
               value={enterpriseDraft}
@@ -654,9 +837,9 @@ export function VisitEditor({
                 </div>
               )}
 
-            {controlResultDraft === "ko" && (
+            {(controlResultDraft === "ok" || controlResultDraft === "ko") && (
               <p className="mb-2 text-[11px] text-amber-700">
-                Non-conformité : assignez l&apos;entreprise concernée ci-dessus.
+                Conforme ou À lever : l&apos;entreprise est obligatoire.
               </p>
             )}
 
@@ -756,6 +939,8 @@ export function VisitEditor({
                   Supprimer
                 </button>
               </div>
+            )}
+              </>
             )}
           </div>
         )}

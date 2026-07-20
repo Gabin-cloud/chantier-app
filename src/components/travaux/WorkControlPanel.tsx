@@ -5,6 +5,7 @@ import { useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
 import { updateWorkControlExecutionAdmin } from "@/lib/actions/work-control";
+import { WorkControlAttestationCell } from "@/components/travaux/WorkControlAttestationCell";
 import {
   isWorkControlItemGreen,
   WORK_CONTROL_STATUS_LABELS,
@@ -19,6 +20,13 @@ type WorkControlPanelProps = {
   canAdmin: boolean;
   settingsHref: string;
 };
+
+function publicAttestationUrl(reportPath: string | null): string | null {
+  if (!reportPath) return null;
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  if (!base) return null;
+  return `${base}/storage/v1/object/public/visit-photos/${reportPath}`;
+}
 
 function statusBg(status: WorkControlItemView["status"]): string {
   if (isWorkControlItemGreen(status)) return "bg-emerald-50";
@@ -74,11 +82,7 @@ export function WorkControlPanel({
   function handleAdminUpdate(
     checklistItemId: string,
     planLevelId: string,
-    patch: {
-      inAttestation?: boolean;
-      attestationDate?: string | null;
-      adminWaived?: boolean;
-    }
+    patch: { adminWaived?: boolean }
   ) {
     setError(null);
     startTransition(async () => {
@@ -100,7 +104,7 @@ export function WorkControlPanel({
       <div className="rounded-lg border border-sky-100 bg-sky-50 px-3 py-2 text-sm text-sky-900">
         Les résultats de contrôle sont saisis sur la{" "}
         <strong>tablette</strong> (visites terrain). Ce tableau est en lecture
-        seule, mis à jour automatiquement. Configuration des phases et points :{" "}
+        seule, mis à jour automatiquement. Configuration :{" "}
         <Link href={settingsHref} className="font-semibold underline">
           Paramètres → Panneau de contrôle
         </Link>
@@ -148,13 +152,13 @@ export function WorkControlPanel({
 
           {activePhase.items.length === 0 ? (
             <p className="px-3 py-6 text-sm text-slate-500">
-              Aucun point de contrôle. Configurez-les dans les paramètres du
-              projet.
+              Aucun point de contrôle. Configurez-les dans les Référentiels.
             </p>
           ) : (
             <div className="divide-y divide-slate-100">
               {activePhase.items.map((item) => {
                 const expanded = expandedItems.has(item.id);
+                const titleGreen = isWorkControlItemGreen(item.status);
                 return (
                   <div key={item.id} className={statusBg(item.status)}>
                     <button
@@ -164,7 +168,11 @@ export function WorkControlPanel({
                     >
                       <div className="min-w-0 flex-1">
                         <div className="flex flex-wrap items-center gap-2">
-                          <span className="text-sm font-medium text-slate-900">
+                          <span
+                            className={`text-sm font-semibold ${
+                              titleGreen ? "text-emerald-800" : "text-slate-900"
+                            }`}
+                          >
                             {expanded ? "▼" : "▶"} {item.label}
                           </span>
                           <StatusBadge status={item.status} />
@@ -197,7 +205,7 @@ export function WorkControlPanel({
                             Importez des plans dans Rapport &amp; plan.
                           </p>
                         ) : (
-                          <table className="w-full min-w-[720px] border-collapse text-xs">
+                          <table className="w-full min-w-[640px] border-collapse text-xs">
                             <thead>
                               <tr className="text-left text-[11px] text-slate-500">
                                 <th className="border border-slate-200 px-2 py-1">
@@ -210,16 +218,10 @@ export function WorkControlPanel({
                                   Résultat
                                 </th>
                                 <th className="border border-slate-200 px-2 py-1">
-                                  Entreprise (NC)
+                                  Entreprise
                                 </th>
                                 <th className="border border-slate-200 px-2 py-1">
-                                  Commentaire
-                                </th>
-                                <th className="border border-slate-200 px-2 py-1">
-                                  Date retour
-                                </th>
-                                <th className="border border-slate-200 px-2 py-1">
-                                  Attestation
+                                  Attestation (PDF / rapport)
                                 </th>
                                 {canAdmin && (
                                   <th className="border border-slate-200 px-2 py-1">
@@ -274,49 +276,17 @@ export function WorkControlPanel({
                                       {enterpriseName}
                                     </td>
                                     <td className="border border-slate-200 px-2 py-1">
-                                      {ex?.preset_comment ?? ex?.notes ?? "—"}
-                                    </td>
-                                    <td className="border border-slate-200 px-2 py-1">
-                                      {canAdmin ? (
-                                        <input
-                                          type="date"
-                                          value={ex?.attestation_date ?? ""}
-                                          disabled={isPending}
-                                          onChange={(e) =>
-                                            handleAdminUpdate(
-                                              item.id,
-                                              lv.level.id,
-                                              {
-                                                attestationDate:
-                                                  e.target.value || null,
-                                              }
-                                            )
-                                          }
-                                          className="w-full rounded border px-1 py-0.5"
-                                        />
-                                      ) : (
-                                        (ex?.attestation_date ?? "—")
-                                      )}
-                                    </td>
-                                    <td className="border border-slate-200 px-2 py-1 text-center">
-                                      {canAdmin ? (
-                                        <input
-                                          type="checkbox"
-                                          checked={ex?.in_attestation ?? false}
-                                          disabled={isPending}
-                                          onChange={(e) =>
-                                            handleAdminUpdate(
-                                              item.id,
-                                              lv.level.id,
-                                              { inAttestation: e.target.checked }
-                                            )
-                                          }
-                                        />
-                                      ) : ex?.in_attestation ? (
-                                        "Oui"
-                                      ) : (
-                                        "Non"
-                                      )}
+                                      <WorkControlAttestationCell
+                                        projectId={projectId}
+                                        checklistItemId={item.id}
+                                        planLevelId={lv.level.id}
+                                        execution={ex}
+                                        visitId={ex?.visit_id ?? null}
+                                        canAdmin={canAdmin}
+                                        attestationUrl={publicAttestationUrl(
+                                          ex?.report_path ?? null
+                                        )}
+                                      />
                                     </td>
                                     {canAdmin && (
                                       <td className="border border-slate-200 px-2 py-1 text-center">
@@ -352,8 +322,9 @@ export function WorkControlPanel({
       )}
 
       <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2 text-[11px] text-slate-600">
-        <strong>Légende :</strong> vert = conforme, dispensé admin, ou NC levée en
-        attestation. Les saisies terrain se font via les visites tablette.
+        <strong>Légende :</strong> titre vert = tous les plans conformes, dispensés ou
+        NC levée en attestation. Déposez un PDF ou liez un rapport de visite dans la
+        colonne Attestation.
       </div>
     </div>
   );
