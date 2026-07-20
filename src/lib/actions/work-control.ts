@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { requireProjectAccess, requireProjectRoles, requireUser } from "@/lib/auth/permissions";
 import { createClient } from "@/lib/supabase/server";
 import type { Enterprise, VisitPhase } from "@/lib/types/database";
+import type { ControlResult } from "@/lib/types/database";
 import {
   computeSynthesisCell,
   resolveWorkControlItemStatus,
@@ -192,6 +193,9 @@ export async function deletePlanLevel(projectId: string, levelId: string) {
 
   if (error) throw new Error(error.message);
   revalidateWorkControl(projectId);
+  revalidatePath(`/tablette/projets/${projectId}/parametres`);
+  revalidatePath(`/pc/projets/${projectId}/parametres`);
+  revalidatePath(`/pc/parametres`);
 }
 
 async function loadProjectWorkControlContext(projectId: string) {
@@ -324,24 +328,22 @@ export async function getWorkControlSynthesis(
 
   const rows = enterprises.map((enterprise) => {
     const enterpriseExecutions = executionList.filter(
-      (e) => e.enterprise_id === enterprise.id
+      (e) =>
+        e.enterprise_id === enterprise.id &&
+        (e.control_result === "ko" ||
+          e.control_result === "partial" ||
+          e.admin_waived)
     );
 
-    const total = computeSynthesisCell(
-      enterpriseExecutions.filter(
-        (e) => e.control_result !== "pending" || e.admin_waived
-      )
-    );
+    const total = computeSynthesisCell(enterpriseExecutions);
 
     const byPhase: Record<string, ReturnType<typeof computeSynthesisCell>> = {};
     for (const phase of phases) {
       const phaseItemIds = new Set(
         items.filter((i) => i.phase_id === phase.id).map((i) => i.id)
       );
-      const phaseExecutions = enterpriseExecutions.filter(
-        (e) =>
-          phaseItemIds.has(e.checklist_item_id) &&
-          (e.control_result !== "pending" || e.admin_waived)
+      const phaseExecutions = enterpriseExecutions.filter((e) =>
+        phaseItemIds.has(e.checklist_item_id)
       );
       byPhase[phase.id] = computeSynthesisCell(phaseExecutions);
     }
@@ -464,6 +466,8 @@ export async function upsertWorkControlItem(
     helpComment?: string;
     presetComments?: string[];
     itemId?: string;
+    zoneId?: string | null;
+    zoneName?: string | null;
   }
 ) {
   await requireProjectRoles(projectId, ["admin", "gestionnaire"]);
@@ -471,13 +475,16 @@ export async function upsertWorkControlItem(
   const trimmed = data.label.trim();
   if (!trimmed) throw new Error("Le nom du contrôle est obligatoire.");
 
-  const payload = {
+  const payload: Record<string, unknown> = {
     phase_id: data.phaseId,
     label: trimmed,
     plan_type_id: data.planTypeId || null,
     help_comment: data.helpComment?.trim() ?? "",
     preset_comments: data.presetComments ?? [],
   };
+
+  if (data.zoneId !== undefined) payload.zone_id = data.zoneId;
+  if (data.zoneName !== undefined) payload.zone_name = data.zoneName;
 
   if (data.itemId) {
     const { error } = await supabase
@@ -496,12 +503,17 @@ export async function upsertWorkControlItem(
 
     const { error } = await supabase.from("phase_checklist_items").insert({
       ...payload,
+      zone_id: data.zoneId ?? null,
+      zone_name: data.zoneName ?? null,
       sort_order: (last?.sort_order ?? 0) + 1,
     });
     if (error) throw new Error(error.message);
   }
 
   revalidateWorkControl(projectId);
+  revalidatePath(`/tablette/projets/${projectId}/parametres`);
+  revalidatePath(`/pc/projets/${projectId}/parametres`);
+  revalidatePath(`/pc/parametres`);
 }
 
 export async function deleteWorkControlItem(projectId: string, itemId: string) {
@@ -513,30 +525,77 @@ export async function deleteWorkControlItem(projectId: string, itemId: string) {
     .eq("id", itemId);
   if (error) throw new Error(error.message);
   revalidateWorkControl(projectId);
+  revalidatePath(`/tablette/projets/${projectId}/parametres`);
+  revalidatePath(`/pc/projets/${projectId}/parametres`);
+  revalidatePath(`/pc/parametres`);
 }
 
-export async function updateWorkControlExecution(
+/** Saisie terrain (tablette) → exécution de contrôle sur le tableau PC. */
+export async function syncWorkControlExecutionFromMarker(
   projectId: string,
   data: {
     checklistItemId: string;
     planLevelId: string;
+    controlResult: ControlResult;
     enterpriseId?: string | null;
-    controlResult?: WorkControlExecutionStatus;
-    controlDate?: string | null;
-    inAttestation?: boolean;
-    attestationDate?: string | null;
+    visitId: string;
+    controlDate: string;
     presetComment?: string | null;
     notes?: string | null;
-    adminWaived?: boolean;
-    reportPath?: string | null;
-    visitId?: string | null;
   }
 ) {
-  await requireProjectRoles(projectId, [
-    "admin",
-    "gestionnaire",
-    "terrain",
-  ]);
+  await requireProjectRoles(projectId, ["admin", "gestionnaire", "terrain"]);
+  const supabase = await createClient();
+
+  const enterpriseId =
+    data.controlResult === "ko" || data.controlResult === "partial"
+      ? data.enterpriseId ?? null
+      : null;
+
+  const payload = {
+    checklist_item_id: data.checklistItemId,
+    plan_level_id: data.planLevelId,
+    enterprise_id: enterpriseId,
+    control_result: data.controlResult,
+    control_date: data.controlDate,
+    visit_id: data.visitId,
+    preset_comment: data.presetComment?.trim() || null,
+    notes: data.notes?.trim() || null,
+    updated_at: new Date().toISOString(),
+  };
+
+  const { error } = await supabase
+    .from("work_control_executions")
+    .upsert(payload, { onConflict: "checklist_item_id,plan_level_id" });
+
+  if (error) throw new Error(error.message);
+  revalidateWorkControl(projectId);
+  revalidatePath(`/tablette/projets/${projectId}/parametres`);
+  revalidatePath(`/pc/projets/${projectId}/parametres`);
+  revalidatePath(`/pc/parametres`);
+}
+
+export async function resolvePlanLevelId(
+  planId: string,
+  planLevelId: string | null | undefined
+): Promise<string> {
+  if (planLevelId) return planLevelId;
+  const level = await ensurePlanDefaultLevel(planId, "Plan");
+  return level.id;
+}
+
+/** Mise à jour PC : dispense admin et suivi attestation uniquement. */
+export async function updateWorkControlExecutionAdmin(
+  projectId: string,
+  data: {
+    checklistItemId: string;
+    planLevelId: string;
+    inAttestation?: boolean;
+    attestationDate?: string | null;
+    adminWaived?: boolean;
+  }
+) {
+  await requireProjectRoles(projectId, ["admin", "gestionnaire"]);
 
   const supabase = await createClient();
   const { data: existing } = await supabase
@@ -552,16 +611,9 @@ export async function updateWorkControlExecution(
     updated_at: new Date().toISOString(),
   };
 
-  if (data.enterpriseId !== undefined) payload.enterprise_id = data.enterpriseId;
-  if (data.controlResult !== undefined) payload.control_result = data.controlResult;
-  if (data.controlDate !== undefined) payload.control_date = data.controlDate;
   if (data.inAttestation !== undefined) payload.in_attestation = data.inAttestation;
   if (data.attestationDate !== undefined)
     payload.attestation_date = data.attestationDate;
-  if (data.presetComment !== undefined) payload.preset_comment = data.presetComment;
-  if (data.notes !== undefined) payload.notes = data.notes;
-  if (data.reportPath !== undefined) payload.report_path = data.reportPath;
-  if (data.visitId !== undefined) payload.visit_id = data.visitId;
 
   if (data.adminWaived !== undefined) {
     payload.admin_waived = data.adminWaived;
@@ -587,6 +639,9 @@ export async function updateWorkControlExecution(
   }
 
   revalidateWorkControl(projectId);
+  revalidatePath(`/tablette/projets/${projectId}/parametres`);
+  revalidatePath(`/pc/projets/${projectId}/parametres`);
+  revalidatePath(`/pc/parametres`);
 }
 
 export async function getWorkPlansByType(
@@ -652,6 +707,9 @@ export async function setPlanType(
     .eq("project_id", projectId);
   if (error) throw new Error(error.message);
   revalidateWorkControl(projectId);
+  revalidatePath(`/tablette/projets/${projectId}/parametres`);
+  revalidatePath(`/pc/projets/${projectId}/parametres`);
+  revalidatePath(`/pc/parametres`);
 }
 
 export async function getProjectWorkControlTotals(projectId: string) {

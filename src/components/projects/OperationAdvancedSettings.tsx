@@ -12,6 +12,7 @@ type OperationAdvancedSettingsProps = {
   phases: VisitPhase[];
   zones: PhaseZone[];
   checklistItems: PhaseChecklistItem[];
+  planTypes: import("@/lib/types/work-control").WorkControlPlanType[];
   canManageMembers: boolean;
   canEditPlans: boolean;
   canEdit: boolean;
@@ -26,6 +27,7 @@ export function OperationAdvancedSettings({
   phases,
   zones,
   checklistItems,
+  planTypes,
   canManageMembers,
   canEditPlans,
   canEdit,
@@ -73,6 +75,7 @@ export function OperationAdvancedSettings({
           phases={phases}
           zones={zones}
           checklistItems={checklistItems}
+          planTypes={planTypes}
           canEdit={canEdit}
         />
       )}

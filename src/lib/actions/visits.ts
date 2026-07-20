@@ -6,6 +6,10 @@ import { createClient } from "@/lib/supabase/server";
 import type { MarkerUpdateData, MarkerWithLinks, VisitFormData } from "@/lib/types/database";
 import { computeVisitControlSummary } from "@/lib/control-summary";
 import { ensureDefaultPhases } from "@/lib/actions/phases";
+import {
+  resolvePlanLevelId,
+  syncWorkControlExecutionFromMarker,
+} from "@/lib/actions/work-control";
 
 const PHOTOS_BUCKET = "visit-photos";
 
@@ -273,6 +277,7 @@ export async function updateMarker(
     location_label: string | null;
     location_preset_id: string | null;
     checklist_item_id: string | null;
+    plan_level_id: string | null;
     control_result: string | null;
   }> = {};
 
@@ -285,6 +290,9 @@ export async function updateMarker(
   }
   if (data.checklist_item_id !== undefined) {
     scalarFields.checklist_item_id = data.checklist_item_id;
+  }
+  if (data.plan_level_id !== undefined) {
+    scalarFields.plan_level_id = data.plan_level_id;
   }
   if (data.control_result !== undefined) {
     scalarFields.control_result = data.control_result;
@@ -311,7 +319,7 @@ export async function updateMarker(
 
   const { data: visit } = await supabase
     .from("visits")
-    .select("phase_id")
+    .select("phase_id, visit_date")
     .eq("id", visitId)
     .single();
 
@@ -322,7 +330,51 @@ export async function updateMarker(
     await refreshVisitControlSummary(supabase, visitId, visit?.phase_id ?? null);
   }
 
+  const shouldSyncExecution =
+    data.control_result !== undefined ||
+    data.checklist_item_id !== undefined ||
+    data.plan_level_id !== undefined ||
+    data.enterprise_id !== undefined;
+
+  if (shouldSyncExecution) {
+    const { data: marker } = await supabase
+      .from("markers")
+      .select("checklist_item_id, plan_id, plan_level_id, control_result, enterprise_id")
+      .eq("id", markerId)
+      .single();
+
+    if (
+      marker?.checklist_item_id &&
+      marker.control_result &&
+      marker.plan_id &&
+      (marker.control_result === "ok" ||
+        marker.control_result === "ko" ||
+        marker.control_result === "partial")
+    ) {
+      try {
+        const planLevelId = await resolvePlanLevelId(
+          marker.plan_id,
+          marker.plan_level_id
+        );
+        await syncWorkControlExecutionFromMarker(projectId, {
+          checklistItemId: marker.checklist_item_id,
+          planLevelId,
+          controlResult: marker.control_result,
+          enterpriseId: marker.enterprise_id,
+          visitId,
+          controlDate: visit?.visit_date ?? new Date().toISOString().slice(0, 10),
+          presetComment: data.preset_comment ?? null,
+          notes: data.remark ?? null,
+        });
+      } catch {
+        // migration 039/040 optionnelle
+      }
+    }
+  }
+
   revalidatePath(`/tablette/projets/${projectId}/visites/${visitId}`);
+  revalidatePath(`/pc/projets/${projectId}/suivi-travaux/controle`);
+  revalidatePath(`/pc/projets/${projectId}/suivi-travaux/synthese`);
 }
 
 async function refreshVisitControlSummary(

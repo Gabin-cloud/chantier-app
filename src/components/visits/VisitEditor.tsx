@@ -38,6 +38,7 @@ import {
   VISIT_CONTROL_SUMMARY_LABELS,
 } from "@/lib/types/database";
 import { computeVisitControlSummary } from "@/lib/control-summary";
+import type { WorkControlPlanLevel } from "@/lib/types/work-control";
 
 type PlanWithUrl = Plan & { pdf_url: string };
 
@@ -49,6 +50,7 @@ type MarkerWithPhoto = MarkerWithLinks & {
   location_label: string | null;
   location_preset_id: string | null;
   checklist_item_id: string | null;
+  plan_level_id: string | null;
   control_result: ControlResult | null;
 };
 
@@ -62,6 +64,7 @@ type VisitEditorProps = {
   plans: PlanWithUrl[];
   planFolders?: PlanFolder[];
   checklistItems?: PhaseChecklistItem[];
+  planLevelsByPlan?: Record<string, WorkControlPlanLevel[]>;
   enterprises: Enterprise[];
   locations: ProjectLocation[];
   initialMarkers: MarkerWithPhoto[];
@@ -86,6 +89,7 @@ export function VisitEditor({
   plans,
   planFolders = [],
   checklistItems = [],
+  planLevelsByPlan = {},
   enterprises,
   locations: initialLocations,
   initialMarkers,
@@ -117,6 +121,8 @@ export function VisitEditor({
   const [locationPresetDraft, setLocationPresetDraft] = useState("");
   const [locationLabelDraft, setLocationLabelDraft] = useState("");
   const [checklistItemDraft, setChecklistItemDraft] = useState("");
+  const [planLevelDraft, setPlanLevelDraft] = useState("");
+  const [presetCommentDraft, setPresetCommentDraft] = useState("");
   const [controlResultDraft, setControlResultDraft] = useState<ControlResult | "">("");
   const [showReport, setShowReport] = useState(false);
   const [isPending, startTransition] = useTransition();
@@ -151,15 +157,33 @@ export function VisitEditor({
     [visit.control_summary, visitMarkersForSummary]
   );
 
+  const filteredChecklistItems = useMemo(() => {
+    if (!selectedPlan?.plan_type_id) return checklistItems;
+    return checklistItems.filter(
+      (item) =>
+        !item.plan_type_id || item.plan_type_id === selectedPlan.plan_type_id
+    );
+  }, [checklistItems, selectedPlan?.plan_type_id]);
+
+  const selectedChecklistItem = useMemo(
+    () => filteredChecklistItems.find((i) => i.id === checklistItemDraft) ?? null,
+    [filteredChecklistItems, checklistItemDraft]
+  );
+
+  const planLevels = useMemo(
+    () => planLevelsByPlan[selectedPlanId] ?? [],
+    [planLevelsByPlan, selectedPlanId]
+  );
+
   const checklistItemsByZone = useMemo(() => {
     const map = new Map<string, PhaseChecklistItem[]>();
-    for (const item of checklistItems) {
+    for (const item of filteredChecklistItems) {
       const zone = item.zone_name || zoneName || "Général";
       if (!map.has(zone)) map.set(zone, []);
       map.get(zone)!.push(item);
     }
     return map;
-  }, [checklistItems, zoneName]);
+  }, [filteredChecklistItems, zoneName]);
 
   const scheduleSaveDrawings = useCallback(
     (planId: string, strokes: DrawingStroke[]) => {
@@ -186,6 +210,13 @@ export function VisitEditor({
     };
   }, []);
 
+  useEffect(() => {
+    const levels = planLevelsByPlan[selectedPlanId] ?? [];
+    if (levels.length && !planLevelDraft) {
+      setPlanLevelDraft(levels[0]!.id);
+    }
+  }, [selectedPlanId, planLevelsByPlan, planLevelDraft]);
+
   function selectMarker(marker: MarkerWithPhoto) {
     setSelectedMarkerId(marker.id);
     setRemarkDraft(marker.remark ?? "");
@@ -196,6 +227,12 @@ export function VisitEditor({
     setLocationPresetDraft(marker.location_preset_id ?? "");
     setLocationLabelDraft(marker.location_label ?? "");
     setChecklistItemDraft(marker.checklist_item_id ?? "");
+    setPlanLevelDraft(
+      marker.plan_level_id ??
+        planLevelsByPlan[marker.plan_id]?.[0]?.id ??
+        ""
+    );
+    setPresetCommentDraft("");
     setControlResultDraft(marker.control_result ?? "");
     setAddMode(false);
     setDrawMode(false);
@@ -271,7 +308,9 @@ export function VisitEditor({
           location_label: locationLabelDraft || null,
           location_preset_id: locationPresetId,
           checklist_item_id: checklistItemDraft || null,
+          plan_level_id: planLevelDraft || null,
           control_result: controlResultDraft || null,
+          preset_comment: presetCommentDraft || null,
         });
 
         setMarkers((prev) =>
@@ -287,6 +326,7 @@ export function VisitEditor({
                   location_label: locationLabelDraft || null,
                   location_preset_id: locationPresetId,
                   checklist_item_id: checklistItemDraft || null,
+                  plan_level_id: planLevelDraft || null,
                   control_result: controlResultDraft || null,
                 }
               : m
@@ -548,6 +588,32 @@ export function VisitEditor({
               ))}
             </select>
 
+            {selectedChecklistItem?.help_comment && (
+              <p className="mb-2 rounded-lg bg-sky-50 px-2 py-1.5 text-xs text-sky-900">
+                {selectedChecklistItem.help_comment}
+              </p>
+            )}
+
+            {planLevels.length > 1 && (
+              <>
+                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-zinc-500">
+                  Niveau / zone du plan
+                </label>
+                <select
+                  value={planLevelDraft}
+                  onChange={(e) => setPlanLevelDraft(e.target.value)}
+                  disabled={isCompleted}
+                  className="mb-3 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm disabled:opacity-60"
+                >
+                  {planLevels.map((level) => (
+                    <option key={level.id} value={level.id}>
+                      {level.name}
+                    </option>
+                  ))}
+                </select>
+              </>
+            )}
+
             {checklistItemDraft && (
               <div className="mb-3 flex flex-wrap gap-1.5">
                 {(["ok", "partial", "ko"] as ControlResult[]).map((result) => (
@@ -570,6 +636,40 @@ export function VisitEditor({
                   </button>
                 ))}
               </div>
+            )}
+
+            {selectedChecklistItem &&
+              Array.isArray(selectedChecklistItem.preset_comments) &&
+              (selectedChecklistItem.preset_comments as string[]).length > 0 && (
+                <div className="mb-3 flex flex-wrap gap-1.5">
+                  <span className="w-full text-[10px] font-semibold uppercase text-zinc-400">
+                    Réponses types
+                  </span>
+                  {(selectedChecklistItem.preset_comments as string[]).map((preset) => (
+                    <button
+                      key={preset}
+                      type="button"
+                      disabled={isCompleted}
+                      onClick={() => {
+                        setPresetCommentDraft(preset);
+                        setRemarkDraft(preset);
+                      }}
+                      className={`rounded-lg px-2.5 py-1 text-xs font-medium ${
+                        presetCommentDraft === preset
+                          ? "bg-violet-600 text-white"
+                          : "bg-zinc-100 text-zinc-700"
+                      }`}
+                    >
+                      {preset}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+            {(controlResultDraft === "ko" || controlResultDraft === "partial") && (
+              <p className="mb-2 text-[11px] text-amber-700">
+                Non-conformité : assignez l&apos;entreprise concernée ci-dessus.
+              </p>
             )}
 
             <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-zinc-500">

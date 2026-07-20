@@ -39,6 +39,7 @@ Ordre d’application (numéros uniques, tri alphabétique) :
 | 033 | `033_account_kind_and_favorites.sql` | Type de compte `danobat` / `entreprise` + table `project_favorites` |
 | 034 | `034_fix_rls_helper_grants.sql` | GRANT EXECUTE anon sur helpers RLS (`is_super_admin`, etc.) |
 | 039 | `039_work_control_workflow.sql` | Suivi travaux : types de plans, niveaux, exécutions de contrôle |
+| 040 | `040_marker_plan_level.sql` | Niveau de plan sur les réserves (sync tablette) |
 
 ## Audit base distante (2026-07)
 
