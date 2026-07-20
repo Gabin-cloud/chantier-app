@@ -667,6 +667,10 @@ export type MarkerUpdateData = {
   plan_level_id?: string | null;
   control_result?: ControlResult | null;
   preset_comment?: string | null;
+  /** Pastille d'une visite antérieure : déverrouille l'édition complète. */
+  unlock_edit?: boolean;
+  /** Lever la pastille uniquement (visite antérieure). */
+  resolve_only?: boolean;
 };
 
 export type GlobalRole = "super_admin" | "user";

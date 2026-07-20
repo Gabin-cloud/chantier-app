@@ -548,7 +548,9 @@ export async function syncWorkControlExecutionFromMarker(
   const supabase = await createClient();
 
   const enterpriseId =
-    data.controlResult === "ko" ? data.enterpriseId ?? null : null;
+    data.controlResult === "ko" || data.controlResult === "ok"
+      ? data.enterpriseId ?? null
+      : null;
 
   const payload = {
     checklist_item_id: data.checklistItemId,
@@ -582,7 +584,7 @@ export async function resolvePlanLevelId(
   return level.id;
 }
 
-/** Mise à jour PC : dispense admin et suivi attestation uniquement. */
+/** Mise à jour PC : dispense admin, attestation et rapport PDF. */
 export async function updateWorkControlExecutionAdmin(
   projectId: string,
   data: {
@@ -591,6 +593,8 @@ export async function updateWorkControlExecutionAdmin(
     inAttestation?: boolean;
     attestationDate?: string | null;
     adminWaived?: boolean;
+    reportPath?: string | null;
+    visitId?: string | null;
   }
 ) {
   await requireProjectRoles(projectId, ["admin", "gestionnaire"]);
@@ -612,6 +616,8 @@ export async function updateWorkControlExecutionAdmin(
   if (data.inAttestation !== undefined) payload.in_attestation = data.inAttestation;
   if (data.attestationDate !== undefined)
     payload.attestation_date = data.attestationDate;
+  if (data.reportPath !== undefined) payload.report_path = data.reportPath;
+  if (data.visitId !== undefined) payload.visit_id = data.visitId;
 
   if (data.adminWaived !== undefined) {
     payload.admin_waived = data.adminWaived;
@@ -742,4 +748,131 @@ export async function getEnterpriseWorkControlTotals(
       ? Math.round((nonConformCount / totalControls) * 100)
       : null;
   return { conformCount, nonConformCount, nonConformRatio };
+}
+
+const ATTESTATION_BUCKET = "visit-photos";
+
+export type WorkControlExecutionMapEntry = {
+  checklist_item_id: string;
+  plan_level_id: string;
+  control_result: string;
+  enterprise_id: string | null;
+  in_attestation: boolean;
+  report_path: string | null;
+  admin_waived: boolean;
+  visit_id: string | null;
+};
+
+export async function getWorkControlExecutionsForProject(
+  projectId: string
+): Promise<WorkControlExecutionMapEntry[]> {
+  await requireProjectAccess(projectId);
+  const ctx = await loadProjectWorkControlContext(projectId);
+  const itemIds = new Set(ctx.items.map((i) => i.id));
+  return ctx.executionList
+    .filter((e) => itemIds.has(e.checklist_item_id))
+    .map((e) => ({
+      checklist_item_id: e.checklist_item_id,
+      plan_level_id: e.plan_level_id,
+      control_result: e.control_result,
+      enterprise_id: e.enterprise_id,
+      in_attestation: e.in_attestation,
+      report_path: e.report_path,
+      admin_waived: e.admin_waived,
+      visit_id: e.visit_id,
+    }));
+}
+
+async function closeMarkersAfterAttestation(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  checklistItemId: string,
+  planLevelId: string
+) {
+  await supabase
+    .from("markers")
+    .update({ status: "levee", updated_at: new Date().toISOString() })
+    .eq("checklist_item_id", checklistItemId)
+    .eq("plan_level_id", planLevelId)
+    .neq("status", "levee");
+}
+
+export async function uploadWorkControlAttestation(
+  projectId: string,
+  checklistItemId: string,
+  planLevelId: string,
+  formData: FormData
+) {
+  await requireProjectRoles(projectId, ["admin", "gestionnaire"]);
+  const file = formData.get("file");
+  if (!(file instanceof File) || file.size === 0) {
+    throw new Error("Fichier PDF invalide.");
+  }
+
+  const supabase = await createClient();
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const filePath = `${projectId}/work-control/${checklistItemId}/${planLevelId}/${Date.now()}_${safeName}`;
+  const buffer = Buffer.from(await file.arrayBuffer());
+
+  const { error: uploadError } = await supabase.storage
+    .from(ATTESTATION_BUCKET)
+    .upload(filePath, buffer, {
+      contentType: file.type || "application/pdf",
+      upsert: true,
+    });
+
+  if (uploadError) throw new Error(uploadError.message);
+
+  const today = new Date().toISOString().slice(0, 10);
+  await updateWorkControlExecutionAdmin(projectId, {
+    checklistItemId,
+    planLevelId,
+    reportPath: filePath,
+    inAttestation: true,
+    attestationDate: today,
+  });
+
+  await closeMarkersAfterAttestation(supabase, checklistItemId, planLevelId);
+  revalidatePath(`/tablette/projets/${projectId}/visites`);
+}
+
+export async function linkVisitReportToExecution(
+  projectId: string,
+  checklistItemId: string,
+  planLevelId: string,
+  visitId: string
+) {
+  await requireProjectRoles(projectId, ["admin", "gestionnaire"]);
+  const supabase = await createClient();
+
+  const { data: report, error } = await supabase
+    .from("visit_reports")
+    .select("file_path")
+    .eq("visit_id", visitId)
+    .maybeSingle();
+
+  if (error) throw new Error(error.message);
+  if (!report?.file_path) {
+    throw new Error("Aucun rapport PDF pour cette visite.");
+  }
+
+  await updateWorkControlExecutionAdmin(projectId, {
+    checklistItemId,
+    planLevelId,
+    reportPath: report.file_path,
+    visitId,
+    inAttestation: true,
+    attestationDate: new Date().toISOString().slice(0, 10),
+  });
+
+  await closeMarkersAfterAttestation(supabase, checklistItemId, planLevelId);
+  revalidatePath(`/tablette/projets/${projectId}/visites`);
+}
+
+export async function getWorkControlAttestationUrl(
+  reportPath: string | null
+): Promise<string | null> {
+  if (!reportPath) return null;
+  const supabase = await createClient();
+  const { data } = supabase.storage.from(ATTESTATION_BUCKET).getPublicUrl(reportPath);
+  return data.publicUrl;
 }

@@ -13,6 +13,7 @@ import { getWorkPlansByType } from "@/lib/actions/work-control";
 import { getProject } from "@/lib/actions/projects";
 import { getMarkerPhotoUrl, getVisit } from "@/lib/actions/visits";
 import { getProjectInheritedControlResults } from "@/lib/actions/control-library";
+import { getWorkControlExecutionsForProject } from "@/lib/actions/work-control";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
 type PageProps = {
@@ -49,12 +50,13 @@ export default async function VisitePage({ params }: PageProps) {
     const controlLabel =
       checklistItems.find((i) => i.id === visit.checklist_item_id)?.label ?? null;
 
-    const [locations, drawings, reportUrl, inheritedControlResults] =
+    const [locations, drawings, reportUrl, inheritedControlResults, workControlExecutions] =
       await Promise.all([
       getProjectLocations(id).catch(() => []),
       getPlanDrawings(visiteId).catch(() => []),
       getVisitReportUrl(visiteId).catch(() => null),
       getProjectInheritedControlResults(id).catch(() => ({})),
+      getWorkControlExecutionsForProject(id).catch(() => []),
     ]);
 
     const markersWithPhotos = await Promise.all(
@@ -109,6 +111,7 @@ export default async function VisitePage({ params }: PageProps) {
           initialMarkers={markersWithPhotos}
           initialDrawings={drawings}
           inheritedControlResults={inheritedControlResults}
+          workControlExecutions={workControlExecutions}
         />
       </main>
     );

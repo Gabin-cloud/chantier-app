@@ -261,6 +261,45 @@ export async function updateMarker(
   await requireProjectRoles(projectId, ["admin", "gestionnaire", "terrain"]);
   const supabase = await createClient();
 
+  const { data: existing, error: fetchError } = await supabase
+    .from("markers")
+    .select("visit_id, control_result, enterprise_id")
+    .eq("id", markerId)
+    .single();
+
+  if (fetchError) throw new Error(fetchError.message);
+
+  const isPriorVisit = existing.visit_id !== visitId;
+
+  if (data.resolve_only) {
+    const { error } = await supabase
+      .from("markers")
+      .update({ status: "levee", updated_at: new Date().toISOString() })
+      .eq("id", markerId);
+    if (error) throw new Error(error.message);
+    revalidatePath(`/tablette/projets/${projectId}/visites/${visitId}`);
+    return;
+  }
+
+  if (isPriorVisit && !data.unlock_edit) {
+    throw new Error(
+      "Pastille verrouillée (visite antérieure). Déverrouillez ou levez-la uniquement."
+    );
+  }
+
+  const nextControlResult =
+    data.control_result !== undefined ? data.control_result : existing.control_result;
+  const nextEnterprise =
+    data.enterprise_id !== undefined ? data.enterprise_id : existing.enterprise_id;
+
+  if (
+    (nextControlResult === "ok" || nextControlResult === "ko") &&
+    !nextEnterprise &&
+    !data.resolve_only
+  ) {
+    throw new Error("L'entreprise est obligatoire pour Conforme ou À lever.");
+  }
+
   if (data.remark !== undefined) {
     const { error } = await supabase
       .from("markers")
@@ -428,6 +467,16 @@ export async function uploadMarkerPhoto(
 export async function deleteMarker(visitId: string, projectId: string, markerId: string) {
   await requireProjectRoles(projectId, ["admin", "gestionnaire", "terrain"]);
   const supabase = await createClient();
+
+  const { data: marker } = await supabase
+    .from("markers")
+    .select("visit_id")
+    .eq("id", markerId)
+    .single();
+
+  if (marker && marker.visit_id !== visitId) {
+    throw new Error("Impossible de supprimer une pastille d'une visite antérieure.");
+  }
 
   const { error } = await supabase.from("markers").delete().eq("id", markerId);
   if (error) throw new Error(error.message);
