@@ -205,7 +205,7 @@ export function WorkControlPanel({
                         {item.levels.length === 0 ? (
                           <p className="text-xs text-amber-700">
                             Aucun plan de type « {item.planTypeName ?? "?"} ».
-                            Importez des plans dans Rapport &amp; plan.
+                            Importez des plans dans Plan.
                           </p>
                         ) : (
                           <table className="w-full min-w-[640px] border-collapse text-xs">

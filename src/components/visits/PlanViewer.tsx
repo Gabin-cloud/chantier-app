@@ -36,11 +36,15 @@ type PlanViewerProps = {
   selectedMarkerId?: string | null;
   onPlanClick?: (xPercent: number, yPercent: number) => void;
   onMarkerClick?: (markerId: string) => void;
+  onMarkerMove?: (markerId: string, xPercent: number, yPercent: number) => void;
+  canMoveMarker?: (markerId: string) => boolean;
   readOnly?: boolean;
 };
 
 const MIN_ZOOM = 0.25;
 const MAX_ZOOM = 8;
+const LONG_PRESS_MS = 1000;
+const LONG_PRESS_MOVE_CANCEL_PX = 10;
 const MAX_CANVAS_SIDE = 8192;
 const ZOOM_RENDER_DEBOUNCE_MS = 180;
 const PINCH_ZOOM_SENSITIVITY = 0.38;
@@ -108,6 +112,8 @@ export function PlanViewer({
   selectedMarkerId,
   onPlanClick,
   onMarkerClick,
+  onMarkerMove,
+  canMoveMarker,
   readOnly = false,
 }: PlanViewerProps) {
   const viewportRef = useRef<HTMLDivElement>(null);
@@ -134,6 +140,19 @@ export function PlanViewer({
   const [error, setError] = useState<string | null>(null);
   const [pdfReady, setPdfReady] = useState(false);
   const [liveStroke, setLiveStroke] = useState<DrawingStroke | null>(null);
+  const [positionOverrides, setPositionOverrides] = useState<
+    Record<string, { x: number; y: number }>
+  >({});
+
+  const longPressRef = useRef<{
+    markerId: string;
+    timer: number | null;
+    startX: number;
+    startY: number;
+    moveMode: boolean;
+    dragged: boolean;
+  } | null>(null);
+  const dragPositionRef = useRef<{ x: number; y: number } | null>(null);
 
   const pointersRef = useRef(
     new Map<number, { x: number; y: number; startX: number; startY: number }>()
@@ -380,6 +399,125 @@ export function PlanViewer({
 
   function isMarkerTarget(target: EventTarget | null) {
     return target instanceof Element && Boolean(target.closest("[data-plan-marker]"));
+  }
+
+  function clearLongPress() {
+    const lp = longPressRef.current;
+    if (lp?.timer) clearTimeout(lp.timer);
+    longPressRef.current = null;
+    dragPositionRef.current = null;
+  }
+
+  function handleMarkerPointerDown(
+    e: ReactPointerEvent<HTMLButtonElement>,
+    markerId: string
+  ) {
+    e.stopPropagation();
+    if (readOnly || drawMode) return;
+
+    clearLongPress();
+
+    if (!canMoveMarker?.(markerId)) return;
+
+    const startX = e.clientX;
+    const startY = e.clientY;
+
+    const timer = window.setTimeout(() => {
+      const lp = longPressRef.current;
+      if (lp?.markerId === markerId) {
+        lp.moveMode = true;
+        lp.timer = null;
+      }
+    }, LONG_PRESS_MS);
+
+    longPressRef.current = {
+      markerId,
+      timer,
+      startX,
+      startY,
+      moveMode: false,
+      dragged: false,
+    };
+
+    e.currentTarget.setPointerCapture(e.pointerId);
+  }
+
+  function handleMarkerPointerMove(
+    e: ReactPointerEvent<HTMLButtonElement>,
+    markerId: string
+  ) {
+    e.stopPropagation();
+    const lp = longPressRef.current;
+    if (!lp || lp.markerId !== markerId) return;
+
+    const dx = e.clientX - lp.startX;
+    const dy = e.clientY - lp.startY;
+
+    if (!lp.moveMode) {
+      if (Math.hypot(dx, dy) > LONG_PRESS_MOVE_CANCEL_PX && lp.timer) {
+        clearTimeout(lp.timer);
+        lp.timer = null;
+      }
+      return;
+    }
+
+    const coords = clientToPercent(e.clientX, e.clientY);
+    if (!coords) return;
+
+    lp.dragged = true;
+    dragPositionRef.current = { x: coords.xPercent, y: coords.yPercent };
+    setPositionOverrides((prev) => ({
+      ...prev,
+      [markerId]: { x: coords.xPercent, y: coords.yPercent },
+    }));
+  }
+
+  function handleMarkerPointerUp(
+    e: ReactPointerEvent<HTMLButtonElement>,
+    markerId: string
+  ) {
+    e.stopPropagation();
+    const lp = longPressRef.current;
+    if (!lp || lp.markerId !== markerId) return;
+
+    if (lp.timer) clearTimeout(lp.timer);
+
+    if (lp.moveMode && lp.dragged) {
+      const override = dragPositionRef.current ?? positionOverrides[markerId];
+      const coords = override
+        ? { xPercent: override.x, yPercent: override.y }
+        : clientToPercent(e.clientX, e.clientY);
+      if (coords) {
+        onMarkerMove?.(markerId, coords.xPercent, coords.yPercent);
+      }
+      setPositionOverrides((prev) => {
+        const next = { ...prev };
+        delete next[markerId];
+        return next;
+      });
+      dragPositionRef.current = null;
+      e.preventDefault();
+    }
+
+    const wasDrag = lp.moveMode && lp.dragged;
+    clearLongPress();
+
+    try {
+      e.currentTarget.releasePointerCapture(e.pointerId);
+    } catch {
+      // ignore
+    }
+
+    if (!wasDrag) {
+      onMarkerClick?.(markerId);
+    }
+  }
+
+  function getMarkerPosition(marker: PlanViewerMarker) {
+    const override = positionOverrides[marker.id];
+    return override
+      ? { x_percent: override.x, y_percent: override.y }
+      : { x_percent: marker.x_percent, y_percent: marker.y_percent };
   }
 
   function handlePointerDown(e: ReactPointerEvent<HTMLDivElement>) {
@@ -655,32 +793,34 @@ export function PlanViewer({
               <div className="pointer-events-none absolute inset-0">
                 {markers.map((marker) => {
                   const isSelected = selectedMarkerId === marker.id;
+                  const pos = getMarkerPosition(marker);
+                  const isDragging = Boolean(positionOverrides[marker.id]);
                   return (
                     <button
                       key={marker.id}
                       type="button"
                       data-plan-marker
                       style={{
-                        left: `${marker.x_percent}%`,
-                        top: `${marker.y_percent}%`,
+                        left: `${pos.x_percent}%`,
+                        top: `${pos.y_percent}%`,
                         backgroundColor: markerControlHex(
                           marker.control_result,
                           marker.status
                         ),
                       }}
-                      onClick={(e) => {
-                      e.stopPropagation();
-                      onMarkerClick?.(marker.id);
-                    }}
-                    className={`pointer-events-auto absolute flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 text-sm font-bold text-white shadow-lg transition-transform active:scale-110 ${
-                      isSelected
-                        ? "border-white ring-4 ring-amber-300"
-                        : "border-white"
-                    }`}
-                  >
-                    {marker.marker_number}
-                  </button>
-                );
+                      onPointerDown={(e) => handleMarkerPointerDown(e, marker.id)}
+                      onPointerMove={(e) => handleMarkerPointerMove(e, marker.id)}
+                      onPointerUp={(e) => handleMarkerPointerUp(e, marker.id)}
+                      onPointerCancel={(e) => handleMarkerPointerUp(e, marker.id)}
+                      className={`pointer-events-auto absolute flex h-10 w-10 -translate-x-1/2 -translate-y-1/2 items-center justify-center rounded-full border-2 text-sm font-bold text-white shadow-lg transition-transform active:scale-110 ${
+                        isSelected
+                          ? "border-white ring-4 ring-amber-300"
+                          : "border-white"
+                      } ${isDragging ? "z-10 scale-110 ring-4 ring-sky-300" : ""}`}
+                    >
+                      {marker.marker_number}
+                    </button>
+                  );
                 })}
               </div>
             </div>

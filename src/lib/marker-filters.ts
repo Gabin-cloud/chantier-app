@@ -59,6 +59,9 @@ export function matchesMarkerFilters(
   filters: MarkerListFilters,
   executionMap: Map<string, WorkControlExecutionLite>
 ): boolean {
+  if (filters.enterpriseIds.includes("__none__")) {
+    return false;
+  }
   if (
     filters.enterpriseIds.length > 0 &&
     (!marker.enterprise_id || !filters.enterpriseIds.includes(marker.enterprise_id))

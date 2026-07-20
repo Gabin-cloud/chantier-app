@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { VisitReportPreview } from "@/components/visits/VisitReportPreview";
+import { MarkerPhotoAnnotator } from "@/components/visits/MarkerPhotoAnnotator";
 import { PlanViewer } from "@/components/visits/PlanViewer";
 import { PlanPicker } from "@/components/plans/PlanPicker";
 import { savePlanDrawings } from "@/lib/actions/checklist";
@@ -36,7 +37,6 @@ import {
   CONTROL_RESULT_LABELS,
   DRAW_COLOR_PRESETS,
   DRAW_WIDTH_PRESETS,
-  getTabletMarkerVisualState,
   markerControlHex,
   TABLET_MARKER_STATE_LABELS,
   VISIT_CONTROL_SUMMARY_LABELS,
@@ -227,6 +227,12 @@ export function VisitEditor({
   const [markerFilters, setMarkerFilters] = useState<MarkerListFilters>(
     DEFAULT_MARKER_FILTERS
   );
+  /** null = toutes les entreprises ; [] = aucune ; [ids] = filtre actif */
+  const [enterpriseFilterIds, setEnterpriseFilterIds] = useState<string[] | null>(null);
+  const [pendingPhoto, setPendingPhoto] = useState<{
+    file: File;
+    mode: "upload" | "resolve";
+  } | null>(null);
   const [unlockedMarkerIds, setUnlockedMarkerIds] = useState<Set<string>>(
     () => new Set()
   );
@@ -244,6 +250,18 @@ export function VisitEditor({
     () => markers.filter((m) => matchesMarkerFilters(m, markerFilters, executionMap)),
     [markers, markerFilters, executionMap]
   );
+
+  const markersByPlan = useMemo(() => {
+    const byPlanId = new Map<string, MarkerWithPhoto[]>();
+    for (const m of visibleMarkers) {
+      const list = byPlanId.get(m.plan_id) ?? [];
+      list.push(m);
+      byPlanId.set(m.plan_id, list);
+    }
+    return plans
+      .map((plan) => ({ plan, markers: byPlanId.get(plan.id) ?? [] }))
+      .filter((g) => g.markers.length > 0);
+  }, [visibleMarkers, plans]);
 
   const selectedPlan = plans.find((p) => p.id === selectedPlanId);
   const planMarkers = visibleMarkers.filter((m) => m.plan_id === selectedPlanId);
@@ -321,13 +339,29 @@ export function VisitEditor({
   }, []);
 
   useEffect(() => {
+    setMarkerFilters((prev) => ({
+      ...prev,
+      enterpriseIds:
+        enterpriseFilterIds === null
+          ? []
+          : enterpriseFilterIds.length === 0
+            ? ["__none__"]
+            : enterpriseFilterIds,
+    }));
+  }, [enterpriseFilterIds]);
+
+  useEffect(() => {
     const levels = planLevelsByPlan[selectedPlanId] ?? [];
     if (levels.length && !planLevelDraft) {
       setPlanLevelDraft(levels[0]!.id);
     }
   }, [selectedPlanId, planLevelsByPlan, planLevelDraft]);
 
-  function selectMarker(marker: MarkerWithPhoto) {
+  function isMarkerDraftIncomplete() {
+    return !enterpriseDraft && !remarkDraft.trim();
+  }
+
+  function applySelectMarker(marker: MarkerWithPhoto) {
     setSelectedMarkerId(marker.id);
     setRemarkDraft(marker.remark ?? "");
     setStatusDraft(marker.status ?? "a_traiter");
@@ -345,6 +379,137 @@ export function VisitEditor({
     setControlResultDraft(marker.control_result ?? "");
   }
 
+  async function handleMarkerSwitchAway(): Promise<void> {
+    if (!selectedMarkerId) return;
+    const current = markers.find((m) => m.id === selectedMarkerId);
+    if (!current || current.visit_id !== visit.id) return;
+
+    if (isMarkerDraftIncomplete()) {
+      try {
+        setError(null);
+        await deleteMarker(visit.id, projectId, selectedMarkerId);
+        setMarkers((prev) => prev.filter((m) => m.id !== selectedMarkerId));
+        setSelectedMarkerId(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Erreur lors de la suppression.");
+      }
+      return;
+    }
+
+    await saveMarkerDraft(selectedMarkerId);
+  }
+
+  async function saveMarkerDraft(markerId: string): Promise<boolean> {
+    if (markerId !== selectedMarkerId) return false;
+
+    if (
+      (controlResultDraft === "ok" || controlResultDraft === "ko") &&
+      !enterpriseDraft
+    ) {
+      setError("Sélectionnez l'entreprise pour Conforme ou À lever.");
+      return false;
+    }
+
+    try {
+      setError(null);
+      let locationPresetId = locationPresetDraft || null;
+
+      if (locationLabelDraft.trim() && !locationPresetId) {
+        const created = await addCustomLocation(projectId, locationLabelDraft.trim());
+        setLocations((prev) => {
+          if (prev.some((l) => l.id === created.id)) return prev;
+          return [...prev, created].sort((a, b) => a.name.localeCompare(b.name, "fr"));
+        });
+        locationPresetId = created.id;
+        setLocationPresetDraft(created.id);
+      }
+
+      const isPrior =
+        selectedMarker != null && isPriorVisitMarker(selectedMarker.visit_id, visit.id);
+
+      await updateMarker(visit.id, projectId, markerId, {
+        remark: remarkDraft,
+        linked_marker_ids: [],
+        status: statusDraft,
+        enterprise_id: enterpriseDraft || null,
+        trade: (selectedEnterprise?.trade ?? tradeDraft) || null,
+        location_label: locationLabelDraft || null,
+        location_preset_id: locationPresetId,
+        checklist_item_id: checklistItemDraft || null,
+        plan_level_id: planLevelDraft || null,
+        control_result: controlResultDraft || null,
+        preset_comment: presetCommentDraft || null,
+        unlock_edit: isPrior && !selectedMarkerLocked,
+      });
+
+      setMarkers((prev) =>
+        prev.map((m) =>
+          m.id === markerId
+            ? {
+                ...m,
+                remark: remarkDraft,
+                linked_marker_ids: [],
+                status: statusDraft,
+                enterprise_id: enterpriseDraft || null,
+                trade: (selectedEnterprise?.trade ?? tradeDraft) || null,
+                location_label: locationLabelDraft || null,
+                location_preset_id: locationPresetId,
+                checklist_item_id: checklistItemDraft || null,
+                plan_level_id: planLevelDraft || null,
+                control_result: controlResultDraft || null,
+              }
+            : m
+        )
+      );
+      return true;
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Erreur lors de l'enregistrement.");
+      return false;
+    }
+  }
+
+  function selectMarker(marker: MarkerWithPhoto) {
+    if (selectedMarkerId === marker.id) return;
+
+    void (async () => {
+      await handleMarkerSwitchAway();
+      applySelectMarker(marker);
+    })();
+  }
+
+  function isEnterpriseFilterChecked(id: string) {
+    if (enterpriseFilterIds === null) return true;
+    return enterpriseFilterIds.includes(id);
+  }
+
+  function toggleEnterpriseFilter(id: string) {
+    setEnterpriseFilterIds((prev) => {
+      if (prev === null) {
+        return enterprises.map((e) => e.id).filter((x) => x !== id);
+      }
+      if (prev.includes(id)) {
+        const next = prev.filter((x) => x !== id);
+        return next.length === 0 ? [] : next;
+      }
+      const next = [...prev, id];
+      return next.length === enterprises.length ? null : next;
+    });
+  }
+
+  function checklistLabel(marker: MarkerWithPhoto) {
+    return checklistItems.find((i) => i.id === marker.checklist_item_id)?.label ?? null;
+  }
+
+  function enterpriseName(marker: MarkerWithPhoto) {
+    if (!marker.enterprise_id) return "Sans entreprise";
+    return enterprises.find((e) => e.id === marker.enterprise_id)?.name ?? "Sans entreprise";
+  }
+
+  function markerRowSubtitle(marker: MarkerWithPhoto) {
+    if (marker.remark?.trim()) return marker.remark.trim();
+    return checklistLabel(marker) ?? "Sans remarque";
+  }
+
   function handleChecklistItemChange(itemId: string) {
     setChecklistItemDraft(itemId);
     if (itemId && !controlResultDraft && inheritedControlResults[itemId]) {
@@ -355,48 +520,72 @@ export function VisitEditor({
   function handlePlanClick(xPercent: number, yPercent: number) {
     if (!addMode || !selectedPlan || isCompleted) return;
 
-    const previous = [...markers]
-      .filter((m) => m.visit_id === visit.id)
-      .sort((a, b) => b.marker_number - a.marker_number)[0];
-    const inheritedEnterpriseId = previous?.enterprise_id ?? null;
-    const inheritedTrade = previous?.trade ?? null;
+    void (async () => {
+      if (selectedMarkerId) {
+        const current = markers.find((m) => m.id === selectedMarkerId);
+        if (current && current.visit_id === visit.id) {
+          if (isMarkerDraftIncomplete()) {
+            try {
+              setError(null);
+              await deleteMarker(visit.id, projectId, selectedMarkerId);
+              setMarkers((prev) => prev.filter((m) => m.id !== selectedMarkerId));
+              setSelectedMarkerId(null);
+            } catch (err) {
+              setError(
+                err instanceof Error ? err.message : "Impossible d'ajouter la pastille."
+              );
+              return;
+            }
+          } else {
+            const saved = await saveMarkerDraft(selectedMarkerId);
+            if (!saved) return;
+          }
+        }
+      }
 
-    startTransition(async () => {
-      try {
-        setError(null);
-        const newMarker = await createMarker(
-          visit.id,
-          projectId,
-          selectedPlanId,
-          xPercent,
-          yPercent,
-          {
-            control_result: "ko",
+      const previous = [...markers]
+        .filter((m) => m.visit_id === visit.id)
+        .sort((a, b) => b.marker_number - a.marker_number)[0];
+      const inheritedEnterpriseId = previous?.enterprise_id ?? null;
+      const inheritedTrade = previous?.trade ?? null;
+
+      startTransition(async () => {
+        try {
+          setError(null);
+          const newMarker = await createMarker(
+            visit.id,
+            projectId,
+            selectedPlanId,
+            xPercent,
+            yPercent,
+            {
+              control_result: "ko",
+              enterprise_id: inheritedEnterpriseId,
+              trade: inheritedTrade,
+            }
+          );
+          const withPhoto: MarkerWithPhoto = {
+            ...newMarker,
+            status: "a_traiter",
             enterprise_id: inheritedEnterpriseId,
             trade: inheritedTrade,
-          }
-        );
-        const withPhoto: MarkerWithPhoto = {
-          ...newMarker,
-          status: "a_traiter",
-          enterprise_id: inheritedEnterpriseId,
-          trade: inheritedTrade,
-          location_label: null,
-          location_preset_id: null,
-          checklist_item_id:
-            visit.checklist_item_id ?? newMarker.checklist_item_id ?? null,
-          control_result: "ko",
-          photo_public_url: null,
-        };
-        setMarkers((prev) => [...prev, withPhoto]);
-        selectMarker(withPhoto);
-        setControlResultDraft("ko");
-        setEnterpriseDraft(inheritedEnterpriseId ?? "");
-        setTradeDraft(inheritedTrade ?? "");
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Impossible d'ajouter la pastille.");
-      }
-    });
+            location_label: null,
+            location_preset_id: null,
+            checklist_item_id:
+              visit.checklist_item_id ?? newMarker.checklist_item_id ?? null,
+            control_result: "ko",
+            photo_public_url: null,
+          };
+          setMarkers((prev) => [...prev, withPhoto]);
+          applySelectMarker(withPhoto);
+          setControlResultDraft("ko");
+          setEnterpriseDraft(inheritedEnterpriseId ?? "");
+          setTradeDraft(inheritedTrade ?? "");
+        } catch (err) {
+          setError(err instanceof Error ? err.message : "Impossible d'ajouter la pastille.");
+        }
+      });
+    })();
   }
 
   function handleStrokesChange(strokes: DrawingStroke[]) {
@@ -410,70 +599,63 @@ export function VisitEditor({
     scheduleSaveDrawings(selectedPlanId, strokes);
   }
 
-  async function handleSaveMarker() {
-    if (!selectedMarker) return;
+  async function handleAnnotatedPhotoConfirm(blob: Blob) {
+    const pending = pendingPhoto;
+    setPendingPhoto(null);
+    if (!pending || !selectedMarker) return;
 
-    if (
-      (controlResultDraft === "ok" || controlResultDraft === "ko") &&
-      !enterpriseDraft
-    ) {
-      setError("Sélectionnez l'entreprise pour Conforme ou À lever.");
-      return;
-    }
+    const formData = new FormData();
+    formData.append("photo", blob, pending.file.name || "photo.jpg");
+    const id = selectedMarker.id;
 
     startTransition(async () => {
       try {
         setError(null);
-        let locationPresetId = locationPresetDraft || null;
-
-        if (locationLabelDraft.trim() && !locationPresetId) {
-          const created = await addCustomLocation(projectId, locationLabelDraft.trim());
-          setLocations((prev) => {
-            if (prev.some((l) => l.id === created.id)) return prev;
-            return [...prev, created].sort((a, b) => a.name.localeCompare(b.name, "fr"));
-          });
-          locationPresetId = created.id;
-          setLocationPresetDraft(created.id);
+        if (pending.mode === "resolve") {
+          const url = await uploadMarkerPhotoAndResolve(
+            visit.id,
+            projectId,
+            id,
+            formData
+          );
+          setMarkers((prev) =>
+            prev.map((m) =>
+              m.id === id ? { ...m, photo_public_url: url, status: "levee" } : m
+            )
+          );
+          setSelectedMarkerId(null);
+        } else {
+          const url = await uploadMarkerPhoto(visit.id, projectId, id, formData);
+          setMarkers((prev) =>
+            prev.map((m) =>
+              m.id === id ? { ...m, photo_public_url: url } : m
+            )
+          );
         }
-
-        await updateMarker(visit.id, projectId, selectedMarker.id, {
-          remark: remarkDraft,
-          linked_marker_ids: [],
-          status: statusDraft,
-          enterprise_id: enterpriseDraft || null,
-          trade: (selectedEnterprise?.trade ?? tradeDraft) || null,
-          location_label: locationLabelDraft || null,
-          location_preset_id: locationPresetId,
-          checklist_item_id: checklistItemDraft || null,
-          plan_level_id: planLevelDraft || null,
-          control_result: controlResultDraft || null,
-          preset_comment: presetCommentDraft || null,
-          unlock_edit: selectedMarkerIsPrior && !selectedMarkerLocked,
-        });
-
-        setMarkers((prev) =>
-          prev.map((m) =>
-            m.id === selectedMarker.id
-              ? {
-                  ...m,
-                  remark: remarkDraft,
-                  linked_marker_ids: [],
-                  status: statusDraft,
-                  enterprise_id: enterpriseDraft || null,
-                  trade: (selectedEnterprise?.trade ?? tradeDraft) || null,
-                  location_label: locationLabelDraft || null,
-                  location_preset_id: locationPresetId,
-                  checklist_item_id: checklistItemDraft || null,
-                  plan_level_id: planLevelDraft || null,
-                  control_result: controlResultDraft || null,
-                }
-              : m
-          )
-        );
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Erreur lors de l'enregistrement.");
+        setError(
+          err instanceof Error
+            ? err.message
+            : pending.mode === "resolve"
+              ? "Erreur photo + levée."
+              : "Erreur lors de l'upload."
+        );
       }
     });
+  }
+
+  function handlePhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    if (!selectedMarker || !e.target.files?.[0]) return;
+    const file = e.target.files[0];
+    e.target.value = "";
+    setPendingPhoto({ file, mode: "upload" });
+  }
+
+  function handlePhotoAndResolve(e: React.ChangeEvent<HTMLInputElement>) {
+    if (!selectedMarker || !e.target.files?.[0]) return;
+    const file = e.target.files[0];
+    e.target.value = "";
+    setPendingPhoto({ file, mode: "resolve" });
   }
 
   function handleResolveMarker(markerId?: string) {
@@ -530,62 +712,6 @@ export function VisitEditor({
     });
   }
 
-  function handlePhotoUpload(e: React.ChangeEvent<HTMLInputElement>) {
-    if (!selectedMarker || !e.target.files?.[0]) return;
-
-    const formData = new FormData();
-    formData.append("photo", e.target.files[0]);
-    e.target.value = "";
-
-    startTransition(async () => {
-      try {
-        setError(null);
-        const url = await uploadMarkerPhoto(
-          visit.id,
-          projectId,
-          selectedMarker.id,
-          formData
-        );
-        setMarkers((prev) =>
-          prev.map((m) =>
-            m.id === selectedMarker.id ? { ...m, photo_public_url: url } : m
-          )
-        );
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Erreur lors de l'upload.");
-      }
-    });
-  }
-
-  function handlePhotoAndResolve(e: React.ChangeEvent<HTMLInputElement>) {
-    if (!selectedMarker || !e.target.files?.[0]) return;
-
-    const formData = new FormData();
-    formData.append("photo", e.target.files[0]);
-    const id = selectedMarker.id;
-    e.target.value = "";
-
-    startTransition(async () => {
-      try {
-        setError(null);
-        const url = await uploadMarkerPhotoAndResolve(
-          visit.id,
-          projectId,
-          id,
-          formData
-        );
-        setMarkers((prev) =>
-          prev.map((m) =>
-            m.id === id ? { ...m, photo_public_url: url, status: "levee" } : m
-          )
-        );
-        setSelectedMarkerId(null);
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Erreur photo + levée.");
-      }
-    });
-  }
-
   function handleDeleteMarker() {
     if (!selectedMarker || !confirm("Supprimer cette pastille ?")) return;
 
@@ -611,14 +737,6 @@ export function VisitEditor({
         setError(err instanceof Error ? err.message : "Erreur.");
       }
     });
-  }
-
-  function locationName(marker: MarkerWithPhoto) {
-    if (marker.location_label) return marker.location_label;
-    if (marker.location_preset_id) {
-      return locations.find((l) => l.id === marker.location_preset_id)?.name ?? null;
-    }
-    return null;
   }
 
   if (plans.length === 0) {
@@ -677,35 +795,57 @@ export function VisitEditor({
           </div>
           <h2 className="text-base font-bold text-zinc-900">Pastilles</h2>
           <p className="text-xs text-zinc-500">
-            {planMarkers.length} visibles sur ce plan
+            {visibleMarkers.length} pastille{visibleMarkers.length !== 1 ? "s" : ""} visible
             {phaseName ? ` · ${phaseName}` : ""}
             {controlLabel ? ` · ${controlLabel}` : ""}
           </p>
           <div className="mt-2 space-y-2">
-            <div className="flex flex-wrap gap-1.5">
-              {enterprises.map((e) => {
-                const active = markerFilters.enterpriseIds.includes(e.id);
-                return (
+            <details className="group relative">
+              <summary className="cursor-pointer list-none rounded-lg bg-zinc-100 px-2.5 py-1.5 text-[11px] font-semibold text-zinc-700 marker:content-none [&::-webkit-details-marker]:hidden">
+                Entreprises
+                <span className="ml-1 text-zinc-400">
+                  {enterpriseFilterIds === null
+                    ? "(toutes)"
+                    : enterpriseFilterIds.length === 0
+                      ? "(aucune)"
+                      : `(${enterpriseFilterIds.length})`}
+                </span>
+              </summary>
+              <div className="absolute left-0 right-0 z-20 mt-1 rounded-xl border border-zinc-200 bg-white p-2 shadow-lg">
+                <div className="mb-2 flex gap-1.5">
                   <button
-                    key={e.id}
                     type="button"
-                    onClick={() =>
-                      setMarkerFilters((f) => ({
-                        ...f,
-                        enterpriseIds: toggleFilterValue(f.enterpriseIds, e.id),
-                      }))
-                    }
-                    className={`rounded-lg px-2 py-1 text-[11px] font-semibold ${
-                      active
-                        ? "bg-zinc-900 text-white"
-                        : "bg-zinc-100 text-zinc-700"
-                    }`}
+                    onClick={() => setEnterpriseFilterIds(null)}
+                    className="rounded-lg bg-zinc-100 px-2 py-1 text-[10px] font-semibold text-zinc-700"
                   >
-                    {e.name}
+                    Tout cocher
                   </button>
-                );
-              })}
-            </div>
+                  <button
+                    type="button"
+                    onClick={() => setEnterpriseFilterIds([])}
+                    className="rounded-lg bg-zinc-100 px-2 py-1 text-[10px] font-semibold text-zinc-700"
+                  >
+                    Tout décocher
+                  </button>
+                </div>
+                <div className="max-h-40 space-y-1 overflow-y-auto">
+                  {enterprises.map((e) => (
+                    <label
+                      key={e.id}
+                      className="flex cursor-pointer items-center gap-2 rounded-lg px-2 py-1 hover:bg-zinc-50"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={isEnterpriseFilterChecked(e.id)}
+                        onChange={() => toggleEnterpriseFilter(e.id)}
+                        className="h-4 w-4 rounded border-zinc-300"
+                      />
+                      <span className="text-[11px] font-medium text-zinc-800">{e.name}</span>
+                    </label>
+                  ))}
+                </div>
+              </div>
+            </details>
             <div className="flex flex-wrap gap-1.5">
               {TABLET_FILTER_STATES.map((state: TabletMarkerVisualState) => {
                 const active = markerFilters.states.includes(state);
@@ -734,77 +874,86 @@ export function VisitEditor({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-2 py-2">
-          {planMarkers.length === 0 ? (
+          {visibleMarkers.length === 0 ? (
             <p className="px-2 py-4 text-sm text-zinc-500">
               Aucune pastille pour ce filtre. Activez le mode pastille et touchez le plan.
             </p>
           ) : (
-            <ul className="space-y-1.5">
-              {planMarkers.map((marker) => {
-                const loc = locationName(marker);
-                const isPrior = isPriorVisitMarker(marker.visit_id, visit.id);
-                const isLocked = isPrior && !unlockedMarkerIds.has(marker.id);
-                const visualState = getTabletMarkerVisualState(
-                  marker.control_result,
-                  marker.status
-                );
-                const canSwipeResolve =
-                  !isCompleted && marker.status !== "levee";
-                return (
-                  <SwipeableMarkerRow
-                    key={marker.id}
-                    disabled={!canSwipeResolve || isPending}
-                    onResolve={() => handleResolveMarker(marker.id)}
-                  >
-                    <button
-                      type="button"
-                      onClick={() => selectMarker(marker)}
-                      className={`w-full rounded-xl px-3 py-2.5 text-left transition-colors ${
-                        selectedMarkerId === marker.id
-                          ? "bg-amber-50 ring-2 ring-amber-400"
-                          : "bg-zinc-50 hover:bg-zinc-100"
-                      }`}
-                    >
-                      <div className="flex items-center gap-2.5">
-                        <span
-                          className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white"
-                          style={{
-                            backgroundColor: markerControlHex(
-                              marker.control_result,
-                              marker.status
-                            ),
+            <div className="space-y-3">
+              {markersByPlan.map(({ plan, markers: groupMarkers }) => (
+                <div key={plan.id}>
+                  <p className="sticky top-0 z-10 bg-white px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-zinc-400">
+                    {plan.name}
+                  </p>
+                  <ul className="space-y-1.5">
+                    {groupMarkers.map((marker) => {
+                      const isPrior = isPriorVisitMarker(marker.visit_id, visit.id);
+                      const isLocked = isPrior && !unlockedMarkerIds.has(marker.id);
+                      const canSwipeResolve =
+                        isPrior && !isCompleted && marker.status !== "levee";
+                      const row = (
+                        <button
+                          type="button"
+                          onClick={() => {
+                            setSelectedPlanId(marker.plan_id);
+                            selectMarker(marker);
                           }}
+                          className={`w-full rounded-xl px-3 py-2.5 text-left transition-colors ${
+                            selectedMarkerId === marker.id
+                              ? "bg-amber-50 ring-2 ring-amber-400"
+                              : "bg-zinc-50 hover:bg-zinc-100"
+                          }`}
                         >
-                          {marker.marker_number}
-                        </span>
-                        <div className="min-w-0 flex-1">
-                          <p className="truncate text-sm font-medium text-zinc-900">
-                            {marker.remark ||
-                              filteredChecklistItems.find(
-                                (i) => i.id === marker.checklist_item_id
-                              )?.label ||
-                              "Sans remarque"}
-                          </p>
-                          <p className="text-xs text-zinc-500">
-                            {TABLET_MARKER_STATE_LABELS[visualState]}
-                            {loc ? ` · ${loc}` : ""}
-                            {isPrior ? " · visite préc." : ""}
-                          </p>
-                        </div>
-                        {isLocked && (
-                          <span className="text-sm" title="Verrouillée">
-                            🔒
-                          </span>
-                        )}
-                        {marker.photo_public_url && (
-                          <span className="text-xs text-emerald-600">📷</span>
-                        )}
-                      </div>
-                    </button>
-                  </SwipeableMarkerRow>
-                );
-              })}
-            </ul>
+                          <div className="flex items-center gap-2.5">
+                            <span
+                              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white"
+                              style={{
+                                backgroundColor: markerControlHex(
+                                  marker.control_result,
+                                  marker.status
+                                ),
+                              }}
+                            >
+                              {marker.marker_number}
+                            </span>
+                            <div className="min-w-0 flex-1">
+                              <p className="truncate text-sm font-medium text-zinc-900">
+                                {enterpriseName(marker)}
+                              </p>
+                              <p className="truncate text-xs text-zinc-500">
+                                {markerRowSubtitle(marker)}
+                              </p>
+                            </div>
+                            {isLocked && (
+                              <span className="text-sm" title="Verrouillée">
+                                🔒
+                              </span>
+                            )}
+                            {marker.photo_public_url && (
+                              <span className="text-xs text-emerald-600">📷</span>
+                            )}
+                          </div>
+                        </button>
+                      );
+
+                      if (!canSwipeResolve) {
+                        return <li key={marker.id}>{row}</li>;
+                      }
+
+                      return (
+                        <SwipeableMarkerRow
+                          key={marker.id}
+                          disabled={isPending}
+                          onResolve={() => handleResolveMarker(marker.id)}
+                        >
+                          {row}
+                        </SwipeableMarkerRow>
+                      );
+                    })}
+                  </ul>
+                </div>
+              ))}
+            </div>
           )}
         </div>
 
@@ -872,42 +1021,6 @@ export function VisitEditor({
                 </button>
               </div>
             )}
-            {!isCompleted && drawMode && (
-              <button
-                type="button"
-                onClick={handleUndoDrawing}
-                className="min-h-10 rounded-lg bg-zinc-100 px-4 py-2 text-sm font-bold text-zinc-800"
-              >
-                Annuler trait
-              </button>
-            )}
-            {!isCompleted && drawMode && (
-              <div className="flex items-center gap-1.5 rounded-lg bg-zinc-50 px-2 py-1">
-                {DRAW_COLOR_PRESETS.map((color) => (
-                  <button
-                    key={color}
-                    type="button"
-                    onClick={() => setDrawColor(color)}
-                    style={{ backgroundColor: color }}
-                    className={`h-7 w-7 rounded-full border-2 ${
-                      drawColor === color ? "border-zinc-900" : "border-white"
-                    }`}
-                    aria-label={`Couleur ${color}`}
-                  />
-                ))}
-                <select
-                  value={drawWidth}
-                  onChange={(e) => setDrawWidth(Number(e.target.value))}
-                  className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold"
-                >
-                  {DRAW_WIDTH_PRESETS.map((w) => (
-                    <option key={w} value={w}>
-                      {w}px
-                    </option>
-                  ))}
-                </select>
-              </div>
-            )}
             {!isCompleted && (
               <button
                 type="button"
@@ -939,6 +1052,42 @@ export function VisitEditor({
                 ? "Mode pastille — touchez le plan pour placer"
                 : "Mode dessin — glissez sur le plan pour tracer"}
             </p>
+            {drawMode && (
+              <>
+                <button
+                  type="button"
+                  onClick={handleUndoDrawing}
+                  className="shrink-0 rounded-lg bg-white/80 px-3 py-1 text-xs font-bold text-zinc-800"
+                >
+                  Annuler trait
+                </button>
+                <div className="flex shrink-0 items-center gap-1.5 rounded-lg bg-white/80 px-2 py-1">
+                  {DRAW_COLOR_PRESETS.map((color) => (
+                    <button
+                      key={color}
+                      type="button"
+                      onClick={() => setDrawColor(color)}
+                      style={{ backgroundColor: color }}
+                      className={`h-7 w-7 rounded-full border-2 ${
+                        drawColor === color ? "border-zinc-900" : "border-white"
+                      }`}
+                      aria-label={`Couleur ${color}`}
+                    />
+                  ))}
+                  <select
+                    value={drawWidth}
+                    onChange={(e) => setDrawWidth(Number(e.target.value))}
+                    className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold"
+                  >
+                    {DRAW_WIDTH_PRESETS.map((w) => (
+                      <option key={w} value={w}>
+                        {w}px
+                      </option>
+                    ))}
+                  </select>
+                </div>
+              </>
+            )}
           </div>
         )}
 
@@ -962,7 +1111,7 @@ export function VisitEditor({
                   {selectedMarkerLocked ? "🔒 Déverrouiller" : "🔓 Modifiable"}
                 </button>
               )}
-              {!isCompleted && selectedMarker.status === "levee" && (
+              {!isCompleted && selectedMarkerIsPrior && selectedMarker.status === "levee" && (
                 <button
                   type="button"
                   disabled={isPending}
@@ -973,6 +1122,7 @@ export function VisitEditor({
                 </button>
               )}
               {!isCompleted &&
+                selectedMarkerIsPrior &&
                 !selectedMarkerLocked &&
                 selectedMarker.status !== "levee" && (
                   <>
@@ -1235,14 +1385,6 @@ export function VisitEditor({
                       </label>
                       <button
                         type="button"
-                        onClick={handleSaveMarker}
-                        disabled={isPending}
-                        className="min-h-9 rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-bold text-white disabled:opacity-50"
-                      >
-                        Enregistrer
-                      </button>
-                      <button
-                        type="button"
                         onClick={handleDeleteMarker}
                         disabled={isPending}
                         className="min-h-9 rounded-lg border border-red-200 px-2.5 py-1.5 text-sm font-medium text-red-600"
@@ -1314,13 +1456,46 @@ export function VisitEditor({
               onPlanClick={handlePlanClick}
               onMarkerClick={(id) => {
                 const marker = markers.find((m) => m.id === id);
-                if (marker) selectMarker(marker);
+                if (marker) {
+                  setSelectedPlanId(marker.plan_id);
+                  selectMarker(marker);
+                }
+              }}
+              onMarkerMove={(id, x, y) => {
+                setMarkers((prev) =>
+                  prev.map((m) =>
+                    m.id === id ? { ...m, x_percent: x, y_percent: y } : m
+                  )
+                );
+                const m = markers.find((x) => x.id === id);
+                const isPrior = m != null && isPriorVisitMarker(m.visit_id, visit.id);
+                startTransition(() =>
+                  updateMarker(visit.id, projectId, id, {
+                    x_percent: x,
+                    y_percent: y,
+                    unlock_edit: isPrior && unlockedMarkerIds.has(id),
+                  })
+                );
+              }}
+              canMoveMarker={(id) => {
+                const m = markers.find((x) => x.id === id);
+                if (!m || isCompleted) return false;
+                const isPrior = isPriorVisitMarker(m.visit_id, visit.id);
+                return !isPrior || unlockedMarkerIds.has(id);
               }}
             />
           )}
         </div>
         </div>
       </div>
+
+      {pendingPhoto && (
+        <MarkerPhotoAnnotator
+          file={pendingPhoto.file}
+          onConfirm={handleAnnotatedPhotoConfirm}
+          onCancel={() => setPendingPhoto(null)}
+        />
+      )}
 
       {showReport && (
         <VisitReportPreview
