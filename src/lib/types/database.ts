@@ -471,6 +471,20 @@ export const CONTROL_RESULT_COLORS: Record<
   pending: { bg: "bg-amber-400", text: "text-zinc-900", hex: "#fbbf24" },
 };
 
+/** Couleur pastille plan / liste tablette selon le résultat de contrôle. */
+export function markerControlHex(controlResult: ControlResult | null | undefined): string {
+  if (!controlResult) return "#a1a1aa";
+  return CONTROL_RESULT_COLORS[controlResult].hex;
+}
+
+export const PLAN_SUPPORT_OPTIONS = [
+  "Plans architecte",
+  "Plans béton",
+  "Plans électricité (ELEX)",
+  "Plans plomberie",
+  "Autres plans",
+] as const;
+
 export type VisitControlSummary = "pending" | "ok" | "partial" | "ko";
 
 export const VISIT_CONTROL_SUMMARY_LABELS: Record<VisitControlSummary, string> = {

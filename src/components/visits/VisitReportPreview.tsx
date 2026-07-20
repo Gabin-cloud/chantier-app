@@ -10,7 +10,6 @@ import type {
 } from "@/lib/types/database";
 import {
   CONTROL_RESULT_LABELS,
-  MARKER_STATUS_LABELS,
   VISIT_CONTROL_SUMMARY_LABELS,
 } from "@/lib/types/database";
 import { computeVisitControlSummary } from "@/lib/control-summary";
@@ -56,14 +55,8 @@ export function VisitReportPreview({
   });
 
   const enterpriseMap = new Map(enterprises.map((e) => [e.id, e.name]));
-  const itemMap = new Map(checklistItems.map((i) => [i.id, i]));
 
   const controlMarkers = visitMarkers.filter((m) => m.checklist_item_id);
-  const zones = [
-    ...new Set(
-      checklistItems.map((i) => i.zone_name || zoneName || "Général")
-    ),
-  ];
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center">
@@ -77,7 +70,6 @@ export function VisitReportPreview({
             <p className="text-sm text-zinc-500">
               {visitDate}
               {phaseName ? ` · ${phaseName}` : ""}
-              {zoneName ? ` · ${zoneName}` : ""}
               {controlLabel ? ` · ${controlLabel}` : ""}
             </p>
           </div>
@@ -109,67 +101,60 @@ export function VisitReportPreview({
             Synthèse : {VISIT_CONTROL_SUMMARY_LABELS[summary]}
           </div>
 
-          {zones.map((zone) => {
-            const zoneItems = checklistItems.filter(
-              (i) => (i.zone_name || zoneName || "Général") === zone
-            );
-            const zoneMarkers = controlMarkers.filter((m) => {
-              const item = itemMap.get(m.checklist_item_id!);
-              return item && (item.zone_name || zoneName || "Général") === zone;
-            });
-
-            return (
-              <section key={zone} className="mb-5">
-                <h3 className="mb-2 border-b border-zinc-200 pb-1 text-sm font-bold uppercase tracking-wide text-zinc-700">
-                  {zone}
-                </h3>
-                <table className="w-full text-left text-sm">
-                  <thead>
-                    <tr className="text-xs text-zinc-500">
-                      <th className="pb-2 pr-2 font-semibold">Point de contrôle</th>
-                      <th className="pb-2 pr-2 font-semibold">Résultat</th>
-                      <th className="pb-2 font-semibold">Entreprise</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {zoneItems.map((item) => {
-                      const marker = zoneMarkers.find(
-                        (m) => m.checklist_item_id === item.id
-                      );
-                      return (
-                        <tr key={item.id} className="border-t border-zinc-100">
-                          <td className="py-2 pr-2 align-top">{item.label}</td>
-                          <td className="py-2 pr-2 align-top">
-                            {marker?.control_result
-                              ? CONTROL_RESULT_LABELS[marker.control_result]
-                              : "—"}
-                          </td>
-                          <td className="py-2 align-top">
-                            {marker?.enterprise_id
-                              ? enterpriseMap.get(marker.enterprise_id) ?? "—"
-                              : "—"}
-                          </td>
-                        </tr>
-                      );
-                    })}
-                  </tbody>
-                </table>
-              </section>
-            );
-          })}
+          {checklistItems.length > 0 && (
+            <section className="mb-5">
+              <h3 className="mb-2 border-b border-zinc-200 pb-1 text-sm font-bold uppercase tracking-wide text-zinc-700">
+                Points de contrôle
+              </h3>
+              <table className="w-full text-left text-sm">
+                <thead>
+                  <tr className="text-xs text-zinc-500">
+                    <th className="pb-2 pr-2 font-semibold">Point de contrôle</th>
+                    <th className="pb-2 pr-2 font-semibold">Résultat</th>
+                    <th className="pb-2 font-semibold">Entreprise</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {checklistItems.map((item) => {
+                    const marker = controlMarkers.find(
+                      (m) => m.checklist_item_id === item.id
+                    );
+                    return (
+                      <tr key={item.id} className="border-t border-zinc-100">
+                        <td className="py-2 pr-2 align-top">{item.label}</td>
+                        <td className="py-2 pr-2 align-top">
+                          {marker?.control_result
+                            ? CONTROL_RESULT_LABELS[marker.control_result]
+                            : "—"}
+                        </td>
+                        <td className="py-2 align-top">
+                          {marker?.enterprise_id
+                            ? enterpriseMap.get(marker.enterprise_id) ?? "—"
+                            : "—"}
+                        </td>
+                      </tr>
+                    );
+                  })}
+                </tbody>
+              </table>
+            </section>
+          )}
 
           <section className="mb-4">
             <h3 className="mb-2 border-b border-zinc-200 pb-1 text-sm font-bold uppercase tracking-wide text-zinc-700">
-              Réserves
+              Pastilles
             </h3>
             {visitMarkers.length === 0 ? (
-              <p className="text-sm text-zinc-500">Aucune réserve sur cette visite.</p>
+              <p className="text-sm text-zinc-500">Aucune pastille sur cette visite.</p>
             ) : (
               <ul className="space-y-2 text-sm">
                 {visitMarkers.map((marker) => (
                   <li key={marker.id} className="rounded-lg bg-zinc-50 px-3 py-2">
                     <p className="font-semibold text-zinc-900">
-                      #{marker.marker_number} — {MARKER_STATUS_LABELS[marker.status]}
+                      #{marker.marker_number}
+                      {marker.control_result
+                        ? ` — ${CONTROL_RESULT_LABELS[marker.control_result]}`
+                        : ""}
                     </p>
                     {marker.remark && (
                       <p className="text-zinc-600">{marker.remark}</p>

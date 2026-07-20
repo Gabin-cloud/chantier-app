@@ -1,15 +1,15 @@
 "use client";
 
+import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import {
   deleteControlLibraryItem,
   importControlLibraryToAllProjects,
   saveControlLibraryItem,
 } from "@/lib/actions/control-library";
-import { AppFormField } from "@/components/ui/AppFormField";
-import { useTrackedForm } from "@/hooks/useTrackedForm";
 import type { ControlLibraryItem } from "@/lib/types/database";
+import { PLAN_SUPPORT_OPTIONS } from "@/lib/types/database";
 
 const DEFAULT_PHASES = [
   "Gros œuvre",
@@ -18,95 +18,102 @@ const DEFAULT_PHASES = [
   "Livraison",
 ];
 
-const PLAN_SUPPORTS = [
-  "",
-  "Plans architecte",
-  "Plans béton",
-  "Plans électricité (ELEX)",
-  "Plans plomberie",
-  "Autres plans",
-];
-
-function parsePresetComments(raw: string): string[] {
-  return raw
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean);
-}
+type RowDraft = {
+  id?: string;
+  label: string;
+  help_comment: string;
+  plan_support_name: string;
+  sort_order: number;
+};
 
 type ControlLibraryPanelProps = {
   items: ControlLibraryItem[];
   canEdit: boolean;
 };
 
+function emptyRow(sortOrder: number): RowDraft {
+  return {
+    label: "",
+    help_comment: "",
+    plan_support_name: "",
+    sort_order: sortOrder,
+  };
+}
+
 export function ControlLibraryPanel({ items, canEdit }: ControlLibraryPanelProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [editingId, setEditingId] = useState<string | null>(null);
+  const [activePhase, setActivePhase] = useState(DEFAULT_PHASES[0] ?? "Gros œuvre");
+  const [newPhaseName, setNewPhaseName] = useState("");
 
-  const { values, saved, set, markSaved } = useTrackedForm({
-    phase_name: DEFAULT_PHASES[0] ?? "Gros œuvre",
-    zone_name: "",
-    label: "",
-    plan_support_name: "",
-    help_comment: "",
-    preset_comments: "",
-  });
+  const phases = useMemo(() => {
+    const names = new Set(DEFAULT_PHASES);
+    for (const item of items) names.add(item.phase_name);
+    return [...names];
+  }, [items]);
+
+  const phaseItems = useMemo(
+    () =>
+      items
+        .filter((i) => i.phase_name === activePhase)
+        .sort((a, b) => a.sort_order - b.sort_order || a.label.localeCompare(b.label, "fr")),
+    [items, activePhase]
+  );
+
+  const [rows, setRows] = useState<RowDraft[]>([emptyRow(10)]);
+
+  useEffect(() => {
+    setRows([
+      ...phaseItems.map((item) => ({
+        id: item.id,
+        label: item.label,
+        help_comment: item.help_comment,
+        plan_support_name: item.plan_support_name,
+        sort_order: item.sort_order,
+      })),
+      emptyRow((phaseItems.at(-1)?.sort_order ?? 0) + 10),
+    ]);
+  }, [phaseItems, activePhase]);
 
   function refresh() {
     router.refresh();
   }
 
-  function startEdit(item: ControlLibraryItem) {
-    setEditingId(item.id);
-    markSaved({
-      phase_name: item.phase_name,
-      zone_name: item.zone_name,
-      label: item.label,
-      plan_support_name: item.plan_support_name,
-      help_comment: item.help_comment,
-      preset_comments: item.preset_comments.join("\n"),
-    });
-    set("phase_name", item.phase_name);
-    set("zone_name", item.zone_name);
-    set("label", item.label);
-    set("plan_support_name", item.plan_support_name);
-    set("help_comment", item.help_comment);
-    set("preset_comments", item.preset_comments.join("\n"));
+  function updateRow(index: number, patch: Partial<RowDraft>) {
+    setRows((prev) => prev.map((row, i) => (i === index ? { ...row, ...patch } : row)));
   }
 
-  function cancelEdit() {
-    setEditingId(null);
-    markSaved({
-      phase_name: DEFAULT_PHASES[0] ?? "Gros œuvre",
-      zone_name: "",
-      label: "",
-      plan_support_name: "",
-      help_comment: "",
-      preset_comments: "",
-    });
-  }
+  function saveRow(index: number) {
+    const row = rows[index];
+    if (!row) return;
 
-  function save(e: React.FormEvent) {
-    e.preventDefault();
-    setError(null);
-    setSuccess(null);
-    startTransition(async () => {
-      try {
-        const existing = editingId ? items.find((i) => i.id === editingId) : null;
-        await saveControlLibraryItem({
-          id: editingId && editingId !== "new" ? editingId : undefined,
-          phase_name: values.phase_name,
-          zone_name: values.zone_name,
-          label: values.label,
-          plan_support_name: values.plan_support_name,
-          help_comment: values.help_comment,
-          preset_comments: parsePresetComments(values.preset_comments),
-          sort_order: existing?.sort_order ?? items.length + 10,
+    if (!row.label.trim()) {
+      if (row.id) {
+        startTransition(async () => {
+          try {
+            await deleteControlLibraryItem(row.id!);
+            refresh();
+          } catch (err) {
+            setError(err instanceof Error ? err.message : "Erreur.");
+          }
         });
-        cancelEdit();
+      }
+      return;
+    }
+
+    startTransition(async () => {
+      try {
+        setError(null);
+        await saveControlLibraryItem({
+          id: row.id,
+          phase_name: activePhase,
+          label: row.label,
+          help_comment: row.help_comment,
+          plan_support_name: row.plan_support_name,
+          sort_order: row.sort_order,
+        });
         refresh();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Erreur.");
@@ -114,17 +121,12 @@ export function ControlLibraryPanel({ items, canEdit }: ControlLibraryPanelProps
     });
   }
 
-  function remove(itemId: string) {
-    if (!confirm("Supprimer ce point de la bibliothèque globale ?")) return;
-    setError(null);
-    startTransition(async () => {
-      try {
-        await deleteControlLibraryItem(itemId);
-        refresh();
-      } catch (err) {
-        setError(err instanceof Error ? err.message : "Erreur.");
-      }
-    });
+  function addPhase() {
+    const name = newPhaseName.trim();
+    if (!name || phases.includes(name)) return;
+    setActivePhase(name);
+    setNewPhaseName("");
+    setRows([emptyRow(10)]);
   }
 
   function propagateAll() {
@@ -158,47 +160,24 @@ export function ControlLibraryPanel({ items, canEdit }: ControlLibraryPanelProps
             Points de contrôle ({items.length})
           </h2>
           <p className="mt-1 text-sm text-slate-500">
-            Base commune à toutes les opérations — phases, zones, support plan, aide
-            terrain et réponses types tablette.
+            Saisie rapide par phase — point de contrôle, commentaire d&apos;aide, support
+            plan. Base commune à toutes les opérations.
           </p>
         </div>
         {canEdit && (
-          <div className="flex flex-wrap gap-2">
-            <button
-              type="button"
-              onClick={propagateAll}
-              disabled={isPending || items.length === 0}
-              className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-40"
-            >
-              Propager à toutes les opérations
-            </button>
-            {!editingId && (
-              <button
-                type="button"
-                onClick={() => {
-                  setEditingId("new");
-                  markSaved({
-                    phase_name: DEFAULT_PHASES[0] ?? "Gros œuvre",
-                    zone_name: "",
-                    label: "",
-                    plan_support_name: "",
-                    help_comment: "",
-                    preset_comments: "",
-                  });
-                }}
-                className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-500"
-              >
-                Nouveau point
-              </button>
-            )}
-          </div>
+          <button
+            type="button"
+            onClick={propagateAll}
+            disabled={isPending || items.length === 0}
+            className="rounded-lg border border-emerald-200 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-100 disabled:opacity-40"
+          >
+            Propager à toutes les opérations
+          </button>
         )}
       </header>
 
       {error && (
-        <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
-          {error}
-        </p>
+        <p className="mb-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
       )}
       {success && (
         <p className="mb-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
@@ -206,151 +185,164 @@ export function ControlLibraryPanel({ items, canEdit }: ControlLibraryPanelProps
         </p>
       )}
 
-      {(editingId === "new" || editingId) && canEdit && (
-        <form
-          onSubmit={save}
-          className="mb-4 grid gap-3 rounded-xl border border-violet-100 bg-violet-50/40 p-4 sm:grid-cols-2"
-        >
-          <label className="block text-sm">
-            <span className="mb-1 block font-medium text-slate-700">Phase</span>
-            <select
-              value={values.phase_name}
-              onChange={(e) => set("phase_name", e.target.value)}
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-            >
-              {DEFAULT_PHASES.map((phase) => (
-                <option key={phase} value={phase}>
-                  {phase}
-                </option>
-              ))}
-            </select>
-          </label>
-          <AppFormField
-            label="Zone"
-            name="zone_name"
-            value={values.zone_name}
-            savedValue={saved.zone_name}
-            onChange={(v) => set("zone_name", v)}
-            required
-          />
-          <AppFormField
-            label="Point de contrôle"
-            name="label"
-            value={values.label}
-            savedValue={saved.label}
-            onChange={(v) => set("label", v)}
-            required
-          />
-          <label className="block text-sm">
-            <span className="mb-1 block font-medium text-slate-700">Support plan</span>
-            <select
-              value={values.plan_support_name}
-              onChange={(e) => set("plan_support_name", e.target.value)}
-              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
-            >
-              <option value="">— Aucun —</option>
-              {PLAN_SUPPORTS.filter(Boolean).map((name) => (
-                <option key={name} value={name}>
-                  {name}
-                </option>
-              ))}
-            </select>
-          </label>
-          <AppFormField
-            label="Commentaire d'aide (tablette)"
-            name="help_comment"
-            value={values.help_comment}
-            savedValue={saved.help_comment}
-            onChange={(v) => set("help_comment", v)}
-          />
-          <AppFormField
-            label="Réponses types (une par ligne)"
-            name="preset_comments"
-            value={values.preset_comments}
-            savedValue={saved.preset_comments}
-            onChange={(v) => set("preset_comments", v)}
-            multiline
-            className="sm:col-span-2"
-          />
-          <div className="flex gap-2 sm:col-span-2">
+      <div className="mb-4 flex flex-wrap items-center gap-2 border-b border-slate-100 pb-3">
+        <div className="flex max-w-full gap-1 overflow-x-auto pb-1">
+          {phases.map((phase) => (
             <button
-              type="submit"
-              disabled={isPending}
-              className="rounded-lg bg-slate-800 px-4 py-2 text-sm font-semibold text-white disabled:opacity-40"
+              key={phase}
+              type="button"
+              onClick={() => setActivePhase(phase)}
+              className={`shrink-0 rounded-lg px-3 py-2 text-sm font-semibold ${
+                activePhase === phase
+                  ? "bg-violet-600 text-white"
+                  : "bg-slate-100 text-slate-700 hover:bg-slate-200"
+              }`}
             >
-              Enregistrer
+              {phase}
+              <span className="ml-1.5 text-xs opacity-75">
+                ({items.filter((i) => i.phase_name === phase).length})
+              </span>
             </button>
+          ))}
+        </div>
+        {canEdit && (
+          <div className="flex shrink-0 gap-1">
+            <input
+              value={newPhaseName}
+              onChange={(e) => setNewPhaseName(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") {
+                  e.preventDefault();
+                  addPhase();
+                }
+              }}
+              placeholder="Nouvelle phase"
+              className="w-36 rounded-lg border border-slate-200 px-2 py-1.5 text-sm"
+            />
             <button
               type="button"
-              onClick={cancelEdit}
-              className="rounded-lg border border-slate-200 px-4 py-2 text-sm font-semibold text-slate-700"
+              onClick={addPhase}
+              disabled={!newPhaseName.trim()}
+              className="rounded-lg border border-slate-200 px-2 py-1.5 text-sm font-semibold text-slate-700 disabled:opacity-40"
             >
-              Annuler
+              +
             </button>
           </div>
-        </form>
-      )}
+        )}
+      </div>
 
       <div className="overflow-x-auto">
-        <table className="w-full text-left text-sm">
+        <table className="w-full min-w-[40rem] border-collapse text-sm">
           <thead>
-            <tr className="border-b border-slate-200 text-xs font-semibold uppercase text-slate-500">
-              <th className="px-2 py-2">Phase</th>
-              <th className="px-2 py-2">Zone</th>
-              <th className="px-2 py-2">Point</th>
-              <th className="px-2 py-2">Support</th>
-              {canEdit && <th className="px-2 py-2 text-right">Actions</th>}
+            <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold uppercase text-slate-500">
+              <th className="px-2 py-2 w-[34%]">Point de contrôle</th>
+              <th className="px-2 py-2 w-[38%]">Commentaire d&apos;aide</th>
+              <th className="px-2 py-2 w-[22%]">Support plan</th>
+              {canEdit && <th className="px-2 py-2 w-[6%]" />}
             </tr>
           </thead>
           <tbody>
-            {items.length === 0 ? (
-              <tr>
-                <td colSpan={canEdit ? 5 : 4} className="px-2 py-4 text-slate-500">
-                  Aucun point — ajoutez la base commune ou importez depuis une opération
-                  pilote.
+            {rows.map((row, index) => (
+              <tr key={row.id ?? `new-${index}`} className="border-b border-slate-100">
+                <td className="px-1 py-1">
+                  <input
+                    value={row.label}
+                    disabled={!canEdit || isPending}
+                    onChange={(e) => updateRow(index, { label: e.target.value })}
+                    onBlur={() => saveRow(index)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        (e.target as HTMLInputElement).blur();
+                      }
+                    }}
+                    placeholder="Nom du point"
+                    className="w-full rounded border border-transparent bg-transparent px-2 py-1.5 hover:border-slate-200 focus:border-violet-300 focus:bg-white focus:outline-none disabled:opacity-60"
+                  />
                 </td>
-              </tr>
-            ) : (
-              items.map((item) => (
-                <tr key={item.id} className="border-b border-slate-100">
-                  <td className="px-2 py-2 text-slate-600">{item.phase_name}</td>
-                  <td className="px-2 py-2 text-slate-600">{item.zone_name}</td>
-                  <td className="px-2 py-2">
-                    <div className="font-medium text-slate-900">{item.label}</div>
-                    {item.help_comment && (
-                      <div className="text-xs text-slate-500">{item.help_comment}</div>
+                <td className="px-1 py-1">
+                  <input
+                    value={row.help_comment}
+                    disabled={!canEdit || isPending}
+                    onChange={(e) => updateRow(index, { help_comment: e.target.value })}
+                    onBlur={() => row.label.trim() && saveRow(index)}
+                    placeholder="Consigne pour le contrôle terrain"
+                    className="w-full rounded border border-transparent bg-transparent px-2 py-1.5 hover:border-slate-200 focus:border-violet-300 focus:bg-white focus:outline-none disabled:opacity-60"
+                  />
+                </td>
+                <td className="px-1 py-1">
+                  <select
+                    value={row.plan_support_name}
+                    disabled={!canEdit || isPending}
+                    onChange={(e) => {
+                      updateRow(index, { plan_support_name: e.target.value });
+                      if (row.label.trim()) {
+                        startTransition(async () => {
+                          try {
+                            await saveControlLibraryItem({
+                              id: row.id,
+                              phase_name: activePhase,
+                              label: row.label,
+                              help_comment: row.help_comment,
+                              plan_support_name: e.target.value,
+                              sort_order: row.sort_order,
+                            });
+                            refresh();
+                          } catch (err) {
+                            setError(err instanceof Error ? err.message : "Erreur.");
+                          }
+                        });
+                      }
+                    }}
+                    className="w-full rounded border border-transparent bg-transparent px-2 py-1.5 hover:border-slate-200 focus:border-violet-300 focus:bg-white focus:outline-none disabled:opacity-60"
+                  >
+                    <option value="">—</option>
+                    {PLAN_SUPPORT_OPTIONS.map((name) => (
+                      <option key={name} value={name}>
+                        {name}
+                      </option>
+                    ))}
+                  </select>
+                </td>
+                {canEdit && (
+                  <td className="px-1 py-1 text-center">
+                    {row.id && (
+                      <button
+                        type="button"
+                        disabled={isPending}
+                        onClick={() => {
+                          if (!confirm("Supprimer ce point ?")) return;
+                          startTransition(async () => {
+                            try {
+                              await deleteControlLibraryItem(row.id!);
+                              refresh();
+                            } catch (err) {
+                              setError(err instanceof Error ? err.message : "Erreur.");
+                            }
+                          });
+                        }}
+                        className="text-xs font-semibold text-red-600 hover:underline disabled:opacity-40"
+                      >
+                        ×
+                      </button>
                     )}
                   </td>
-                  <td className="px-2 py-2 text-xs text-slate-500">
-                    {item.plan_support_name || "—"}
-                  </td>
-                  {canEdit && (
-                    <td className="px-2 py-2 text-right">
-                      <div className="inline-flex gap-2">
-                        <button
-                          type="button"
-                          onClick={() => startEdit(item)}
-                          className="text-xs font-semibold text-violet-700 hover:underline"
-                        >
-                          Modifier
-                        </button>
-                        <button
-                          type="button"
-                          disabled={isPending}
-                          onClick={() => remove(item.id)}
-                          className="text-xs font-semibold text-red-600 hover:underline disabled:opacity-40"
-                        >
-                          Supprimer
-                        </button>
-                      </div>
-                    </td>
-                  )}
-                </tr>
-              ))
-            )}
+                )}
+              </tr>
+            ))}
           </tbody>
         </table>
       </div>
+
+      {canEdit && (
+        <p className="mt-3 text-xs text-slate-500">
+          Tabulation ou Entrée pour enregistrer une ligne. La dernière ligne vide ajoute
+          automatiquement un nouveau point.{" "}
+          <Link href="/pc/referentiels" className="text-violet-700 hover:underline">
+            Référentiel
+          </Link>
+        </p>
+      )}
     </section>
   );
 }
