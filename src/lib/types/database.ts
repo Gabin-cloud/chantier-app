@@ -703,6 +703,8 @@ export type MarkerUpdateData = {
   resolve_only?: boolean;
   /** Annuler la levée : status a_traiter (sans unlock requis). */
   unresolve_only?: boolean;
+  x_percent?: number;
+  y_percent?: number;
 };
 
 export type GlobalRole = "super_admin" | "user";

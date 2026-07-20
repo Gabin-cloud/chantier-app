@@ -189,10 +189,19 @@ export async function completeVisit(projectId: string, visitId: string) {
 
   if (error) throw new Error(error.message);
 
+  try {
+    const { generateAndStoreVisitReport } = await import(
+      "@/lib/actions/visit-reports"
+    );
+    await generateAndStoreVisitReport(projectId, visitId);
+  } catch {
+    // PDF optionnel si génération échoue
+  }
+
   revalidatePath(`/tablette/projets/${projectId}/visites`);
   revalidatePath(`/tablette/projets/${projectId}/visites/${visitId}`);
   revalidatePath(`/pc/projets/${projectId}/controles`);
-  revalidatePath(`/pc/projets/${projectId}/rapports`);
+  revalidatePath(`/pc/projets/${projectId}/suivi-travaux/rapport`);
 }
 
 export async function createMarker(
@@ -402,6 +411,8 @@ export async function updateMarker(
     checklist_item_id: string | null;
     plan_level_id: string | null;
     control_result: string | null;
+    x_percent: number;
+    y_percent: number;
   }> = {};
 
   if (data.status !== undefined) scalarFields.status = data.status;
@@ -420,6 +431,8 @@ export async function updateMarker(
   if (data.control_result !== undefined) {
     scalarFields.control_result = data.control_result;
   }
+  if (data.x_percent !== undefined) scalarFields.x_percent = data.x_percent;
+  if (data.y_percent !== undefined) scalarFields.y_percent = data.y_percent;
 
   if (Object.keys(scalarFields).length > 0) {
     const { error } = await supabase.from("markers").update(scalarFields).eq("id", markerId);

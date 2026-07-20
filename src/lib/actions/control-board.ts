@@ -61,6 +61,7 @@ type VisitEmailOverrides = {
   htmlBody?: string;
   recipients?: { email: string; name?: string | null }[];
   cc?: string;
+  resumeRequestedAt?: string;
 };
 
 type ResolvedVisitEmail = {
@@ -419,6 +420,11 @@ export type PcVisitRow = {
   zoneName: string | null;
   reportUrl: string | null;
   draftPrepared: boolean;
+  conformCount: number;
+  nonConformCount: number;
+  freeRemarkCount: number;
+  emailSentAt: string | null;
+  resumeRequestedAt: string | null;
 };
 
 export async function getPcVisitReports(projectId: string): Promise<PcVisitRow[]> {
@@ -437,15 +443,22 @@ export async function getPcVisitReports(projectId: string): Promise<PcVisitRow[]
   const phaseIds = [...new Set(visits.map((v) => v.phase_id).filter(Boolean) as string[])];
   const zoneIds = [...new Set(visits.map((v) => v.zone_id).filter(Boolean) as string[])];
 
-  const [{ data: phases }, { data: zones }, { data: reports }, emailLogsResult] =
+  const [{ data: phases }, { data: zones }, { data: reports }, { data: markers }, emailLogsResult] =
     await Promise.all([
       phaseIds.length
         ? supabase.from("visit_phases").select("id, name").in("id", phaseIds)
-        : Promise.resolve({ data: [] }),
+        : Promise.resolve({ data: [] as { id: string; name: string }[] }),
       zoneIds.length
         ? supabase.from("phase_zones").select("id, name").in("id", zoneIds)
-        : Promise.resolve({ data: [] }),
-      supabase.from("visit_reports").select("visit_id, file_path").in("visit_id", visitIds),
+        : Promise.resolve({ data: [] as { id: string; name: string }[] }),
+      supabase
+        .from("visit_reports")
+        .select("visit_id, file_path, email_sent_at, resume_requested_at")
+        .in("visit_id", visitIds),
+      supabase
+        .from("markers")
+        .select("visit_id, control_result, remark, checklist_item_id")
+        .in("visit_id", visitIds),
       supabase
         .from("visit_email_logs")
         .select("visit_id, status")
@@ -457,19 +470,50 @@ export async function getPcVisitReports(projectId: string): Promise<PcVisitRow[]
 
   const phaseMap = new Map((phases ?? []).map((p) => [p.id, p.name]));
   const zoneMap = new Map((zones ?? []).map((z) => [z.id, z.name]));
-  const reportMap = new Map((reports ?? []).map((r) => [r.visit_id, r.file_path]));
+  const reportMap = new Map(
+    (reports ?? []).map((r) => [
+      r.visit_id as string,
+      {
+        file_path: r.file_path as string,
+        email_sent_at: (r.email_sent_at as string | null) ?? null,
+        resume_requested_at: (r.resume_requested_at as string | null) ?? null,
+      },
+    ])
+  );
   const draftVisits = new Set(
     (emailLogs ?? []).filter((l) => l.status === "draft").map((l) => l.visit_id)
   );
 
+  const statsByVisit = new Map<
+    string,
+    { conform: number; nonConform: number; freeRemark: number }
+  >();
+  for (const m of markers ?? []) {
+    const cur = statsByVisit.get(m.visit_id) ?? {
+      conform: 0,
+      nonConform: 0,
+      freeRemark: 0,
+    };
+    if (m.control_result === "ok") cur.conform++;
+    if (m.control_result === "ko") cur.nonConform++;
+    if ((m.remark ?? "").trim() && !m.checklist_item_id) cur.freeRemark++;
+    statsByVisit.set(m.visit_id, cur);
+  }
+
   return visits.map((visit) => {
     let reportUrl: string | null = null;
-    if (reportMap.has(visit.id)) {
+    const report = reportMap.get(visit.id);
+    if (report?.file_path) {
       const { data } = supabase.storage
         .from("visit-photos")
-        .getPublicUrl(reportMap.get(visit.id)!);
+        .getPublicUrl(report.file_path);
       reportUrl = data.publicUrl;
     }
+    const stats = statsByVisit.get(visit.id) ?? {
+      conform: 0,
+      nonConform: 0,
+      freeRemark: 0,
+    };
 
     return {
       id: visit.id,
@@ -481,6 +525,11 @@ export async function getPcVisitReports(projectId: string): Promise<PcVisitRow[]
       zoneName: visit.zone_id ? zoneMap.get(visit.zone_id) ?? null : null,
       reportUrl,
       draftPrepared: draftVisits.has(visit.id),
+      conformCount: stats.conform,
+      nonConformCount: stats.nonConform,
+      freeRemarkCount: stats.freeRemark,
+      emailSentAt: report?.email_sent_at ?? null,
+      resumeRequestedAt: report?.resume_requested_at ?? null,
     };
   });
 }
@@ -624,14 +673,15 @@ async function assembleVisitEmailDraft(
 
   const { data: visitMarkers } = await supabase
     .from("markers")
-    .select("enterprise_id, control_result")
+    .select("enterprise_id, control_result, remark")
     .eq("visit_id", visitId);
 
+  // Destinataires = entreprises ayant au moins une pastille (conforme ou NC / remarque)
   const enterpriseIds = [
     ...new Set(
       (visitMarkers ?? [])
-        .map((m) => m.enterprise_id)
-        .filter((id): id is string => Boolean(id))
+        .filter((m) => Boolean(m.enterprise_id))
+        .map((m) => m.enterprise_id as string)
     ),
   ];
 
@@ -908,7 +958,16 @@ export async function sendVisitEmailFromPc(
       });
     }
 
+    await supabase
+      .from("visit_reports")
+      .update({
+        email_sent_at: new Date().toISOString(),
+        resume_requested_at: overrides?.resumeRequestedAt?.trim() || null,
+      })
+      .eq("visit_id", visitId);
+
     revalidateControlBoard(projectId);
+    revalidatePath(`/pc/projets/${projectId}/suivi-travaux/rapport`);
 
     return {
       ok: true,

@@ -15,6 +15,8 @@ export type VisitDraftInput = {
   markerCount: number;
   nonConformCount: number;
   signatureHtml: string | null;
+  /** Date de reprise demandée (ISO date YYYY-MM-DD). */
+  resumeRequestedAt?: string | null;
 };
 
 export type MergeTagDefinition = {
@@ -52,7 +54,13 @@ export const VISIT_EMAIL_MERGE_TAGS: MergeTagDefinition[] = [
   {
     key: "date_jour_plus_15",
     label: "Date du jour + 15 jours",
-    description: "Échéance à J+15",
+    description: "Échéance à J+15 (défaut)",
+    example: "lundi 28 juillet 2026",
+  },
+  {
+    key: "date_reprise",
+    label: "Date de reprise demandée",
+    description: "Date saisie à l'envoi du rapport",
     example: "lundi 28 juillet 2026",
   },
   {
@@ -144,6 +152,9 @@ export function buildMergeTagValues(input: VisitDraftInput): Record<string, stri
   const today = new Date();
   const recipientNames = input.recipients.map((r) => r.name).join(", ");
   const enterpriseNames = input.enterpriseNames.join(", ");
+  const resume =
+    input.resumeRequestedAt?.trim() ||
+    addDays(today, 15).toISOString().slice(0, 10);
 
   return {
     nom_operation: input.projectName,
@@ -151,6 +162,7 @@ export function buildMergeTagValues(input: VisitDraftInput): Record<string, stri
     date_controle: formatDate(input.visitDate),
     date_jour: formatDate(today.toISOString().slice(0, 10)),
     date_jour_plus_15: formatDate(addDays(today, 15).toISOString().slice(0, 10)),
+    date_reprise: formatDate(resume),
     titre_visite: input.visitTitle,
     titre_controle: input.controlLabel ?? "",
     phase: input.phaseName ?? "",
@@ -206,7 +218,7 @@ export const DEFAULT_VISIT_EMAIL_BODY = `<div style="font-family:Segoe UI,Arial,
   </table>
   <p style="background:#fef3c7;padding:12px;border-radius:8px">
     <strong>Action requise :</strong> merci de nous faire parvenir vos éléments de réponse
-    avant le <strong>{{date_jour_plus_15}}</strong>.
+    avant le <strong>{{date_reprise}}</strong>.
   </p>
   <p style="color:#6b7280;font-size:13px;margin-top:24px">
     Le rapport PDF est joint à ce message.
