@@ -14,6 +14,7 @@ import {
   deleteMarker,
   updateMarker,
   uploadMarkerPhoto,
+  uploadMarkerPhotoAndResolve,
 } from "@/lib/actions/visits";
 import type {
   ControlResult,
@@ -479,6 +480,32 @@ export function VisitEditor({
     });
   }
 
+  function handleUnresolveMarker(markerId?: string) {
+    const id = markerId ?? selectedMarker?.id;
+    if (!id) return;
+    startTransition(async () => {
+      try {
+        setError(null);
+        await updateMarker(visit.id, projectId, id, {
+          unresolve_only: true,
+        });
+        setMarkers((prev) =>
+          prev.map((m) =>
+            m.id === id
+              ? {
+                  ...m,
+                  status: "a_traiter",
+                  control_result: m.enterprise_id ? "ko" : m.control_result,
+                }
+              : m
+          )
+        );
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Erreur.");
+      }
+    });
+  }
+
   function toggleUnlockMarker(markerId: string) {
     setUnlockedMarkerIds((prev) => {
       const next = new Set(prev);
@@ -493,6 +520,7 @@ export function VisitEditor({
 
     const formData = new FormData();
     formData.append("photo", e.target.files[0]);
+    e.target.value = "";
 
     startTransition(async () => {
       try {
@@ -510,6 +538,35 @@ export function VisitEditor({
         );
       } catch (err) {
         setError(err instanceof Error ? err.message : "Erreur lors de l'upload.");
+      }
+    });
+  }
+
+  function handlePhotoAndResolve(e: React.ChangeEvent<HTMLInputElement>) {
+    if (!selectedMarker || !e.target.files?.[0]) return;
+
+    const formData = new FormData();
+    formData.append("photo", e.target.files[0]);
+    const id = selectedMarker.id;
+    e.target.value = "";
+
+    startTransition(async () => {
+      try {
+        setError(null);
+        const url = await uploadMarkerPhotoAndResolve(
+          visit.id,
+          projectId,
+          id,
+          formData
+        );
+        setMarkers((prev) =>
+          prev.map((m) =>
+            m.id === id ? { ...m, photo_public_url: url, status: "levee" } : m
+          )
+        );
+        setSelectedMarkerId(null);
+      } catch (err) {
+        setError(err instanceof Error ? err.message : "Erreur photo + levée.");
       }
     });
   }
@@ -736,297 +793,6 @@ export function VisitEditor({
           )}
         </div>
 
-        {selectedMarker && (
-          <div className="max-h-[50vh] shrink-0 overflow-y-auto border-t border-zinc-100 px-4 py-3">
-            <div className="mb-2 flex items-center justify-between gap-2">
-              <h3 className="text-sm font-semibold text-zinc-900">
-                Pastille n°{selectedMarker.marker_number}
-              </h3>
-              {selectedMarkerIsPrior && (
-                <button
-                  type="button"
-                  onClick={() => toggleUnlockMarker(selectedMarker.id)}
-                  className="rounded-lg bg-zinc-100 px-2 py-1 text-[10px] font-semibold text-zinc-700"
-                  title={
-                    selectedMarkerLocked
-                      ? "Déverrouiller pour modifier"
-                      : "Reverrouiller"
-                  }
-                >
-                  {selectedMarkerLocked ? "🔒 Déverrouiller" : "🔓 Modifiable"}
-                </button>
-              )}
-            </div>
-
-            {selectedMarkerLocked && (
-              <div className="mb-3 rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
-                Pastille d&apos;une visite antérieure — lecture seule. Vous pouvez la
-                lever (avec ou sans photo) ou déverrouiller pour modifier.
-                <div className="mt-2 flex flex-wrap gap-2">
-                  <button
-                    type="button"
-                    disabled={isPending || isCompleted}
-                    onClick={() => handleResolveMarker()}
-                    className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
-                  >
-                    Lever la pastille
-                  </button>
-                  <label className="cursor-pointer rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700">
-                    Photo + lever
-                    <input
-                      type="file"
-                      accept="image/*"
-                      capture="environment"
-                      className="hidden"
-                      disabled={isCompleted}
-                      onChange={async (e) => {
-                        if (!e.target.files?.[0]) return;
-                        const formData = new FormData();
-                        formData.append("photo", e.target.files[0]);
-                        try {
-                          await uploadMarkerPhoto(
-                            visit.id,
-                            projectId,
-                            selectedMarker.id,
-                            formData
-                          );
-                          await updateMarker(visit.id, projectId, selectedMarker.id, {
-                            resolve_only: true,
-                          });
-                          router.refresh();
-                        } catch (err) {
-                          setError(
-                            err instanceof Error ? err.message : "Erreur photo."
-                          );
-                        }
-                      }}
-                    />
-                  </label>
-                </div>
-              </div>
-            )}
-
-            {!selectedMarkerLocked && (
-              <>
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-zinc-500">
-              Point de contrôle
-            </label>
-            <select
-              value={checklistItemDraft}
-              onChange={(e) => handleChecklistItemChange(e.target.value)}
-              disabled={isCompleted}
-              className="mb-2 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm disabled:opacity-60"
-            >
-              <option value="">— Choisir un point —</option>
-              {filteredChecklistItems.map((item) => (
-                <option key={item.id} value={item.id}>
-                  {item.label}
-                </option>
-              ))}
-            </select>
-
-            {selectedChecklistItem?.help_comment && (
-              <p className="mb-2 rounded-lg bg-sky-50 px-2 py-1.5 text-xs text-sky-900">
-                {selectedChecklistItem.help_comment}
-              </p>
-            )}
-
-            {checklistItemDraft && (
-              <div className="mb-3">
-                <p className="mb-1.5 text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                  Résultat
-                </p>
-                <div className="flex flex-wrap gap-1.5">
-                  {CONTROL_STATUS_OPTIONS.map((result) => {
-                    const colors = CONTROL_RESULT_COLORS[result];
-                    const isActive = controlResultDraft === result;
-                    return (
-                      <button
-                        key={result}
-                        type="button"
-                        disabled={isCompleted}
-                        onClick={() => setControlResultDraft(result)}
-                        className={`rounded-lg px-3 py-2 text-xs font-semibold ${
-                          isActive
-                            ? `${colors.bg} ${colors.text}`
-                            : "bg-zinc-100 text-zinc-700"
-                        }`}
-                      >
-                        {CONTROL_RESULT_LABELS[result]}
-                      </button>
-                    );
-                  })}
-                </div>
-              </div>
-            )}
-
-            {(controlResultDraft === "ok" || controlResultDraft === "ko") && (
-              <>
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-zinc-500">
-              Entreprise *
-            </label>
-            <select
-              value={enterpriseDraft}
-              onChange={(e) => {
-                const id = e.target.value;
-                setEnterpriseDraft(id);
-                const ent = enterprises.find((x) => x.id === id);
-                setTradeDraft(ent?.trade ?? "");
-              }}
-              disabled={isCompleted}
-              className="mb-2 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm disabled:opacity-60"
-            >
-              <option value="">— Non assignée —</option>
-              {enterprises.map((e) => (
-                <option key={e.id} value={e.id}>
-                  {e.name}
-                  {e.trade ? ` (${e.trade})` : ""}
-                </option>
-              ))}
-            </select>
-            {selectedEnterprise?.trade && (
-              <p className="mb-3 text-xs text-zinc-500">
-                Corps de métier : {selectedEnterprise.trade}
-              </p>
-            )}
-              </>
-            )}
-
-            {planLevels.length > 1 && (
-              <>
-                <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-zinc-500">
-                  Niveau du plan
-                </label>
-                <select
-                  value={planLevelDraft}
-                  onChange={(e) => setPlanLevelDraft(e.target.value)}
-                  disabled={isCompleted}
-                  className="mb-3 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm disabled:opacity-60"
-                >
-                  {planLevels.map((level) => (
-                    <option key={level.id} value={level.id}>
-                      {level.name}
-                    </option>
-                  ))}
-                </select>
-              </>
-            )}
-
-            {selectedChecklistItem &&
-              Array.isArray(selectedChecklistItem.preset_comments) &&
-              (selectedChecklistItem.preset_comments as string[]).length > 0 && (
-                <div className="mb-3 flex flex-wrap gap-1.5">
-                  <span className="w-full text-[10px] font-semibold uppercase text-zinc-400">
-                    Réponses types
-                  </span>
-                  {(selectedChecklistItem.preset_comments as string[]).map((preset) => (
-                    <button
-                      key={preset}
-                      type="button"
-                      disabled={isCompleted}
-                      onClick={() => {
-                        setPresetCommentDraft(preset);
-                        setRemarkDraft(preset);
-                      }}
-                      className={`rounded-lg px-2.5 py-1 text-xs font-medium ${
-                        presetCommentDraft === preset
-                          ? "bg-violet-600 text-white"
-                          : "bg-zinc-100 text-zinc-700"
-                      }`}
-                    >
-                      {preset}
-                    </button>
-                  ))}
-                </div>
-              )}
-
-            {(controlResultDraft === "ok" || controlResultDraft === "ko") && (
-              <p className="mb-2 text-[11px] text-amber-700">
-                Conforme ou À lever : l&apos;entreprise est obligatoire.
-              </p>
-            )}
-
-            <label className="mb-1 block text-xs font-semibold uppercase tracking-wide text-zinc-500">
-              Localisation
-            </label>
-            <select
-              value={locationPresetDraft}
-              onChange={(e) => setLocationPresetDraft(e.target.value)}
-              disabled={isCompleted}
-              className="mb-2 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm disabled:opacity-60"
-            >
-              <option value="">— Choisir —</option>
-              {locations.map((loc) => (
-                <option key={loc.id} value={loc.id}>
-                  {loc.name}
-                  {!loc.is_preset ? " (terrain)" : ""}
-                </option>
-              ))}
-            </select>
-            <input
-              value={locationLabelDraft}
-              onChange={(e) => setLocationLabelDraft(e.target.value)}
-              placeholder="Précision (ex. angle fenêtre sud)"
-              disabled={isCompleted}
-              className="mb-3 w-full rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm disabled:opacity-60"
-            />
-
-            <textarea
-              value={remarkDraft}
-              onChange={(e) => setRemarkDraft(e.target.value)}
-              placeholder="Remarque…"
-              rows={3}
-              disabled={isCompleted}
-              className="mb-2 w-full resize-none rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm focus:border-zinc-400 focus:outline-none disabled:opacity-60"
-            />
-
-            {selectedMarker.photo_public_url && (
-              <img
-                src={selectedMarker.photo_public_url}
-                alt="Photo réserve"
-                className="mb-2 max-h-28 w-full rounded-xl object-cover"
-              />
-            )}
-
-            {!isCompleted && (
-              <div className="space-y-2">
-                <label className="inline-flex cursor-pointer items-center">
-                  <span className="sr-only">Ajouter une photo</span>
-                  <span className="inline-flex min-h-10 items-center justify-center rounded-xl border border-zinc-200 bg-zinc-50 px-3 py-2 text-sm font-semibold text-zinc-800 hover:bg-zinc-100">
-                    📷+
-                  </span>
-                  <input
-                    type="file"
-                    accept="image/*"
-                    capture="environment"
-                    onChange={handlePhotoUpload}
-                    disabled={isPending}
-                    className="hidden"
-                  />
-                </label>
-                <button
-                  type="button"
-                  onClick={handleSaveMarker}
-                  disabled={isPending}
-                  className="min-h-10 w-full rounded-xl bg-zinc-900 py-2 text-sm font-bold text-white disabled:opacity-50"
-                >
-                  Enregistrer
-                </button>
-                <button
-                  type="button"
-                  onClick={handleDeleteMarker}
-                  disabled={isPending}
-                  className="min-h-10 w-full rounded-xl border border-red-200 py-2 text-sm font-medium text-red-600"
-                >
-                  Supprimer
-                </button>
-              </div>
-            )}
-              </>
-            )}
-          </div>
-        )}
-
         {error && (
           <p className="shrink-0 px-4 py-2 text-xs font-medium text-red-700">{error}</p>
         )}
@@ -1160,6 +926,328 @@ export function VisitEditor({
                 ? "Touchez le plan pour placer une pastille"
                 : "Activez pour ajouter une pastille sur le plan"}
             </p>
+          </div>
+        )}
+
+        {selectedMarker && (
+          <div className="max-h-[40vh] shrink-0 overflow-y-auto border-b border-zinc-200 bg-white px-3 py-2">
+            <div className="mb-1.5 flex flex-wrap items-center gap-2">
+              <h3 className="text-sm font-semibold text-zinc-900">
+                Pastille n°{selectedMarker.marker_number}
+              </h3>
+              {selectedMarkerIsPrior && (
+                <button
+                  type="button"
+                  onClick={() => toggleUnlockMarker(selectedMarker.id)}
+                  className="rounded-lg bg-zinc-100 px-2 py-1 text-[10px] font-semibold text-zinc-700"
+                  title={
+                    selectedMarkerLocked
+                      ? "Déverrouiller pour modifier"
+                      : "Reverrouiller"
+                  }
+                >
+                  {selectedMarkerLocked ? "🔒 Déverrouiller" : "🔓 Modifiable"}
+                </button>
+              )}
+              {!isCompleted && selectedMarker.status === "levee" && (
+                <button
+                  type="button"
+                  disabled={isPending}
+                  onClick={() => handleUnresolveMarker()}
+                  className="rounded-lg border border-amber-300 bg-amber-50 px-2.5 py-1 text-xs font-semibold text-amber-900 disabled:opacity-40"
+                >
+                  Délever
+                </button>
+              )}
+              {!isCompleted &&
+                !selectedMarkerLocked &&
+                selectedMarker.status !== "levee" && (
+                  <>
+                    <button
+                      type="button"
+                      disabled={isPending}
+                      onClick={() => handleResolveMarker()}
+                      className="rounded-lg bg-emerald-600 px-2.5 py-1 text-xs font-semibold text-white disabled:opacity-40"
+                    >
+                      Lever
+                    </button>
+                    <label className="cursor-pointer rounded-lg border border-zinc-300 bg-white px-2.5 py-1 text-xs font-semibold text-zinc-700">
+                      Photo + lever
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        className="hidden"
+                        disabled={isPending}
+                        onChange={handlePhotoAndResolve}
+                      />
+                    </label>
+                  </>
+                )}
+            </div>
+
+            {selectedMarkerLocked && (
+              <div className="rounded-xl border border-amber-200 bg-amber-50 px-3 py-2 text-xs text-amber-900">
+                Pastille d&apos;une visite antérieure — lecture seule. Vous pouvez la
+                lever (avec ou sans photo) ou déverrouiller pour modifier.
+                {selectedMarker.status !== "levee" && (
+                  <div className="mt-2 flex flex-wrap gap-2">
+                    <button
+                      type="button"
+                      disabled={isPending || isCompleted}
+                      onClick={() => handleResolveMarker()}
+                      className="rounded-lg bg-emerald-600 px-3 py-1.5 text-xs font-semibold text-white disabled:opacity-40"
+                    >
+                      Lever la pastille
+                    </button>
+                    <label className="cursor-pointer rounded-lg border border-zinc-300 bg-white px-3 py-1.5 text-xs font-semibold text-zinc-700">
+                      Photo + lever
+                      <input
+                        type="file"
+                        accept="image/*"
+                        capture="environment"
+                        className="hidden"
+                        disabled={isCompleted || isPending}
+                        onChange={handlePhotoAndResolve}
+                      />
+                    </label>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {!selectedMarkerLocked && (
+              <div className="flex flex-col gap-2">
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="min-w-[10rem] flex-1">
+                    <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                      Point
+                    </label>
+                    <select
+                      value={checklistItemDraft}
+                      onChange={(e) => handleChecklistItemChange(e.target.value)}
+                      disabled={isCompleted}
+                      className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-sm disabled:opacity-60"
+                    >
+                      <option value="">— Choisir —</option>
+                      {filteredChecklistItems.map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {item.label}
+                        </option>
+                      ))}
+                    </select>
+                  </div>
+
+                  {checklistItemDraft && (
+                    <div className="shrink-0">
+                      <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                        Résultat
+                      </p>
+                      <div className="flex flex-wrap gap-1">
+                        {CONTROL_STATUS_OPTIONS.map((result) => {
+                          const colors = CONTROL_RESULT_COLORS[result];
+                          const isActive = controlResultDraft === result;
+                          return (
+                            <button
+                              key={result}
+                              type="button"
+                              disabled={isCompleted}
+                              onClick={() => setControlResultDraft(result)}
+                              className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold ${
+                                isActive
+                                  ? `${colors.bg} ${colors.text}`
+                                  : "bg-zinc-100 text-zinc-700"
+                              }`}
+                            >
+                              {CONTROL_RESULT_LABELS[result]}
+                            </button>
+                          );
+                        })}
+                      </div>
+                    </div>
+                  )}
+
+                  {(controlResultDraft === "ok" || controlResultDraft === "ko") && (
+                    <div className="min-w-[9rem] flex-1">
+                      <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                        Entreprise *
+                      </label>
+                      <select
+                        value={enterpriseDraft}
+                        onChange={(e) => {
+                          const id = e.target.value;
+                          setEnterpriseDraft(id);
+                          const ent = enterprises.find((x) => x.id === id);
+                          setTradeDraft(ent?.trade ?? "");
+                        }}
+                        disabled={isCompleted}
+                        className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-sm disabled:opacity-60"
+                      >
+                        <option value="">— Non assignée —</option>
+                        {enterprises.map((e) => (
+                          <option key={e.id} value={e.id}>
+                            {e.name}
+                            {e.trade ? ` (${e.trade})` : ""}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+
+                  {planLevels.length > 1 && (
+                    <div className="min-w-[7rem]">
+                      <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                        Niveau
+                      </label>
+                      <select
+                        value={planLevelDraft}
+                        onChange={(e) => setPlanLevelDraft(e.target.value)}
+                        disabled={isCompleted}
+                        className="w-full rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-sm disabled:opacity-60"
+                      >
+                        {planLevels.map((level) => (
+                          <option key={level.id} value={level.id}>
+                            {level.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  )}
+                </div>
+
+                {selectedChecklistItem?.help_comment && (
+                  <p className="rounded-lg bg-sky-50 px-2 py-1 text-xs text-sky-900">
+                    {selectedChecklistItem.help_comment}
+                  </p>
+                )}
+
+                {controlResultDraft === "ko" &&
+                  selectedChecklistItem &&
+                  Array.isArray(selectedChecklistItem.preset_comments) &&
+                  (selectedChecklistItem.preset_comments as string[]).length > 0 && (
+                    <div className="flex flex-wrap items-center gap-1">
+                      <span className="text-[10px] font-semibold uppercase text-zinc-400">
+                        Remarques NC
+                      </span>
+                      {(selectedChecklistItem.preset_comments as string[]).map(
+                        (preset) => (
+                          <button
+                            key={preset}
+                            type="button"
+                            disabled={isCompleted}
+                            onClick={() => {
+                              setPresetCommentDraft(preset);
+                              setRemarkDraft(preset);
+                            }}
+                            className={`rounded-lg px-2 py-0.5 text-xs font-medium ${
+                              presetCommentDraft === preset
+                                ? "bg-red-600 text-white"
+                                : "bg-zinc-100 text-zinc-700"
+                            }`}
+                          >
+                            {preset}
+                          </button>
+                        )
+                      )}
+                    </div>
+                  )}
+
+                <div className="flex flex-wrap items-end gap-2">
+                  <div className="min-w-[7rem] flex-1">
+                    <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                      Localisation
+                    </label>
+                    <div className="flex gap-1.5">
+                      <select
+                        value={locationPresetDraft}
+                        onChange={(e) => setLocationPresetDraft(e.target.value)}
+                        disabled={isCompleted}
+                        className="min-w-0 flex-1 rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-sm disabled:opacity-60"
+                      >
+                        <option value="">— Choisir —</option>
+                        {locations.map((loc) => (
+                          <option key={loc.id} value={loc.id}>
+                            {loc.name}
+                            {!loc.is_preset ? " (terrain)" : ""}
+                          </option>
+                        ))}
+                      </select>
+                      <input
+                        value={locationLabelDraft}
+                        onChange={(e) => setLocationLabelDraft(e.target.value)}
+                        placeholder="Précision…"
+                        disabled={isCompleted}
+                        className="min-w-0 flex-1 rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-sm disabled:opacity-60"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="min-w-[12rem] flex-[2]">
+                    <label className="mb-0.5 block text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                      Remarque
+                    </label>
+                    <textarea
+                      value={remarkDraft}
+                      onChange={(e) => setRemarkDraft(e.target.value)}
+                      placeholder="Remarque…"
+                      rows={1}
+                      disabled={isCompleted}
+                      className="w-full resize-y rounded-lg border border-zinc-200 bg-zinc-50 px-2 py-1.5 text-sm focus:border-zinc-400 focus:outline-none disabled:opacity-60"
+                    />
+                  </div>
+
+                  {selectedMarker.photo_public_url && (
+                    <img
+                      src={selectedMarker.photo_public_url}
+                      alt="Photo réserve"
+                      className="h-10 w-14 shrink-0 rounded-lg object-cover"
+                    />
+                  )}
+
+                  {!isCompleted && (
+                    <div className="flex shrink-0 items-center gap-1.5">
+                      <label className="inline-flex cursor-pointer items-center">
+                        <span className="sr-only">Ajouter une photo</span>
+                        <span className="inline-flex min-h-9 items-center justify-center rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 py-1.5 text-sm font-semibold text-zinc-800 hover:bg-zinc-100">
+                          📷+
+                        </span>
+                        <input
+                          type="file"
+                          accept="image/*"
+                          capture="environment"
+                          onChange={handlePhotoUpload}
+                          disabled={isPending}
+                          className="hidden"
+                        />
+                      </label>
+                      <button
+                        type="button"
+                        onClick={handleSaveMarker}
+                        disabled={isPending}
+                        className="min-h-9 rounded-lg bg-zinc-900 px-3 py-1.5 text-sm font-bold text-white disabled:opacity-50"
+                      >
+                        Enregistrer
+                      </button>
+                      <button
+                        type="button"
+                        onClick={handleDeleteMarker}
+                        disabled={isPending}
+                        className="min-h-9 rounded-lg border border-red-200 px-2.5 py-1.5 text-sm font-medium text-red-600"
+                      >
+                        Supprimer
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {(controlResultDraft === "ok" || controlResultDraft === "ko") &&
+                  !enterpriseDraft && (
+                    <p className="text-[11px] text-amber-700">
+                      Conforme ou À lever : l&apos;entreprise est obligatoire.
+                    </p>
+                  )}
+              </div>
+            )}
           </div>
         )}
 

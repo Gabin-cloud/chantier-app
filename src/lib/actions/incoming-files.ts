@@ -56,13 +56,21 @@ export async function getFinanceProjects(): Promise<FinanceProjectOption[]> {
   if (error) throw new Error(error.message);
 
   const projects: FinanceProjectOption[] = [];
+  const seen = new Set<string>();
   for (const row of memberships ?? []) {
-    if (!canAccessFinance(row.role)) continue;
+    // Outlook : finance OU terrain/gestion (attestation NC)
+    const allowed =
+      canAccessFinance(row.role) ||
+      row.role === "admin" ||
+      row.role === "gestionnaire" ||
+      row.role === "terrain";
+    if (!allowed) continue;
     const project = row.projects as FinanceProjectOption | FinanceProjectOption[] | null;
-    if (Array.isArray(project)) {
-      projects.push(...project);
-    } else if (project) {
-      projects.push(project);
+    const list = Array.isArray(project) ? project : project ? [project] : [];
+    for (const p of list) {
+      if (seen.has(p.id)) continue;
+      seen.add(p.id);
+      projects.push(p);
     }
   }
 

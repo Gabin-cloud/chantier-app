@@ -42,6 +42,7 @@ export type WorkControlExecution = {
 
 export type WorkControlItemStatus =
   | "pending"
+  | "partial"
   | "conform"
   | "non_conform_open"
   | "non_conform_attestation"
@@ -49,6 +50,7 @@ export type WorkControlItemStatus =
 
 export const WORK_CONTROL_STATUS_LABELS: Record<WorkControlItemStatus, string> = {
   pending: "À contrôler",
+  partial: "Partiellement contrôlé",
   conform: "Conforme",
   non_conform_open: "Non conforme — en attente",
   non_conform_attestation: "Non conforme — en attestation",
@@ -97,6 +99,8 @@ export function resolveWorkControlItemStatus(
         !e.in_attestation
     );
     if (hasOpenNc) return "non_conform_open";
+    const someDone = executions.some(isLevelDone);
+    if (someDone) return "partial";
     return "pending";
   }
 

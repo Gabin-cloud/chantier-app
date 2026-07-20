@@ -23,6 +23,7 @@ type RowDraft = {
   label: string;
   help_comment: string;
   plan_support_name: string;
+  preset_comments: string;
   sort_order: number;
 };
 
@@ -36,6 +37,7 @@ function emptyRow(sortOrder: number): RowDraft {
     label: "",
     help_comment: "",
     plan_support_name: "",
+    preset_comments: "",
     sort_order: sortOrder,
   };
 }
@@ -71,6 +73,7 @@ export function ControlLibraryPanel({ items, canEdit }: ControlLibraryPanelProps
         label: item.label,
         help_comment: item.help_comment,
         plan_support_name: item.plan_support_name,
+        preset_comments: (item.preset_comments ?? []).join("\n"),
         sort_order: item.sort_order,
       })),
       emptyRow((phaseItems.at(-1)?.sort_order ?? 0) + 10),
@@ -112,6 +115,10 @@ export function ControlLibraryPanel({ items, canEdit }: ControlLibraryPanelProps
           label: row.label,
           help_comment: row.help_comment,
           plan_support_name: row.plan_support_name,
+          preset_comments: row.preset_comments
+            .split("\n")
+            .map((s) => s.trim())
+            .filter(Boolean),
           sort_order: row.sort_order,
         });
         refresh();
@@ -235,9 +242,10 @@ export function ControlLibraryPanel({ items, canEdit }: ControlLibraryPanelProps
         <table className="w-full min-w-[40rem] border-collapse text-sm">
           <thead>
             <tr className="border-b border-slate-200 bg-slate-50 text-left text-xs font-semibold uppercase text-slate-500">
-              <th className="px-2 py-2 w-[34%]">Point de contrôle</th>
-              <th className="px-2 py-2 w-[38%]">Commentaire d&apos;aide</th>
-              <th className="px-2 py-2 w-[22%]">Support plan</th>
+              <th className="px-2 py-2 w-[24%]">Point de contrôle</th>
+              <th className="px-2 py-2 w-[22%]">Commentaire d&apos;aide</th>
+              <th className="px-2 py-2 w-[26%]">Remarques NC préférées</th>
+              <th className="px-2 py-2 w-[18%]">Support plan</th>
               {canEdit && <th className="px-2 py-2 w-[6%]" />}
             </tr>
           </thead>
@@ -271,6 +279,19 @@ export function ControlLibraryPanel({ items, canEdit }: ControlLibraryPanelProps
                   />
                 </td>
                 <td className="px-1 py-1">
+                  <input
+                    value={row.preset_comments}
+                    disabled={!canEdit || isPending}
+                    onChange={(e) =>
+                      updateRow(index, { preset_comments: e.target.value })
+                    }
+                    onBlur={() => row.label.trim() && saveRow(index)}
+                    placeholder="Une remarque NC par ligne"
+                    title="Remarques types si non conforme (une par ligne)"
+                    className="w-full rounded border border-transparent bg-transparent px-2 py-1.5 hover:border-slate-200 focus:border-violet-300 focus:bg-white focus:outline-none disabled:opacity-60"
+                  />
+                </td>
+                <td className="px-1 py-1">
                   <select
                     value={row.plan_support_name}
                     disabled={!canEdit || isPending}
@@ -285,6 +306,10 @@ export function ControlLibraryPanel({ items, canEdit }: ControlLibraryPanelProps
                               label: row.label,
                               help_comment: row.help_comment,
                               plan_support_name: e.target.value,
+                              preset_comments: row.preset_comments
+                                .split("\n")
+                                .map((s) => s.trim())
+                                .filter(Boolean),
                               sort_order: row.sort_order,
                             });
                             refresh();

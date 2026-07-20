@@ -16,7 +16,8 @@ const CATEGORY_COLORS: Record<string, string> = {
   administratif: "bg-slate-100 text-slate-700",
   chantier: "bg-emerald-100 text-emerald-800",
   plan_exe: "bg-violet-100 text-violet-800",
-  autre: "bg-violet-100 text-violet-800",
+  levee_controle: "bg-teal-100 text-teal-800",
+  autre: "bg-zinc-100 text-zinc-700",
 };
 
 export function IncomingFilesTable({
