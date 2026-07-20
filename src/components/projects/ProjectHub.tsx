@@ -31,13 +31,6 @@ export function ProjectHub({ project, basePath, projectRole }: ProjectHubProps) 
 
   const allTabletteActions = [
     {
-      href: `/tablette/projets/${project.id}/parametres`,
-      label: "Paramètres du projet",
-      description: "Entreprises, plans, accès",
-      color: "bg-white border border-zinc-200 text-zinc-900",
-      visible: canOpenSettings,
-    },
-    {
       href: `/tablette/projets/${project.id}/plans`,
       label: "Bibliothèque de plans",
       description: "Parcourir les plans par dossiers",
@@ -49,13 +42,6 @@ export function ProjectHub({ project, basePath, projectRole }: ProjectHubProps) 
       label: "Visites de chantier",
       description: "Nouvelle visite, plans et pastilles",
       color: "bg-blue-600 text-white",
-      visible: canAccessField(projectRole),
-    },
-    {
-      href: `/tablette/checklist`,
-      label: "Checklist sécurité",
-      description: "Contrôle de sécurité terrain",
-      color: "bg-emerald-600 text-white",
       visible: canAccessField(projectRole),
     },
   ];

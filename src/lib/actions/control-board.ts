@@ -701,7 +701,7 @@ async function assembleVisitEmailDraft(
   }
 
   const nonConformCount = (visitMarkers ?? []).filter(
-    (m) => m.control_result === "ko" || m.control_result === "partial"
+    (m) => m.control_result === "ko"
   ).length;
 
   const draftInput = {

@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { requireProjectAccess, requireProjectRoles, requireUser } from "@/lib/auth/permissions";
+import { importControlLibraryToProject } from "@/lib/actions/control-library";
 import { ensureProjectCreatorMember } from "@/lib/actions/members";
 import { notifyNewProjectCreated } from "@/lib/notifications/project-created";
 import { createClient } from "@/lib/supabase/server";
@@ -76,6 +77,12 @@ export async function createProject(formData: ProjectFormData): Promise<string> 
   }
 
   await ensureProjectCreatorMember(data.id, user.id);
+
+  try {
+    await importControlLibraryToProject(data.id);
+  } catch (importError) {
+    console.error("[createProject] control library import:", importError);
+  }
 
   try {
     const { data: creatorProfile } = await supabase

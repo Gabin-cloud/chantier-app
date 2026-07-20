@@ -69,15 +69,14 @@ export function resolveWorkControlItemStatus(
     (e) =>
       e.admin_waived ||
       e.control_result === "ok" ||
-      (e.control_result === "ko" || e.control_result === "partial") &&
-        e.in_attestation
+      (e.control_result === "ko" && e.in_attestation)
   );
 
   if (!allDone) {
     const hasOpenNc = executions.some(
       (e) =>
         !e.admin_waived &&
-        (e.control_result === "ko" || e.control_result === "partial") &&
+        (e.control_result === "ko") &&
         !e.in_attestation
     );
     if (hasOpenNc) return "non_conform_open";
@@ -184,7 +183,7 @@ export function computeSynthesisCell(
     }
     if (e.control_result === "ok") {
       conformCount++;
-    } else if (e.control_result === "ko" || e.control_result === "partial") {
+    } else if (e.control_result === "ko") {
       nonConformCount++;
     }
   }
