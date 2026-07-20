@@ -1,10 +1,14 @@
-import { PlanManager } from "@/components/projects/PlanManager";
 import {
   DatabaseErrorNotice,
   SupabaseSetupNotice,
 } from "@/components/SupabaseSetupNotice";
-import { canAccessField, getProjectRole } from "@/lib/auth/permissions";
-import { getPlanFolders, getPlansWithUrls } from "@/lib/actions/plans";
+import { WorkPlansByTypeManager } from "@/components/travaux/WorkPlansByTypeManager";
+import {
+  canAccessField,
+  canManageMembers,
+  getProjectRole,
+} from "@/lib/auth/permissions";
+import { getWorkPlansByType } from "@/lib/actions/work-control";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
 type PageProps = {
@@ -19,9 +23,8 @@ export default async function TravauxRapportPage({ params }: PageProps) {
   const { id } = await params;
 
   try {
-    const [plans, planFolders, projectRole] = await Promise.all([
-      getPlansWithUrls(id),
-      getPlanFolders(id),
+    const [plansData, projectRole] = await Promise.all([
+      getWorkPlansByType(id),
       getProjectRole(id),
     ]);
 
@@ -30,24 +33,32 @@ export default async function TravauxRapportPage({ params }: PageProps) {
     }
 
     const canPlans = canAccessField(projectRole);
+    const canAdmin = canManageMembers(projectRole);
 
     return (
       <div className="space-y-6">
         <header>
-          <h2 className="text-lg font-semibold text-slate-900">Rapport &amp; plan</h2>
+          <h2 className="text-lg font-semibold text-slate-900">
+            Rapport &amp; plans
+          </h2>
           <p className="mt-1 text-sm text-slate-500">
-            Bibliothèque de plans PDF de l&apos;opération.
+            Gérez les plans PDF par type de support (architecte, béton, ELEX,
+            plomberie…). Les types alimentent les points de contrôle.
           </p>
         </header>
 
         {canPlans ? (
-          <PlanManager
+          <WorkPlansByTypeManager
             projectId={id}
-            initialPlans={plans}
-            initialFolders={planFolders}
+            planTypes={plansData.planTypes}
+            plans={plansData.plans}
+            canEdit={canPlans}
+            canAdmin={canAdmin}
           />
         ) : (
-          <p className="text-sm text-slate-500">Droits insuffisants pour gérer les plans.</p>
+          <p className="text-sm text-slate-500">
+            Droits insuffisants pour gérer les plans.
+          </p>
         )}
       </div>
     );

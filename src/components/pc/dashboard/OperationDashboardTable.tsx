@@ -14,6 +14,14 @@ type OperationDashboardTableProps = {
     string,
     { osAeStatus: AdminPieceStatus; otherPiecesStatus: AdminPieceStatus }
   >;
+  workControlByEnterprise?: Record<
+    string,
+    {
+      conformCount: number;
+      nonConformCount: number;
+      nonConformRatio: number | null;
+    }
+  >;
 };
 
 /** Pastille verte (tâche terminée) ou croix rouge (tâche non terminée). */
@@ -37,6 +45,7 @@ const td = "border border-slate-200 px-2 py-1 text-xs text-slate-700";
 export function OperationDashboardTable({
   lots,
   adminStatuses = {},
+  workControlByEnterprise = {},
 }: OperationDashboardTableProps) {
   const rows = lots.map((lot) => {
     const contractHt = Number(lot.contract_amount_ht) || 0;
@@ -187,9 +196,17 @@ export function OperationDashboardTable({
                       <ActionDot title="Une situation de travaux a été déposée" />
                     )}
                   </td>
-                  <td className={`${td} text-center text-slate-300`}>—</td>
-                  <td className={`${td} text-center text-slate-300`}>—</td>
-                  <td className={`${td} text-center text-slate-300`}>—</td>
+                  <td className={`${td} text-center tabular-nums`}>
+                    {workControlByEnterprise[r.lot.id]?.conformCount ?? "—"}
+                  </td>
+                  <td className={`${td} text-center tabular-nums`}>
+                    {workControlByEnterprise[r.lot.id]?.nonConformCount ?? "—"}
+                  </td>
+                  <td className={`${td} text-center tabular-nums`}>
+                    {workControlByEnterprise[r.lot.id]?.nonConformRatio != null
+                      ? `${workControlByEnterprise[r.lot.id]!.nonConformRatio} %`
+                      : "—"}
+                  </td>
                 </tr>
               ))}
             </tbody>
@@ -211,8 +228,18 @@ export function OperationDashboardTable({
                 <td className={`${td} whitespace-nowrap text-right tabular-nums`}>
                   {formatPercent(totalAdvancement)}
                 </td>
-                <td className={`${td} text-center text-slate-300`}>—</td>
-                <td className={`${td} text-center text-slate-300`}>—</td>
+                <td className={`${td} text-center tabular-nums`}>
+                  {Object.values(workControlByEnterprise).reduce(
+                    (s, v) => s + v.conformCount,
+                    0
+                  ) || "—"}
+                </td>
+                <td className={`${td} text-center tabular-nums`}>
+                  {Object.values(workControlByEnterprise).reduce(
+                    (s, v) => s + v.nonConformCount,
+                    0
+                  ) || "—"}
+                </td>
                 <td className={`${td} text-center text-slate-300`}>—</td>
               </tr>
             </tfoot>

@@ -326,6 +326,7 @@ export type Plan = {
   id: string;
   project_id: string;
   folder_id: string | null;
+  plan_type_id: string | null;
   name: string;
   file_path: string;
   file_size: number | null;
@@ -481,6 +482,9 @@ export type PhaseChecklistItem = {
   zone_name: string | null;
   label: string;
   sort_order: number;
+  plan_type_id: string | null;
+  help_comment: string;
+  preset_comments: string[];
   created_at: string;
 };
 
