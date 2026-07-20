@@ -14,6 +14,7 @@ import {
   deleteMarker,
   updateMarker,
   uploadMarkerPhoto,
+  uploadMarkerPhotoAndResolve,
 } from "@/lib/actions/visits";
 import type {
   ControlResult,
@@ -552,8 +553,12 @@ export function VisitEditor({
     startTransition(async () => {
       try {
         setError(null);
-        const url = await uploadMarkerPhoto(visit.id, projectId, id, formData);
-        await updateMarker(visit.id, projectId, id, { resolve_only: true });
+        const url = await uploadMarkerPhotoAndResolve(
+          visit.id,
+          projectId,
+          id,
+          formData
+        );
         setMarkers((prev) =>
           prev.map((m) =>
             m.id === id ? { ...m, photo_public_url: url, status: "levee" } : m
@@ -561,7 +566,7 @@ export function VisitEditor({
         );
         setSelectedMarkerId(null);
       } catch (err) {
-        setError(err instanceof Error ? err.message : "Erreur photo.");
+        setError(err instanceof Error ? err.message : "Erreur photo + levée.");
       }
     });
   }
@@ -1116,12 +1121,13 @@ export function VisitEditor({
                   </p>
                 )}
 
-                {selectedChecklistItem &&
+                {controlResultDraft === "ko" &&
+                  selectedChecklistItem &&
                   Array.isArray(selectedChecklistItem.preset_comments) &&
                   (selectedChecklistItem.preset_comments as string[]).length > 0 && (
                     <div className="flex flex-wrap items-center gap-1">
                       <span className="text-[10px] font-semibold uppercase text-zinc-400">
-                        Types
+                        Remarques NC
                       </span>
                       {(selectedChecklistItem.preset_comments as string[]).map(
                         (preset) => (
@@ -1135,7 +1141,7 @@ export function VisitEditor({
                             }}
                             className={`rounded-lg px-2 py-0.5 text-xs font-medium ${
                               presetCommentDraft === preset
-                                ? "bg-violet-600 text-white"
+                                ? "bg-red-600 text-white"
                                 : "bg-zinc-100 text-zinc-700"
                             }`}
                           >

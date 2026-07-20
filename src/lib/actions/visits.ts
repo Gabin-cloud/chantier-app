@@ -514,19 +514,27 @@ export async function uploadMarkerPhoto(
   if (!file || file.size === 0) throw new Error("Veuillez sélectionner une photo.");
 
   const supabase = await createClient();
-  const ext = file.name.split(".").pop() ?? "jpg";
+  const ext = (file.name.split(".").pop() || "jpg").toLowerCase();
   const filePath = `${projectId}/${visitId}/${markerId}.${ext}`;
   const buffer = Buffer.from(await file.arrayBuffer());
+  const contentType =
+    file.type && file.type.startsWith("image/")
+      ? file.type
+      : ext === "png"
+        ? "image/png"
+        : ext === "webp"
+          ? "image/webp"
+          : "image/jpeg";
 
   const { error: uploadError } = await supabase.storage
     .from(PHOTOS_BUCKET)
-    .upload(filePath, buffer, { contentType: file.type, upsert: true });
+    .upload(filePath, buffer, { contentType, upsert: true });
 
   if (uploadError) throw new Error(uploadError.message);
 
   const { error } = await supabase
     .from("markers")
-    .update({ photo_path: filePath })
+    .update({ photo_path: filePath, updated_at: new Date().toISOString() })
     .eq("id", markerId);
 
   if (error) throw new Error(error.message);
@@ -535,6 +543,18 @@ export async function uploadMarkerPhoto(
 
   const { data } = supabase.storage.from(PHOTOS_BUCKET).getPublicUrl(filePath);
   return data.publicUrl;
+}
+
+/** Photo + levée en une seule action (évite les échecs tablette entre deux appels). */
+export async function uploadMarkerPhotoAndResolve(
+  visitId: string,
+  projectId: string,
+  markerId: string,
+  formData: FormData
+) {
+  const url = await uploadMarkerPhoto(visitId, projectId, markerId, formData);
+  await updateMarker(visitId, projectId, markerId, { resolve_only: true });
+  return url;
 }
 
 export async function deleteMarker(visitId: string, projectId: string, markerId: string) {

@@ -237,6 +237,7 @@ export type IncomingFileCategory =
   | "administratif"
   | "chantier"
   | "plan_exe"
+  | "levee_controle"
   | "autre";
 
 export const INCOMING_FILE_CATEGORY_LABELS: Record<IncomingFileCategory, string> = {
@@ -245,6 +246,7 @@ export const INCOMING_FILE_CATEGORY_LABELS: Record<IncomingFileCategory, string>
   administratif: "Administratif",
   chantier: "Chantier",
   plan_exe: "Plan d'exé",
+  levee_controle: "Levée point de contrôle",
   autre: "Autre",
 };
 

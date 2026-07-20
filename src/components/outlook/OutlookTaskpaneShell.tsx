@@ -92,7 +92,7 @@ export function OutlookTaskpaneShell() {
               : "text-slate-500"
           }`}
         >
-          Attestations NC
+          Levée point de contrôle
         </button>
         <button
           type="button"

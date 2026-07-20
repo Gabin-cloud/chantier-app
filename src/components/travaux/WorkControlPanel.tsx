@@ -31,6 +31,7 @@ function publicAttestationUrl(reportPath: string | null): string | null {
 function statusBg(status: WorkControlItemView["status"]): string {
   if (isWorkControlItemGreen(status)) return "bg-emerald-50";
   if (status === "non_conform_open") return "bg-red-50";
+  if (status === "partial") return "bg-sky-50";
   return "bg-white";
 }
 
@@ -43,7 +44,9 @@ function StatusBadge({ status }: { status: WorkControlItemView["status"] }) {
           ? "bg-emerald-100 text-emerald-800"
           : status === "non_conform_open"
             ? "bg-red-100 text-red-800"
-            : "bg-amber-100 text-amber-800"
+            : status === "partial"
+              ? "bg-sky-100 text-sky-800"
+              : "bg-amber-100 text-amber-800"
       }`}
     >
       {WORK_CONTROL_STATUS_LABELS[status]}

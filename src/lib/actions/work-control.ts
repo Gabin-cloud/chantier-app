@@ -598,7 +598,7 @@ export async function updateWorkControlExecutionAdmin(
     visitId?: string | null;
   }
 ) {
-  await requireProjectRoles(projectId, ["admin", "gestionnaire"]);
+  await requireProjectRoles(projectId, ["admin", "gestionnaire", "financier"]);
 
   const supabase = await createClient();
   const { data: existing } = await supabase
@@ -805,7 +805,8 @@ export async function uploadWorkControlAttestation(
   planLevelId: string,
   formData: FormData
 ) {
-  await requireProjectRoles(projectId, ["admin", "gestionnaire"]);
+  // Outlook / finance : admin, gestionnaire et financier
+  await requireProjectRoles(projectId, ["admin", "gestionnaire", "financier"]);
   const file = formData.get("file");
   if (!(file instanceof File) || file.size === 0) {
     throw new Error("Fichier PDF invalide.");
@@ -837,6 +838,7 @@ export async function uploadWorkControlAttestation(
 
   await closeMarkersAfterAttestation(supabase, checklistItemId, planLevelId);
   revalidatePath(`/tablette/projets/${projectId}/visites`);
+  revalidatePath(`/pc/projets/${projectId}/suivi-travaux/controle`);
 }
 
 export async function linkVisitReportToExecution(
@@ -884,11 +886,13 @@ export async function getOpenNcExecutionsForOutlook(
     itemLabel: string;
     planName: string;
     levelName: string;
+    enterpriseId: string | null;
     enterpriseName: string | null;
     controlDate: string | null;
   }>
 > {
   await requireProjectAccess(projectId);
+  const supabase = await createClient();
   const panel = await getWorkControlPanel(projectId);
   const rows: Array<{
     checklistItemId: string;
@@ -896,9 +900,11 @@ export async function getOpenNcExecutionsForOutlook(
     itemLabel: string;
     planName: string;
     levelName: string;
+    enterpriseId: string | null;
     enterpriseName: string | null;
     controlDate: string | null;
   }> = [];
+  const seen = new Set<string>();
 
   for (const phase of panel.phases) {
     for (const item of phase.items) {
@@ -906,6 +912,9 @@ export async function getOpenNcExecutionsForOutlook(
         const ex = lv.execution;
         if (!ex || ex.admin_waived) continue;
         if (ex.control_result !== "ko" || ex.in_attestation) continue;
+        const key = `${item.id}:${lv.level.id}`;
+        if (seen.has(key)) continue;
+        seen.add(key);
         const enterpriseName = ex.enterprise_id
           ? panel.enterprises.find((e) => e.id === ex.enterprise_id)?.name ?? null
           : null;
@@ -915,11 +924,78 @@ export async function getOpenNcExecutionsForOutlook(
           itemLabel: item.label,
           planName: lv.planName,
           levelName: lv.level.name,
+          enterpriseId: ex.enterprise_id,
           enterpriseName,
           controlDate: ex.control_date,
         });
       }
     }
   }
-  return rows;
+
+  // Fallback : pastilles terrain « À lever » non encore synchronisées / non levées
+  const { data: visits } = await supabase
+    .from("visits")
+    .select("id")
+    .eq("project_id", projectId);
+  const visitIds = (visits ?? []).map((v) => v.id);
+  if (visitIds.length) {
+    const { data: markers } = await supabase
+      .from("markers")
+      .select(
+        "checklist_item_id, plan_id, plan_level_id, enterprise_id, control_result, status, updated_at"
+      )
+      .in("visit_id", visitIds)
+      .eq("control_result", "ko")
+      .neq("status", "levee")
+      .not("checklist_item_id", "is", null)
+      .order("updated_at", { ascending: false });
+
+    const itemLabelById = new Map(
+      panel.phases.flatMap((p) => p.items.map((i) => [i.id, i.label] as const))
+    );
+    const enterpriseById = new Map(panel.enterprises.map((e) => [e.id, e.name]));
+
+    for (const marker of markers ?? []) {
+      if (!marker.checklist_item_id || !marker.plan_id) continue;
+      let planLevelId = marker.plan_level_id as string | null;
+      if (!planLevelId) {
+        try {
+          planLevelId = await resolvePlanLevelId(marker.plan_id, null);
+        } catch {
+          continue;
+        }
+      }
+      const key = `${marker.checklist_item_id}:${planLevelId}`;
+      if (seen.has(key)) continue;
+      seen.add(key);
+
+      let planName = "Plan";
+      let levelName = "Niveau";
+      for (const phase of panel.phases) {
+        for (const item of phase.items) {
+          if (item.id !== marker.checklist_item_id) continue;
+          const lv = item.levels.find((l) => l.level.id === planLevelId);
+          if (lv) {
+            planName = lv.planName;
+            levelName = lv.level.name;
+          }
+        }
+      }
+
+      rows.push({
+        checklistItemId: marker.checklist_item_id,
+        planLevelId,
+        itemLabel: itemLabelById.get(marker.checklist_item_id) ?? "Point de contrôle",
+        planName,
+        levelName,
+        enterpriseId: marker.enterprise_id,
+        enterpriseName: marker.enterprise_id
+          ? enterpriseById.get(marker.enterprise_id) ?? null
+          : null,
+        controlDate: null,
+      });
+    }
+  }
+
+  return rows.sort((a, b) => a.itemLabel.localeCompare(b.itemLabel, "fr"));
 }
