@@ -1,9 +1,15 @@
+"use client";
+
+import { useMemo } from "react";
+import { PrintReportBanner } from "@/components/print/PrintReportBanner";
+import { TableExportToolbar } from "@/components/print/TableExportToolbar";
 import {
   buildSituationsSynthesis,
   type LotSituationsSynthesis,
   type SituationColumnData,
 } from "@/lib/finance/situations-synthesis";
 import { formatCurrency, formatPercent } from "@/lib/finance/calculations";
+import type { ExcelColumn } from "@/lib/print/table-export";
 import type { LotWithFinancials, Project } from "@/lib/types/database";
 
 type SituationsSynthesisProps = {
@@ -242,57 +248,145 @@ function LotSituationsBlock({
   );
 }
 
-export function SituationsSynthesis({ project, lots }: SituationsSynthesisProps) {
+function buildSituationsExport(
+  project: Project,
+  lots: LotWithFinancials[]
+): { columns: ExcelColumn[]; rows: ExcelColumn[][] } {
   const { columnCount, blocks } = buildSituationsSynthesis(lots);
+  const columns: ExcelColumn[] = [
+    { header: "Entreprise", value: "" },
+    { header: "Libellé", value: "" },
+    { header: "Montant", value: "" },
+    ...Array.from({ length: columnCount }, (_, index) => ({
+      header: `Situation n°${String(index + 1).padStart(2, "0")}`,
+      value: "",
+    })),
+  ];
+
+  const rows: ExcelColumn[][] = [];
+  for (const block of blocks) {
+    const recapRows = [
+      { label: "marché de base T.T.C.", amount: formatAmount(block.contractBaseTtc) },
+      { label: "avenant au marché", amount: formatAmount(block.amendmentsTtc) },
+      ...block.subcontractors.map((sub) => ({
+        label: sub.name,
+        amount: formatAmount(sub.delegationAmount),
+      })),
+      { label: "total du marché T.T.C.", amount: formatAmount(block.totalMarketTtc) },
+      {
+        label: "Prorata",
+        amount:
+          block.prorataAmountTtc !== 0
+            ? `${formatProrataPercent(block.prorataPercent)} ${formatCurrency(block.prorataAmountTtc)}`
+            : formatProrataPercent(block.prorataPercent),
+      },
+    ];
+
+    for (const row of recapRows) {
+      rows.push([
+        { header: "Entreprise", value: block.lot.name },
+        { header: "Libellé", value: row.label },
+        { header: "Montant", value: row.amount },
+        ...block.columns.map((column, colIndex) => ({
+          header: `Situation n°${String(colIndex + 1).padStart(2, "0")}`,
+          value:
+            colIndex === columnCount - 1
+              ? "—"
+              : colIndex === 0 && row.label === recapRows[0].label
+                ? formatAmount(column.periodTtc)
+                : "—",
+        })),
+      ]);
+    }
+  }
+
+  void project;
+  return { columns, rows };
+}
+
+function SituationsTable({
+  lots,
+  compact = false,
+}: {
+  lots: LotWithFinancials[];
+  compact?: boolean;
+}) {
+  const { columnCount, blocks } = buildSituationsSynthesis(lots);
+  const cellClass = compact ? `${CELL} text-[9px]` : CELL;
+
+  if (lots.length === 0) {
+    return (
+      <p className="border border-slate-300 bg-white p-4 text-sm text-slate-500">
+        Aucun lot configuré.
+      </p>
+    );
+  }
 
   return (
-    <section className="space-y-2">
-      <div className="border-2 border-[#2F5496] bg-[#2F5496] px-3 py-2 text-center text-white">
+    <div className="overflow-x-auto border-2 border-[#2F5496] bg-white">
+      <table className="w-full min-w-[1200px] border-collapse">
+        <thead>
+          <tr className="bg-[#2F5496] text-[10px] font-bold text-white">
+            <th className={`${cellClass} w-[9rem] border-[#B4C6E7] text-center`}>Entreprise</th>
+            <th className={`${cellClass} border-[#B4C6E7] text-left`}>Libellé</th>
+            <th className={`${cellClass} w-[8rem] border-[#B4C6E7] text-right`}>Montant</th>
+            {Array.from({ length: columnCount }, (_, index) => (
+              <th
+                key={index}
+                className={`${cellClass} min-w-[7.5rem] border-[#B4C6E7] text-center`}
+              >
+                situation n°{String(index + 1).padStart(2, "0")}
+              </th>
+            ))}
+          </tr>
+        </thead>
+
+        {blocks.map((block) => (
+          <LotSituationsBlock
+            key={block.lot.id}
+            block={block}
+            columnCount={columnCount}
+          />
+        ))}
+      </table>
+    </div>
+  );
+}
+
+export function SituationsSynthesis({ project, lots }: SituationsSynthesisProps) {
+  const printRootId = `situations-synthesis-print-${project.id}`;
+  const exportData = useMemo(() => buildSituationsExport(project, lots), [project, lots]);
+
+  return (
+    <section className="relative space-y-2">
+      <TableExportToolbar
+        printRootId={printRootId}
+        excelFilename={`synthese-situations-${project.name}.csv`}
+        excelColumns={exportData.columns}
+        excelRows={exportData.rows}
+        disabled={lots.length === 0}
+      />
+
+      <div className="border-2 border-[#2F5496] bg-[#2F5496] px-3 py-2 text-center text-white no-print">
         <h2 className="text-xs font-bold uppercase tracking-wide">
           Récapitulatif des situations de travaux des entreprises
         </h2>
         <p className="text-[10px] opacity-90">{project.name}</p>
       </div>
 
-      <p className="text-[11px] font-semibold text-slate-700">en EUROS T.T.C.</p>
+      <p className="text-[11px] font-semibold text-slate-700 no-print">en EUROS T.T.C.</p>
 
-      {lots.length === 0 ? (
-        <p className="border border-slate-300 bg-white p-4 text-sm text-slate-500">
-          Aucun lot configuré.
-        </p>
-      ) : (
-        <div className="overflow-x-auto border-2 border-[#2F5496] bg-white">
-          <table className="w-full min-w-[1200px] border-collapse">
-            <thead>
-              <tr className="bg-[#2F5496] text-[10px] font-bold text-white">
-                <th className={`${CELL} w-[9rem] border-[#B4C6E7] text-center`}>
-                  Entreprise
-                </th>
-                <th className={`${CELL} border-[#B4C6E7] text-left`}>Libellé</th>
-                <th className={`${CELL} w-[8rem] border-[#B4C6E7] text-right`}>
-                  Montant
-                </th>
-                {Array.from({ length: columnCount }, (_, index) => (
-                  <th
-                    key={index}
-                    className={`${CELL} min-w-[7.5rem] border-[#B4C6E7] text-center`}
-                  >
-                    situation n°{String(index + 1).padStart(2, "0")}
-                  </th>
-                ))}
-              </tr>
-            </thead>
+      <SituationsTable lots={lots} />
 
-            {blocks.map((block) => (
-              <LotSituationsBlock
-                key={block.lot.id}
-                block={block}
-                columnCount={columnCount}
-              />
-            ))}
-          </table>
-        </div>
-      )}
+      <div
+        id={printRootId}
+        aria-hidden
+        className="pointer-events-none absolute top-0 -left-[10000px] w-[297mm] bg-white p-4"
+      >
+        <PrintReportBanner title="SYNTHESE DES SITUATIONS" project={project} />
+        <p className="mb-2 text-[11px] font-semibold text-slate-700">en EUROS T.T.C.</p>
+        <SituationsTable lots={lots} compact />
+      </div>
     </section>
   );
 }

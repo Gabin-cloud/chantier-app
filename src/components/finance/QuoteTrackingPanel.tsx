@@ -4,18 +4,26 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AddQuoteModal } from "@/components/finance/AddQuoteModal";
 import { AmendmentDocumentModal } from "@/components/finance/AmendmentDocumentModal";
+import { DevisMouEmailStep } from "@/components/finance/DevisMouEmailStep";
+import { PrintReportBanner } from "@/components/print/PrintReportBanner";
+import { TableExportToolbar } from "@/components/print/TableExportToolbar";
 import { getQuoteFileUrl, updateQuoteField } from "@/lib/actions/quotes";
 import { formatCurrency, parseMoneyInput } from "@/lib/finance/calculations";
-import { exportPrevisionnelPdf } from "@/lib/finance/previsionnel-pdf";
-import type { FinancialQuoteWithLot, Project } from "@/lib/types/database";
+import type { ExcelColumn } from "@/lib/print/table-export";
+import type {
+  FinancialQuoteWithLot,
+  Project,
+  QuoteValidationStatus,
+} from "@/lib/types/database";
 
 type QuoteTrackingPanelProps = {
   projectId: string;
   quotes: FinancialQuoteWithLot[];
   project: Project;
+  m365Ready: boolean;
 };
 
-type ValidatedFilter = "yes" | "rejected" | "pending";
+type ValidatedFilter = QuoteValidationStatus;
 type YesNoFilter = "yes" | "no";
 
 type ColumnFilters = {
@@ -40,26 +48,37 @@ type SignedUploadPrompt = {
 };
 
 const BORDER = "border border-black";
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? "";
 
-function ownerLogoUrl(path: string | null | undefined): string | null {
-  return path
-    ? `${SUPABASE_URL}/storage/v1/object/public/financial-files/${path}`
-    : null;
+const EXCEL_COLUMNS: ExcelColumn[] = [
+  { header: "Lot", value: "" },
+  { header: "Entreprise", value: "" },
+  { header: "N° devis", value: "" },
+  { header: "Date", value: "" },
+  { header: "CIE", value: "" },
+  { header: "TS", value: "" },
+  { header: "TMA", value: "" },
+  { header: "Désignation", value: "" },
+  { header: "Montant H.T.", value: "" },
+  { header: "Date envoi MOU", value: "" },
+  { header: "Date retour MOU", value: "" },
+  { header: "Validé", value: "" },
+  { header: "Avenant", value: "" },
+  { header: "Commentaire DANOBAT", value: "" },
+];
+
+function isRowStruck(quote: FinancialQuoteWithLot): boolean {
+  return quote.validation_status === "no" || quote.is_rejected;
 }
 
-function validatedStatus(quote: FinancialQuoteWithLot): ValidatedFilter {
-  if (quote.is_rejected) return "rejected";
-  if (quote.validated_at) return "yes";
-  return "pending";
+function formatDateFr(value: string | null | undefined): string {
+  if (!value) return "";
+  return new Date(value).toLocaleDateString("fr-FR");
 }
 
 function formatValidatedDisplay(quote: FinancialQuoteWithLot): string {
-  if (quote.is_rejected) return "non";
-  if (quote.validated_at) {
-    return new Date(quote.validated_at).toLocaleDateString("fr-FR");
-  }
-  return "";
+  if (quote.validation_status === "yes") return "Oui";
+  if (quote.validation_status === "no" || quote.is_rejected) return "Non";
+  return "—";
 }
 
 function yesNo(value: boolean): YesNoFilter {
@@ -255,6 +274,7 @@ export function QuoteTrackingPanel({
   projectId,
   quotes: initialQuotes,
   project,
+  m365Ready,
 }: QuoteTrackingPanelProps) {
   const router = useRouter();
   const [quotes, setQuotes] = useState(initialQuotes);
@@ -262,14 +282,14 @@ export function QuoteTrackingPanel({
   const [editing, setEditing] = useState<EditingCell | null>(null);
   const [editDraft, setEditDraft] = useState("");
   const [addOpen, setAddOpen] = useState(false);
-  const [exporting, setExporting] = useState(false);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [mouEmailOpen, setMouEmailOpen] = useState(false);
   const [amendmentModal, setAmendmentModal] = useState<{
     html: string;
     title: string;
   } | null>(null);
   const [signedPrompt, setSignedPrompt] = useState<SignedUploadPrompt | null>(null);
   const [uploadingSigned, setUploadingSigned] = useState(false);
-  const printRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     setQuotes(initialQuotes);
@@ -307,9 +327,9 @@ export function QuoteTrackingPanel({
         { value: "no" as YesNoFilter, label: "Non" },
       ],
       validated: [
-        { value: "yes" as ValidatedFilter, label: "Validé" },
+        { value: "yes" as ValidatedFilter, label: "Oui" },
+        { value: "no" as ValidatedFilter, label: "Non" },
         { value: "pending" as ValidatedFilter, label: "En attente" },
-        { value: "rejected" as ValidatedFilter, label: "Refusé (non)" },
       ],
       amendment: [
         { value: "yes" as YesNoFilter, label: "Oui" },
@@ -328,8 +348,7 @@ export function QuoteTrackingPanel({
       if (filters.cie.size > 0 && !filters.cie.has(yesNo(q.is_cie))) return false;
       if (filters.ts.size > 0 && !filters.ts.has(yesNo(q.is_ts))) return false;
       if (filters.tma.size > 0 && !filters.tma.has(yesNo(q.is_tma))) return false;
-      const vs = validatedStatus(q);
-      if (filters.validated.size > 0 && !filters.validated.has(vs)) return false;
+      if (filters.validated.size > 0 && !filters.validated.has(q.validation_status)) return false;
       const hasAmendment = q.amendment_id ? "yes" : "no";
       if (filters.amendment.size > 0 && !filters.amendment.has(hasAmendment as YesNoFilter))
         return false;
@@ -346,6 +365,53 @@ export function QuoteTrackingPanel({
       return a.enterprise_name.localeCompare(b.enterprise_name, "fr");
     });
   }, [filteredQuotes]);
+
+  const allVisibleSelected =
+    sortedQuotes.length > 0 && sortedQuotes.every((q) => selectedIds.has(q.id));
+
+  const excelRows = useMemo(
+    () =>
+      sortedQuotes.map((quote) =>
+        EXCEL_COLUMNS.map((col) => {
+          switch (col.header) {
+            case "Lot":
+              return { ...col, value: quote.lot_number ?? "—" };
+            case "Entreprise":
+              return { ...col, value: quote.enterprise_name };
+            case "N° devis":
+              return { ...col, value: quote.quote_number || "—" };
+            case "Date":
+              return { ...col, value: formatDateFr(quote.quote_date) };
+            case "CIE":
+              return { ...col, value: quote.is_cie ? "Oui" : "Non" };
+            case "TS":
+              return { ...col, value: quote.is_ts ? "Oui" : "Non" };
+            case "TMA":
+              return { ...col, value: quote.is_tma ? "Oui" : "Non" };
+            case "Désignation":
+              return { ...col, value: quote.designation ?? "—" };
+            case "Montant H.T.":
+              return { ...col, value: formatCurrency(Number(quote.amount_ht)) };
+            case "Date envoi MOU":
+              return { ...col, value: formatDateFr(quote.mou_sent_at) || "—" };
+            case "Date retour MOU":
+              return { ...col, value: formatDateFr(quote.mou_return_at) || "—" };
+            case "Validé":
+              return { ...col, value: formatValidatedDisplay(quote) };
+            case "Avenant":
+              return {
+                ...col,
+                value: quote.amendment_number != null ? String(quote.amendment_number) : "",
+              };
+            case "Commentaire DANOBAT":
+              return { ...col, value: quote.comment ?? "" };
+            default:
+              return col;
+          }
+        })
+      ),
+    [sortedQuotes]
+  );
 
   const openQuote = useCallback(
     async (quote: FinancialQuoteWithLot) => {
@@ -370,13 +436,39 @@ export function QuoteTrackingPanel({
     [projectId, router]
   );
 
+  function toggleSelectAll() {
+    if (allVisibleSelected) {
+      setSelectedIds(new Set());
+      return;
+    }
+    setSelectedIds(new Set(sortedQuotes.map((q) => q.id)));
+  }
+
+  function toggleSelect(quoteId: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(quoteId)) next.delete(quoteId);
+      else next.add(quoteId);
+      return next;
+    });
+  }
+
+  async function changeValidationStatus(
+    quote: FinancialQuoteWithLot,
+    value: QuoteValidationStatus
+  ) {
+    const ok = await saveField(quote.id, "validation_status", value);
+    if (ok && value === "yes" && !quote.signed_file_path) {
+      setSignedPrompt({
+        quoteId: quote.id,
+        validatedAt: new Date().toISOString().slice(0, 10),
+      });
+    }
+  }
+
   function startEdit(quote: FinancialQuoteWithLot, field: string) {
     setEditing({ quoteId: quote.id, field });
-    if (field === "validated_at") {
-      if (quote.is_rejected) setEditDraft("non");
-      else if (quote.validated_at) setEditDraft(quote.validated_at.slice(0, 10));
-      else setEditDraft("");
-    } else if (field === "amount_ht") {
+    if (field === "amount_ht") {
       setEditDraft(String(quote.amount_ht));
     } else if (field === "quote_date") {
       setEditDraft(quote.quote_date.slice(0, 10));
@@ -386,6 +478,10 @@ export function QuoteTrackingPanel({
       setEditDraft(quote.designation ?? "");
     } else if (field === "comment") {
       setEditDraft(quote.comment ?? "");
+    } else if (field === "mou_sent_at") {
+      setEditDraft(quote.mou_sent_at?.slice(0, 10) ?? "");
+    } else if (field === "mou_return_at") {
+      setEditDraft(quote.mou_return_at?.slice(0, 10) ?? "");
     }
   }
 
@@ -399,19 +495,6 @@ export function QuoteTrackingPanel({
 
     if (field === "amount_ht") {
       value = String(parseMoneyInput(trimmed));
-    }
-
-    if (field === "validated_at") {
-      const lower = trimmed.toLowerCase();
-      if (lower === "non") {
-        await saveField(quote.id, field, "non");
-        return;
-      }
-      const ok = await saveField(quote.id, field, trimmed || null);
-      if (ok && trimmed && !quote.signed_file_path) {
-        setSignedPrompt({ quoteId: quote.id, validatedAt: trimmed });
-      }
-      return;
     }
 
     await saveField(quote.id, field, value || null);
@@ -433,7 +516,10 @@ export function QuoteTrackingPanel({
       const formData = new FormData();
       formData.set("mode", "signed");
       formData.set("quoteId", signedPrompt.quoteId);
-      formData.set("enterpriseId", quotes.find((q) => q.id === signedPrompt.quoteId)?.enterprise_id ?? "");
+      formData.set(
+        "enterpriseId",
+        quotes.find((q) => q.id === signedPrompt.quoteId)?.enterprise_id ?? ""
+      );
       formData.set("validatedAt", signedPrompt.validatedAt);
       formData.set("file", file);
       const { saveQuote } = await import("@/lib/actions/quotes");
@@ -446,20 +532,6 @@ export function QuoteTrackingPanel({
       router.refresh();
     } finally {
       setUploadingSigned(false);
-    }
-  }
-
-  async function handleExportPdf() {
-    if (!printRef.current) return;
-    setExporting(true);
-    try {
-      const safeName = project.name.replace(/[^\w\s-]/g, "").trim() || "suivi-devis";
-      await exportPrevisionnelPdf({
-        element: printRef.current,
-        fileName: `Suivi-devis-${safeName}.pdf`,
-      });
-    } finally {
-      setExporting(false);
     }
   }
 
@@ -499,268 +571,59 @@ export function QuoteTrackingPanel({
     );
   }
 
-  const tableBody = (forPrint: boolean) => (
-    <tbody>
-      {sortedQuotes.map((quote) => (
-        <tr
-          key={quote.id}
-          className={`hover:bg-slate-50 ${quote.is_rejected ? "line-through opacity-60" : ""}`}
-        >
-          <td className={`${BORDER} px-2 py-2 text-center font-medium`}>
-            {quote.lot_number ?? "—"}
-          </td>
-          <td className={`${BORDER} px-2 py-2 font-medium`}>{quote.enterprise_name}</td>
-          <td className={`${BORDER} px-2 py-2`}>
-            {!forPrint && (quote.file_path || quote.signed_file_path) ? (
-              <button
-                type="button"
-                onClick={() => openQuote(quote)}
-                className="font-medium text-blue-600 underline hover:text-blue-800"
-              >
-                {quote.quote_number || "Devis"}
-              </button>
-            ) : (
-              quote.quote_number || "—"
-            )}
-          </td>
-          <td className={`${BORDER} px-2 py-2 whitespace-nowrap`}>
-            {forPrint
-              ? new Date(quote.quote_date).toLocaleDateString("fr-FR")
-              : renderEditableText(
-                  quote,
-                  "quote_date",
-                  new Date(quote.quote_date).toLocaleDateString("fr-FR"),
-                  "date"
-                )}
-          </td>
-          <td className={`${BORDER} px-2 py-2 text-center`}>
-            {forPrint ? (
-              quote.is_cie ? "✓" : ""
-            ) : (
-              <button
-                type="button"
-                onClick={() => toggleCategory(quote, "is_cie")}
-                className="min-w-[1.5rem] hover:text-blue-600"
-              >
-                {quote.is_cie ? "✓" : ""}
-              </button>
-            )}
-          </td>
-          <td className={`${BORDER} px-2 py-2 text-center`}>
-            {forPrint ? (
-              quote.is_ts ? "✓" : ""
-            ) : (
-              <button
-                type="button"
-                onClick={() => toggleCategory(quote, "is_ts")}
-                className="min-w-[1.5rem] hover:text-blue-600"
-              >
-                {quote.is_ts ? "✓" : ""}
-              </button>
-            )}
-          </td>
-          <td className={`${BORDER} px-2 py-2 text-center`}>
-            {forPrint ? (
-              quote.is_tma ? "✓" : ""
-            ) : (
-              <button
-                type="button"
-                onClick={() => toggleCategory(quote, "is_tma")}
-                className="min-w-[1.5rem] hover:text-blue-600"
-              >
-                {quote.is_tma ? "✓" : ""}
-              </button>
-            )}
-          </td>
-          <td className={`${BORDER} px-2 py-2`}>
-            {forPrint
-              ? quote.designation ?? "—"
-              : renderEditableText(quote, "designation", quote.designation ?? "—")}
-          </td>
-          <td className={`${BORDER} px-2 py-2 text-right tabular-nums`}>
-            {forPrint
-              ? formatCurrency(Number(quote.amount_ht))
-              : renderEditableText(
-                  quote,
-                  "amount_ht",
-                  formatCurrency(Number(quote.amount_ht)),
-                  "text",
-                  "w-full text-right"
-                )}
-          </td>
-          <td className={`${BORDER} px-2 py-2`}>
-            {forPrint
-              ? formatValidatedDisplay(quote) || "—"
-              : renderEditableText(
-                  quote,
-                  "validated_at",
-                  formatValidatedDisplay(quote),
-                  "text"
-                )}
-          </td>
-          <td className={`${BORDER} px-2 py-2 text-center`}>
-            {quote.amendment_number != null ? (
-              !forPrint && quote.amendment_document_html ? (
-                <button
-                  type="button"
-                  onClick={() =>
-                    setAmendmentModal({
-                      html: quote.amendment_document_html ?? "",
-                      title: `Avenant n°${quote.amendment_number}`,
-                    })
-                  }
-                  className="font-medium text-violet-700 underline hover:text-violet-900"
-                >
-                  {quote.amendment_number}
-                </button>
-              ) : (
-                quote.amendment_number
-              )
-            ) : (
-              ""
-            )}
-          </td>
-          <td className={`${BORDER} px-2 py-2`}>
-            {forPrint
-              ? quote.comment ?? ""
-              : renderEditableText(quote, "comment", quote.comment ?? "")}
-          </td>
-        </tr>
-      ))}
-    </tbody>
-  );
+  function renderValidationSelect(quote: FinancialQuoteWithLot, forPrint: boolean) {
+    if (forPrint) {
+      return formatValidatedDisplay(quote);
+    }
+    return (
+      <select
+        value={quote.validation_status}
+        onChange={(e) =>
+          changeValidationStatus(quote, e.target.value as QuoteValidationStatus)
+        }
+        className="w-full min-w-[5rem] rounded border border-slate-200 bg-white px-1 py-0.5 text-xs"
+      >
+        <option value="pending">—</option>
+        <option value="yes">Oui</option>
+        <option value="no">Non</option>
+      </select>
+    );
+  }
 
-  const logoSrc = ownerLogoUrl(project.owner_logo_path);
+  function tableHeader(forPrint: boolean) {
+    if (forPrint) {
+      return (
+        <>
+          <th className={`${BORDER} px-2 py-2 text-center`}>Lot</th>
+          <th className={`${BORDER} px-2 py-2`}>Entreprise</th>
+          <th className={`${BORDER} px-2 py-2`}>N° devis</th>
+          <th className={`${BORDER} px-2 py-2`}>Date</th>
+          <th className={`${BORDER} px-2 py-2 text-center`}>CIE</th>
+          <th className={`${BORDER} px-2 py-2 text-center`}>TS</th>
+          <th className={`${BORDER} px-2 py-2 text-center`}>TMA</th>
+          <th className={`${BORDER} px-2 py-2`}>Désignation</th>
+          <th className={`${BORDER} px-2 py-2 text-right`}>Montant H.T.</th>
+          <th className={`${BORDER} px-2 py-2`}>Date envoi MOU</th>
+          <th className={`${BORDER} px-2 py-2`}>Date retour MOU</th>
+          <th className={`${BORDER} px-2 py-2`}>Validé</th>
+          <th className={`${BORDER} px-2 py-2`}>Avenant</th>
+          <th className={`${BORDER} px-2 py-2`}>Commentaire DANOBAT</th>
+        </>
+      );
+    }
 
-  return (
-    <section className="overflow-x-auto rounded-2xl bg-white p-5 shadow-sm">
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-900">Suivi des devis</h2>
-          <p className="text-sm text-slate-500">
-            Filtres par colonne · édition inline · export PDF
-          </p>
-        </div>
-        <div className="flex flex-wrap gap-2">
-          <button
-            type="button"
-            onClick={() => setAddOpen(true)}
-            className="rounded-lg bg-violet-600 px-3 py-2 text-sm font-semibold text-white hover:bg-violet-700"
-          >
-            Ajouter un devis
-          </button>
-          <button
-            type="button"
-            onClick={handleExportPdf}
-            disabled={exporting || sortedQuotes.length === 0}
-            className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
-          >
-            {exporting ? "Export…" : "Export PDF"}
-          </button>
-        </div>
-      </div>
-
-      {quotes.length === 0 ? (
-        <p className="text-sm text-slate-500">
-          Aucun devis enregistré. Utilisez « Ajouter un devis » ou classez un devis depuis
-          Outlook (Classer PJ).
-        </p>
-      ) : sortedQuotes.length === 0 ? (
-        <p className="text-sm text-slate-500">Aucun devis ne correspond aux filtres.</p>
-      ) : (
-        <table className={`w-full min-w-[1200px] border-collapse text-sm ${BORDER}`}>
-          <thead>
-            <tr className="bg-slate-100 text-left font-bold">{tableHeader()}</tr>
-          </thead>
-          {tableBody(false)}
-        </table>
-      )}
-
-      {addOpen && (
-        <AddQuoteModal
-          projectId={projectId}
-          open={addOpen}
-          onClose={() => setAddOpen(false)}
-          onSaved={() => {
-            setAddOpen(false);
-            router.refresh();
-          }}
-        />
-      )}
-
-      <AmendmentDocumentModal
-        html={amendmentModal?.html ?? null}
-        title={amendmentModal?.title ?? ""}
-        open={Boolean(amendmentModal)}
-        onClose={() => setAmendmentModal(null)}
-      />
-
-      <SignedDevisUploadModal
-        open={Boolean(signedPrompt)}
-        onClose={() => setSignedPrompt(null)}
-        onUpload={handleSignedUpload}
-        uploading={uploadingSigned}
-      />
-
-      <div className="pointer-events-none fixed -left-[9999px] top-0">
-        <div ref={printRef} className="bg-white p-8" style={{ width: "297mm" }}>
-          <div className="mb-6 flex items-start gap-4 border-b border-slate-300 pb-4">
-            {logoSrc && (
-              // eslint-disable-next-line @next/next/no-img-element
-              <img
-                src={logoSrc}
-                alt="Logo maître d'ouvrage"
-                className="max-h-16 max-w-[140px] object-contain"
-                crossOrigin="anonymous"
-              />
-            )}
-            <div>
-              <h1 className="text-xl font-bold text-slate-900">Suivi des devis</h1>
-              <p className="mt-1 text-base text-slate-700">{project.name}</p>
-              {project.client_name && (
-                <p className="text-sm text-slate-500">
-                  Maître d&apos;ouvrage : {project.client_name}
-                </p>
-              )}
-              <p className="mt-2 text-xs text-slate-400">
-                Document généré le{" "}
-                {new Intl.DateTimeFormat("fr-FR", {
-                  day: "2-digit",
-                  month: "long",
-                  year: "numeric",
-                }).format(new Date())}
-              </p>
-            </div>
-          </div>
-          {sortedQuotes.length > 0 && (
-            <table className={`w-full border-collapse text-xs ${BORDER}`}>
-              <thead>
-                <tr className="bg-slate-100 text-left font-bold">
-                  <th className={`${BORDER} px-2 py-2 text-center`}>Lot</th>
-                  <th className={`${BORDER} px-2 py-2`}>Entreprise</th>
-                  <th className={`${BORDER} px-2 py-2`}>N° devis</th>
-                  <th className={`${BORDER} px-2 py-2`}>Date</th>
-                  <th className={`${BORDER} px-2 py-2 text-center`}>CIE</th>
-                  <th className={`${BORDER} px-2 py-2 text-center`}>TS</th>
-                  <th className={`${BORDER} px-2 py-2 text-center`}>TMA</th>
-                  <th className={`${BORDER} px-2 py-2`}>Désignation</th>
-                  <th className={`${BORDER} px-2 py-2 text-right`}>Montant H.T.</th>
-                  <th className={`${BORDER} px-2 py-2`}>Validé</th>
-                  <th className={`${BORDER} px-2 py-2`}>Avenant</th>
-                  <th className={`${BORDER} px-2 py-2`}>Commentaire DANOBAT</th>
-                </tr>
-              </thead>
-              {tableBody(true)}
-            </table>
-          )}
-        </div>
-      </div>
-    </section>
-  );
-
-  function tableHeader() {
     return (
       <>
+        {!forPrint && (
+          <th className={`${BORDER} px-2 py-2 text-center no-print`}>
+            <input
+              type="checkbox"
+              checked={allVisibleSelected}
+              onChange={toggleSelectAll}
+              aria-label="Tout sélectionner"
+            />
+          </th>
+        )}
         <FilterableHeader
           filterKey="lot"
           options={filterOptions.lot}
@@ -812,6 +675,8 @@ export function QuoteTrackingPanel({
         </FilterableHeader>
         <th className={`${BORDER} px-2 py-2`}>Désignation</th>
         <th className={`${BORDER} px-2 py-2 text-right`}>Montant H.T.</th>
+        <th className={`${BORDER} px-2 py-2`}>Date envoi MOU</th>
+        <th className={`${BORDER} px-2 py-2`}>Date retour MOU</th>
         <FilterableHeader
           filterKey="validated"
           options={filterOptions.validated}
@@ -832,4 +697,268 @@ export function QuoteTrackingPanel({
       </>
     );
   }
+    return (
+      <tbody>
+        {sortedQuotes.map((quote) => (
+          <tr
+            key={quote.id}
+            className={`hover:bg-slate-50 ${isRowStruck(quote) ? "line-through opacity-60" : ""}`}
+          >
+            {!forPrint && (
+              <td className={`${BORDER} px-2 py-2 text-center no-print`}>
+                <input
+                  type="checkbox"
+                  checked={selectedIds.has(quote.id)}
+                  onChange={() => toggleSelect(quote.id)}
+                  aria-label={`Sélectionner devis ${quote.quote_number || quote.id}`}
+                />
+              </td>
+            )}
+            <td className={`${BORDER} px-2 py-2 text-center font-medium`}>
+              {quote.lot_number ?? "—"}
+            </td>
+            <td className={`${BORDER} px-2 py-2 font-medium`}>{quote.enterprise_name}</td>
+            <td className={`${BORDER} px-2 py-2`}>
+              {!forPrint && (quote.file_path || quote.signed_file_path) ? (
+                <button
+                  type="button"
+                  onClick={() => openQuote(quote)}
+                  className="font-medium text-blue-600 underline hover:text-blue-800"
+                >
+                  {quote.quote_number || "Devis"}
+                </button>
+              ) : (
+                quote.quote_number || "—"
+              )}
+            </td>
+            <td className={`${BORDER} px-2 py-2 whitespace-nowrap`}>
+              {forPrint
+                ? formatDateFr(quote.quote_date)
+                : renderEditableText(
+                    quote,
+                    "quote_date",
+                    formatDateFr(quote.quote_date),
+                    "date"
+                  )}
+            </td>
+            <td className={`${BORDER} px-2 py-2 text-center`}>
+              {forPrint ? (
+                quote.is_cie ? "✓" : ""
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => toggleCategory(quote, "is_cie")}
+                  className="min-w-[1.5rem] hover:text-blue-600"
+                >
+                  {quote.is_cie ? "✓" : ""}
+                </button>
+              )}
+            </td>
+            <td className={`${BORDER} px-2 py-2 text-center`}>
+              {forPrint ? (
+                quote.is_ts ? "✓" : ""
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => toggleCategory(quote, "is_ts")}
+                  className="min-w-[1.5rem] hover:text-blue-600"
+                >
+                  {quote.is_ts ? "✓" : ""}
+                </button>
+              )}
+            </td>
+            <td className={`${BORDER} px-2 py-2 text-center`}>
+              {forPrint ? (
+                quote.is_tma ? "✓" : ""
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => toggleCategory(quote, "is_tma")}
+                  className="min-w-[1.5rem] hover:text-blue-600"
+                >
+                  {quote.is_tma ? "✓" : ""}
+                </button>
+              )}
+            </td>
+            <td className={`${BORDER} px-2 py-2`}>
+              {forPrint
+                ? quote.designation ?? "—"
+                : renderEditableText(quote, "designation", quote.designation ?? "—")}
+            </td>
+            <td className={`${BORDER} px-2 py-2 text-right tabular-nums`}>
+              {forPrint
+                ? formatCurrency(Number(quote.amount_ht))
+                : renderEditableText(
+                    quote,
+                    "amount_ht",
+                    formatCurrency(Number(quote.amount_ht)),
+                    "text",
+                    "w-full text-right"
+                  )}
+            </td>
+            <td className={`${BORDER} px-2 py-2 whitespace-nowrap`}>
+              {forPrint
+                ? formatDateFr(quote.mou_sent_at) || "—"
+                : renderEditableText(
+                    quote,
+                    "mou_sent_at",
+                    formatDateFr(quote.mou_sent_at),
+                    "date"
+                  )}
+            </td>
+            <td className={`${BORDER} px-2 py-2 whitespace-nowrap`}>
+              {forPrint
+                ? formatDateFr(quote.mou_return_at) || "—"
+                : renderEditableText(
+                    quote,
+                    "mou_return_at",
+                    formatDateFr(quote.mou_return_at),
+                    "date"
+                  )}
+            </td>
+            <td className={`${BORDER} px-2 py-2`}>
+              {renderValidationSelect(quote, forPrint)}
+            </td>
+            <td className={`${BORDER} px-2 py-2 text-center`}>
+              {quote.amendment_number != null ? (
+                !forPrint && quote.amendment_document_html ? (
+                  <button
+                    type="button"
+                    onClick={() =>
+                      setAmendmentModal({
+                        html: quote.amendment_document_html ?? "",
+                        title: `Avenant n°${quote.amendment_number}`,
+                      })
+                    }
+                    className="font-medium text-violet-700 underline hover:text-violet-900"
+                  >
+                    {quote.amendment_number}
+                  </button>
+                ) : (
+                  quote.amendment_number
+                )
+              ) : (
+                ""
+              )}
+            </td>
+            <td className={`${BORDER} px-2 py-2`}>
+              {forPrint
+                ? quote.comment ?? ""
+                : renderEditableText(quote, "comment", quote.comment ?? "")}
+            </td>
+          </tr>
+        ))}
+      </tbody>
+    );
+  }
+
+  const safeExportName =
+    project.name.replace(/[^\w\s-]/g, "").trim() || "suivi-devis";
+
+  return (
+    <section className="overflow-x-auto rounded-2xl bg-white p-5 shadow-sm">
+      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-900">Suivi des devis</h2>
+          <p className="text-sm text-slate-500">
+            Filtres par colonne · édition inline · impression / export Excel
+          </p>
+        </div>
+        <div className="flex flex-wrap items-center gap-2">
+          {selectedIds.size > 0 && (
+            <button
+              type="button"
+              onClick={() => setMouEmailOpen(true)}
+              className="rounded-lg bg-emerald-600 px-3 py-2 text-sm font-semibold text-white hover:bg-emerald-700"
+            >
+              Envoyer au MOU ({selectedIds.size})
+            </button>
+          )}
+          <button
+            type="button"
+            onClick={() => setAddOpen(true)}
+            className="rounded-lg bg-violet-600 px-3 py-2 text-sm font-semibold text-white hover:bg-violet-700"
+          >
+            Ajouter un devis
+          </button>
+          <TableExportToolbar
+            printRootId="quote-tracking-print"
+            excelFilename={`Suivi-devis-${safeExportName}`}
+            excelColumns={EXCEL_COLUMNS}
+            excelRows={excelRows}
+            disabled={sortedQuotes.length === 0}
+          />
+        </div>
+      </div>
+
+      {quotes.length === 0 ? (
+        <p className="text-sm text-slate-500">
+          Aucun devis enregistré. Utilisez « Ajouter un devis » ou classez un devis depuis
+          Outlook (Classer PJ).
+        </p>
+      ) : sortedQuotes.length === 0 ? (
+        <p className="text-sm text-slate-500">Aucun devis ne correspond aux filtres.</p>
+      ) : (
+        <table className={`w-full min-w-[1400px] border-collapse text-sm ${BORDER}`}>
+          <thead>
+            <tr className="bg-slate-100 text-left font-bold">{tableHeader(false)}</tr>
+          </thead>
+          {tableBody(false)}
+        </table>
+      )}
+
+      {addOpen && (
+        <AddQuoteModal
+          projectId={projectId}
+          open={addOpen}
+          onClose={() => setAddOpen(false)}
+          onSaved={() => {
+            setAddOpen(false);
+            router.refresh();
+          }}
+        />
+      )}
+
+      {mouEmailOpen && (
+        <DevisMouEmailStep
+          projectId={projectId}
+          quoteIds={Array.from(selectedIds)}
+          m365Ready={m365Ready}
+          onClose={() => setMouEmailOpen(false)}
+          onSent={() => {
+            setSelectedIds(new Set());
+            router.refresh();
+          }}
+        />
+      )}
+
+      <AmendmentDocumentModal
+        html={amendmentModal?.html ?? null}
+        title={amendmentModal?.title ?? ""}
+        open={Boolean(amendmentModal)}
+        onClose={() => setAmendmentModal(null)}
+      />
+
+      <SignedDevisUploadModal
+        open={Boolean(signedPrompt)}
+        onClose={() => setSignedPrompt(null)}
+        onUpload={handleSignedUpload}
+        uploading={uploadingSigned}
+      />
+
+      <div id="quote-tracking-print" className="pointer-events-none fixed -left-[9999px] top-0">
+        <div className="bg-white p-8" style={{ width: "297mm" }}>
+          <PrintReportBanner title="SUIVI des DEVIS" project={project} />
+          {sortedQuotes.length > 0 && (
+            <table className={`w-full border-collapse text-xs ${BORDER}`}>
+              <thead>
+                <tr className="bg-slate-100 text-left font-bold">{tableHeader(true)}</tr>
+              </thead>
+              {tableBody(true)}
+            </table>
+          )}
+        </div>
+      </div>
+    </section>
+  );
 }

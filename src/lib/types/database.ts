@@ -286,6 +286,8 @@ export const PREVISIONNEL_COLUMN_TYPE_LABELS: Record<PrevisionnelColumnType, str
   manual_percent: "Pourcentage cumulé saisi à la main",
 };
 
+export type QuoteValidationStatus = "pending" | "yes" | "no";
+
 export type FinancialQuote = {
   id: string;
   project_id: string;
@@ -299,6 +301,9 @@ export type FinancialQuote = {
   amount_ht: number;
   is_rejected: boolean;
   validated_at: string | null;
+  validation_status: QuoteValidationStatus;
+  mou_sent_at: string | null;
+  mou_return_at: string | null;
   amendment_id: string | null;
   comment: string | null;
   file_path: string | null;

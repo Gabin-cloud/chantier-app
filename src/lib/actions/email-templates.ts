@@ -19,6 +19,11 @@ import {
   DEFAULT_AMENDMENT_EMAIL_BODY,
   DEFAULT_AMENDMENT_EMAIL_SUBJECT,
 } from "@/lib/notifications/amendment-email";
+import {
+  DEVIS_MOU_EMAIL_MERGE_TAGS,
+  DEFAULT_DEVIS_MOU_EMAIL_BODY,
+  DEFAULT_DEVIS_MOU_EMAIL_SUBJECT,
+} from "@/lib/notifications/devis-mou-email";
 
 export type EmailTemplateData = {
   id: string;
@@ -35,9 +40,11 @@ export type EmailTemplatesSettingsData = {
   visitReport: EmailTemplateData;
   platformInvitation: EmailTemplateData;
   amendmentSend: EmailTemplateData;
+  devisMouSend: EmailTemplateData;
   mergeTags: typeof VISIT_EMAIL_MERGE_TAGS;
   invitationMergeTags: typeof INVITATION_EMAIL_MERGE_TAGS;
   amendmentMergeTags: typeof AMENDMENT_EMAIL_MERGE_TAGS;
+  devisMouMergeTags: typeof DEVIS_MOU_EMAIL_MERGE_TAGS;
 };
 
 async function canManageEmailTemplates(userId: string): Promise<boolean> {
@@ -94,13 +101,14 @@ export async function getEmailTemplatesSettings(): Promise<EmailTemplatesSetting
   const { data: rows, error } = await supabase
     .from("email_templates")
     .select("id, slug, name, subject_template, body_template, default_cc, updated_at")
-    .in("slug", ["visit_report", "platform_invitation", "amendment_send"]);
+    .in("slug", ["visit_report", "platform_invitation", "amendment_send", "devis_mou_send"]);
 
   if (error) throw new Error(error.message);
 
   const visitRow = rows?.find((r) => r.slug === "visit_report") ?? null;
   const inviteRow = rows?.find((r) => r.slug === "platform_invitation") ?? null;
   const amendmentRow = rows?.find((r) => r.slug === "amendment_send") ?? null;
+  const devisMouRow = rows?.find((r) => r.slug === "devis_mou_send") ?? null;
 
   return {
     canEdit,
@@ -131,9 +139,19 @@ export async function getEmailTemplatesSettings(): Promise<EmailTemplatesSetting
       defaultCc: "",
       updatedAt: new Date().toISOString(),
     }),
+    devisMouSend: mapTemplateRow(devisMouRow, {
+      id: "default",
+      slug: "devis_mou_send",
+      name: "Envoi devis au maître d'ouvrage",
+      subjectTemplate: DEFAULT_DEVIS_MOU_EMAIL_SUBJECT,
+      bodyTemplate: DEFAULT_DEVIS_MOU_EMAIL_BODY,
+      defaultCc: "",
+      updatedAt: new Date().toISOString(),
+    }),
     mergeTags: VISIT_EMAIL_MERGE_TAGS,
     invitationMergeTags: INVITATION_EMAIL_MERGE_TAGS,
     amendmentMergeTags: AMENDMENT_EMAIL_MERGE_TAGS,
+    devisMouMergeTags: DEVIS_MOU_EMAIL_MERGE_TAGS,
   };
 }
 
@@ -249,6 +267,91 @@ export async function updateAmendmentEmailTemplate(input: {
 
     const { error } = existing
       ? await supabase.from("email_templates").update(row).eq("slug", "amendment_send")
+      : await supabase.from("email_templates").insert(row);
+
+    if (error) return { ok: false, error: error.message };
+
+    revalidatePath("/pc/parametres");
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Impossible d'enregistrer le modèle.",
+    };
+  }
+}
+
+export async function getDevisMouEmailTemplate(): Promise<{
+  subjectTemplate: string;
+  bodyTemplate: string;
+  defaultCc: string;
+}> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("email_templates")
+    .select("subject_template, body_template, default_cc")
+    .eq("slug", "devis_mou_send")
+    .maybeSingle();
+
+  if (error || !data) {
+    return {
+      subjectTemplate: DEFAULT_DEVIS_MOU_EMAIL_SUBJECT,
+      bodyTemplate: DEFAULT_DEVIS_MOU_EMAIL_BODY,
+      defaultCc: "",
+    };
+  }
+
+  return {
+    subjectTemplate: data.subject_template,
+    bodyTemplate: data.body_template,
+    defaultCc: data.default_cc ?? "",
+  };
+}
+
+export async function updateDevisMouEmailTemplate(input: {
+  subjectTemplate: string;
+  bodyTemplate: string;
+  defaultCc?: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const user = await requireUser();
+    const allowed = await canManageEmailTemplates(user.id);
+    if (!allowed) {
+      return {
+        ok: false,
+        error: "Droits insuffisants pour modifier le mail type.",
+      };
+    }
+
+    const supabase = await createClient();
+    const subjectTemplate = input.subjectTemplate.trim();
+    const bodyTemplate = input.bodyTemplate.trim();
+    const defaultCc = input.defaultCc?.trim() ?? "";
+
+    if (!subjectTemplate) {
+      return { ok: false, error: "L'objet du mail est obligatoire." };
+    }
+    if (!isMeaningfulHtml(bodyTemplate)) {
+      return { ok: false, error: "Le corps du mail est obligatoire." };
+    }
+
+    const row = {
+      slug: "devis_mou_send",
+      name: "Envoi devis au maître d'ouvrage",
+      subject_template: subjectTemplate,
+      body_template: bodyTemplate,
+      default_cc: defaultCc || null,
+      updated_by: user.id,
+    };
+
+    const { data: existing } = await supabase
+      .from("email_templates")
+      .select("id")
+      .eq("slug", "devis_mou_send")
+      .maybeSingle();
+
+    const { error } = existing
+      ? await supabase.from("email_templates").update(row).eq("slug", "devis_mou_send")
       : await supabase.from("email_templates").insert(row);
 
     if (error) return { ok: false, error: error.message };
