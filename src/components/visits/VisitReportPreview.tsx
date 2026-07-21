@@ -75,14 +75,25 @@ export function VisitReportPreview({
           </div>
           <div className="flex gap-2">
             {reportUrl && (
-              <a
-                href={reportUrl}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="rounded-lg bg-emerald-100 px-3 py-1.5 text-sm font-semibold text-emerald-800"
-              >
-                PDF
-              </a>
+              <>
+                <a
+                  href={reportUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="rounded-lg bg-emerald-100 px-3 py-1.5 text-sm font-semibold text-emerald-800"
+                >
+                  PDF
+                </a>
+                <a
+                  href={reportUrl}
+                  download
+                  className="rounded-lg bg-emerald-50 px-3 py-1.5 text-sm font-semibold text-emerald-700 hover:bg-emerald-100"
+                  aria-label="Télécharger le rapport PDF"
+                  title="Télécharger"
+                >
+                  ⬇
+                </a>
+              </>
             )}
             <button
               type="button"
@@ -100,6 +111,21 @@ export function VisitReportPreview({
           >
             Synthèse : {VISIT_CONTROL_SUMMARY_LABELS[summary]}
           </div>
+
+          {reportUrl && (
+            <section className="mb-5">
+              <h3 className="mb-2 text-sm font-bold uppercase tracking-wide text-zinc-700">
+                Rapport PDF
+              </h3>
+              <div className="overflow-hidden rounded-xl border border-zinc-200 bg-white">
+                <iframe
+                  src={reportUrl}
+                  title="Rapport PDF"
+                  className="h-72 w-full"
+                />
+              </div>
+            </section>
+          )}
 
           {checklistItems.length > 0 && (
             <section className="mb-5">
