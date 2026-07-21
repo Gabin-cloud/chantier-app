@@ -1,11 +1,14 @@
 import type { ReactNode } from "react";
-import Link from "next/link";
 import { NavTabs, type NavTabItem } from "@/components/pc/NavTabs";
+import { OperationBanner } from "@/components/pc/OperationBanner";
 import {
   DatabaseErrorNotice,
   SupabaseSetupNotice,
 } from "@/components/SupabaseSetupNotice";
+import { getFavoriteProjects } from "@/lib/actions/favorites";
+import { getFinancialFileUrl } from "@/lib/actions/finance";
 import { getProject } from "@/lib/actions/projects";
+import { storagePublicUrl } from "@/lib/print/table-export";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
 type OperationLayoutProps = {
@@ -24,8 +27,16 @@ export default async function OperationLayout({
   const { id } = await params;
 
   try {
-    const project = await getProject(id);
+    const [project, favorites] = await Promise.all([
+      getProject(id),
+      getFavoriteProjects(),
+    ]);
     const base = `/pc/projets/${id}`;
+
+    const operationPhotoUrl = project.operation_photo_path
+      ? await getFinancialFileUrl(id, project.operation_photo_path).catch(() => null)
+      : storagePublicUrl(project.operation_photo_path);
+    const ownerLogoUrl = storagePublicUrl(project.owner_logo_path);
 
     const tabs: NavTabItem[] = [
       { href: `${base}/tableau-de-bord`, label: "Tableau de bord" },
@@ -36,33 +47,14 @@ export default async function OperationLayout({
 
     return (
       <div className="min-h-full bg-slate-50">
-        {/* Bandeau fin : chantier + maître d'œuvre + Dossier d'opération */}
-        <div className="border-b border-slate-200 bg-white">
-          <div className="mx-auto flex w-full max-w-[110rem] items-center gap-4 px-4 py-1.5">
-            <Link
-              href="/pc"
-              className="shrink-0 text-xs text-slate-400 hover:text-slate-700"
-            >
-              ←
-            </Link>
-            <div className="flex min-w-0 flex-1 items-baseline gap-3">
-              <span className="truncate text-sm font-semibold text-slate-900">
-                {project.name}
-              </span>
-              <span className="hidden truncate text-xs text-slate-500 sm:inline">
-                Maître d&apos;œuvre&nbsp;: —
-              </span>
-            </div>
-            <Link
-              href={`${base}/parametres`}
-              className="shrink-0 rounded-md border border-slate-300 px-3 py-1 text-xs font-semibold text-slate-700 hover:bg-slate-50"
-            >
-              Fiche opération
-            </Link>
-          </div>
-        </div>
+        <OperationBanner
+          project={project}
+          favorites={favorites}
+          operationPhotoUrl={operationPhotoUrl}
+          ownerLogoUrl={ownerLogoUrl}
+          parametresHref={`${base}/parametres`}
+        />
 
-        {/* Onglets niveau 1 */}
         <div className="border-b border-slate-200 bg-white">
           <div className="mx-auto w-full max-w-[110rem] px-4">
             <NavTabs items={tabs} variant="primary" />

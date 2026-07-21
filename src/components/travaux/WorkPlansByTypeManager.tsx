@@ -10,6 +10,7 @@ import {
 } from "@/lib/actions/work-control";
 import { uploadPlan, deletePlan } from "@/lib/actions/plans";
 import type { WorkControlPlanType, WorkPlanWithLevels } from "@/lib/types/work-control";
+import { DocumentLink } from "@/components/documents/DocumentLink";
 
 type WorkPlansByTypeManagerProps = {
   projectId: string;
@@ -221,14 +222,13 @@ export function WorkPlansByTypeManager({
                     <p className="text-[11px] text-slate-500">{typeName}</p>
                   </div>
                   <div className="flex gap-2">
-                    <a
-                      href={plan.pdf_url}
-                      target="_blank"
-                      rel="noreferrer"
+                    <DocumentLink
+                      url={plan.pdf_url}
+                      title={plan.name}
                       className="text-xs text-emerald-700 hover:underline"
                     >
                       Ouvrir PDF
-                    </a>
+                    </DocumentLink>
                     {canEdit && (
                       <button
                         type="button"

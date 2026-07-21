@@ -17,6 +17,7 @@ export default async function SuiviTravauxLayout({
     { href: `${base}/synthese`, label: "Synthèse" },
     { href: `${base}/controle`, label: "Contrôle" },
     { href: `${base}/rapport`, label: "Rapport" },
+    { href: `${base}/tma`, label: "TMA" },
     { href: `${base}/plan`, label: "Plan" },
     { href: `${base}/plans`, label: "Suivi des plans" },
   ];

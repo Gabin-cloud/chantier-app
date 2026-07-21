@@ -8,6 +8,7 @@ import { AdminPieceStatusBadge } from "@/components/marche/AdminPieceStatusBadge
 import { ADMIN_PIECE_STATUS_LABELS } from "@/lib/admin-pieces/status";
 import type { EnterpriseAdminControlData } from "@/lib/types/admin-pieces";
 import type { Project } from "@/lib/types/database";
+import { DocumentLink } from "@/components/documents/DocumentLink";
 
 type EntrepriseAdminPiecesPanelProps = {
   project: Project;
@@ -87,14 +88,13 @@ export function EntrepriseAdminPiecesPanel({
             )}
             <div className="mt-3 flex flex-wrap gap-2">
               {item.fileUrl && (
-                <a
-                  href={item.fileUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <DocumentLink
+                  url={item.fileUrl}
+                  title="Fichier déposé"
                   className="rounded-lg border border-zinc-200 px-3 py-1.5 text-xs font-semibold text-amber-700"
                 >
                   Voir le fichier déposé
-                </a>
+                </DocumentLink>
               )}
               {(item.status === "pending" ||
                 item.status === "rejected" ||

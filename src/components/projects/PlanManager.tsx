@@ -10,6 +10,7 @@ import {
   uploadPlan,
 } from "@/lib/actions/plans";
 import type { Plan, PlanFolder } from "@/lib/types/database";
+import { DocumentLink } from "@/components/documents/DocumentLink";
 
 type PlanWithUrl = Plan & { pdf_url: string };
 
@@ -183,14 +184,13 @@ export function PlanManager({
                     </option>
                   ))}
                 </select>
-                <a
-                  href={plan.pdf_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <DocumentLink
+                  url={plan.pdf_url}
+                  title={plan.name}
                   className="rounded-lg px-3 py-2 text-sm font-medium text-zinc-600 hover:bg-zinc-100"
                 >
                   Voir
-                </a>
+                </DocumentLink>
                 <button
                   type="button"
                   onClick={() => handleDelete(plan.id)}

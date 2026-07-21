@@ -15,6 +15,7 @@ import {
   parseEmailList,
   validateEmailRecipients,
 } from "@/lib/email/recipients";
+import { DocumentLink } from "@/components/documents/DocumentLink";
 
 type RecipientRow = { id: string; email: string; name: string };
 
@@ -380,14 +381,13 @@ export function AmendmentEmailStep({
                     PDF {preview.pdfFileName}
                   </span>
                   {preview.pdfUrl && (
-                    <a
-                      href={preview.pdfUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <DocumentLink
+                      url={preview.pdfUrl}
+                      title={preview.pdfFileName}
                       className="text-xs font-semibold text-emerald-700 underline"
                     >
                       Voir le PDF
-                    </a>
+                    </DocumentLink>
                   )}
                 </div>
 
@@ -405,14 +405,13 @@ export function AmendmentEmailStep({
                           <span className="font-semibold text-red-700">PDF</span>
                           <span>{file.name}</span>
                           {file.url && (
-                            <a
-                              href={file.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
+                            <DocumentLink
+                              url={file.url}
+                              title={file.name}
                               className="font-semibold text-emerald-700 underline"
                             >
                               Voir
-                            </a>
+                            </DocumentLink>
                           )}
                         </li>
                       ))}

@@ -324,6 +324,51 @@ export type FinancialQuoteWithLot = FinancialQuote & {
   amendment_document_path?: string | null;
 };
 
+export type FinancialDgdEntry = {
+  id: string;
+  project_id: string;
+  enterprise_id: string;
+  projet_envoye_danobat: string | null;
+  projet_envoye_mou: string | null;
+  reserves_reception_levees: boolean;
+  avis_bc_leves: boolean;
+  sous_traitants_payes: boolean;
+  cie_ok: boolean;
+  avenants_ok: boolean;
+  proposition_transmise_entreprise: string | null;
+  projet_retourne_entreprise: string | null;
+  exemplaire_signe_envoye_mou: string | null;
+  dgd_accepte_recu_danobat: string | null;
+  liberation_rg_cb: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type FinancialDgdRow = FinancialDgdEntry & {
+  lot_number: string | null;
+  lot_designation: string | null;
+  enterprise_name: string;
+};
+
+export type WorkTmaEntry = {
+  id: string;
+  project_id: string;
+  logement_number: string;
+  localisation: string;
+  modif_demandee_le: string | null;
+  nature_travaux: string;
+  enterprise_id: string | null;
+  enterprise_name: string;
+  devis_number: string;
+  devis_recu_le: string | null;
+  mou_envoi: string | null;
+  mou_acceptation: string | null;
+  montant_ht: number;
+  sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
 export type FinancialAmendmentLine = {
   id: string;
   amendment_id: string;
