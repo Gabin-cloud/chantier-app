@@ -614,16 +614,14 @@ export function QuoteTrackingPanel({
 
     return (
       <>
-        {!forPrint && (
-          <th className={`${BORDER} px-2 py-2 text-center no-print`}>
+        <th className={`${BORDER} px-2 py-2 text-center no-print`}>
             <input
               type="checkbox"
               checked={allVisibleSelected}
               onChange={toggleSelectAll}
               aria-label="Tout sélectionner"
-            />
-          </th>
-        )}
+          />
+        </th>
         <FilterableHeader
           filterKey="lot"
           options={filterOptions.lot}
@@ -697,6 +695,8 @@ export function QuoteTrackingPanel({
       </>
     );
   }
+
+  function tableBody(forPrint: boolean) {
     return (
       <tbody>
         {sortedQuotes.map((quote) => (
