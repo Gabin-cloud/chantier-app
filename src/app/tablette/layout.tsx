@@ -1,4 +1,5 @@
-import { UserMenu } from "@/components/auth/UserMenu";
+import { OfflineProvider } from "@/lib/offline/offline-provider";
+import { OfflineSyncBanner } from "@/components/tablette/OfflineSyncBanner";
 
 export default function TabletteLayout({
   children,
@@ -6,8 +7,11 @@ export default function TabletteLayout({
   children: React.ReactNode;
 }) {
   return (
-    <div className="tablette-shell flex min-h-full flex-col bg-zinc-100">
-      {children}
-    </div>
+    <OfflineProvider>
+      <div className="tablette-shell flex min-h-full flex-col bg-zinc-100">
+        <OfflineSyncBanner />
+        {children}
+      </div>
+    </OfflineProvider>
   );
 }

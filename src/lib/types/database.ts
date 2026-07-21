@@ -441,6 +441,15 @@ export type DrawingStroke = {
   points: DrawingPoint[];
   color: string;
   width: number;
+  opacity?: number;
+};
+
+export type MarkerPhoto = {
+  id: string;
+  marker_id: string;
+  file_path: string;
+  sort_order: number;
+  created_at: string;
 };
 
 export type PlanDrawing = {
