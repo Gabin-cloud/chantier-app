@@ -24,6 +24,11 @@ import {
   DEFAULT_DEVIS_MOU_EMAIL_BODY,
   DEFAULT_DEVIS_MOU_EMAIL_SUBJECT,
 } from "@/lib/notifications/devis-mou-email";
+import {
+  TMA_ENTREPRISE_EMAIL_MERGE_TAGS,
+  DEFAULT_TMA_ENTREPRISE_EMAIL_BODY,
+  DEFAULT_TMA_ENTREPRISE_EMAIL_SUBJECT,
+} from "@/lib/notifications/tma-entreprise-email";
 
 export type EmailTemplateData = {
   id: string;
@@ -356,6 +361,85 @@ export async function updateDevisMouEmailTemplate(input: {
 
     if (error) return { ok: false, error: error.message };
 
+    revalidatePath("/pc/parametres");
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Impossible d'enregistrer le modèle.",
+    };
+  }
+}
+
+export async function getTmaEntrepriseEmailTemplate(): Promise<{
+  subjectTemplate: string;
+  bodyTemplate: string;
+  defaultCc: string;
+}> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("email_templates")
+    .select("subject_template, body_template, default_cc")
+    .eq("slug", "tma_entreprise_send")
+    .maybeSingle();
+
+  if (error || !data) {
+    return {
+      subjectTemplate: DEFAULT_TMA_ENTREPRISE_EMAIL_SUBJECT,
+      bodyTemplate: DEFAULT_TMA_ENTREPRISE_EMAIL_BODY,
+      defaultCc: "",
+    };
+  }
+
+  return {
+    subjectTemplate: data.subject_template,
+    bodyTemplate: data.body_template,
+    defaultCc: data.default_cc ?? "",
+  };
+}
+
+export async function updateTmaEntrepriseEmailTemplate(input: {
+  subjectTemplate: string;
+  bodyTemplate: string;
+  defaultCc?: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const user = await requireUser();
+    const allowed = await canManageEmailTemplates(user.id);
+    if (!allowed) {
+      return { ok: false, error: "Droits insuffisants pour modifier le mail type." };
+    }
+
+    const supabase = await createClient();
+    const subjectTemplate = input.subjectTemplate.trim();
+    const bodyTemplate = input.bodyTemplate.trim();
+    const defaultCc = input.defaultCc?.trim() ?? "";
+
+    if (!subjectTemplate) return { ok: false, error: "L'objet du mail est obligatoire." };
+    if (!isMeaningfulHtml(bodyTemplate)) {
+      return { ok: false, error: "Le corps du mail est obligatoire." };
+    }
+
+    const row = {
+      slug: "tma_entreprise_send",
+      name: "Envoi TMA aux entreprises",
+      subject_template: subjectTemplate,
+      body_template: bodyTemplate,
+      default_cc: defaultCc || null,
+      updated_by: user.id,
+    };
+
+    const { data: existing } = await supabase
+      .from("email_templates")
+      .select("id")
+      .eq("slug", "tma_entreprise_send")
+      .maybeSingle();
+
+    const { error } = existing
+      ? await supabase.from("email_templates").update(row).eq("slug", "tma_entreprise_send")
+      : await supabase.from("email_templates").insert(row);
+
+    if (error) return { ok: false, error: error.message };
     revalidatePath("/pc/parametres");
     return { ok: true };
   } catch (err) {
