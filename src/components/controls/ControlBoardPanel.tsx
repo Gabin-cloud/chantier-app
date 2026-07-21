@@ -13,6 +13,7 @@ import { addVisitPhase } from "@/lib/actions/phases";
 import { addPhaseZone } from "@/lib/actions/zones";
 import type { VisitPhase } from "@/lib/types/database";
 import { CONTROL_RESULT_LABELS } from "@/lib/types/database";
+import { openDocument } from "@/lib/documents/open-document";
 
 function rowBackground(row: ControlBoardRow): string {
   const hasOpenNc = row.controlResult === "ko" && !row.nonConformityResolved;
@@ -379,14 +380,13 @@ export function ControlBoardPanel({
                       <td className="px-4 py-3 text-slate-700">{row.enterpriseName ?? "—"}</td>
                       <td className="px-4 py-3">
                         {row.reportUrl ? (
-                          <a
-                            href={row.reportUrl}
-                            target="_blank"
-                            rel="noopener noreferrer"
+                          <button
+                            type="button"
+                            onClick={() => openDocument(row.reportUrl!, "Rapport de contrôle")}
                             className="font-semibold text-emerald-700 hover:underline"
                           >
                             PDF
-                          </a>
+                          </button>
                         ) : row.visitId ? (
                           <span className="text-xs text-slate-400">Pas encore généré</span>
                         ) : (

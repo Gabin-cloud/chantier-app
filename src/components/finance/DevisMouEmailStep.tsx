@@ -14,6 +14,7 @@ import {
   parseEmailList,
   validateEmailRecipients,
 } from "@/lib/email/recipients";
+import { DocumentLink } from "@/components/documents/DocumentLink";
 
 type RecipientRow = { id: string; email: string; name: string };
 
@@ -338,14 +339,13 @@ export function DevisMouEmailStep({
                   >
                     PDF {attachment.fileName}
                     {attachment.pdfUrl && (
-                      <a
-                        href={attachment.pdfUrl}
-                        target="_blank"
-                        rel="noopener noreferrer"
+                      <DocumentLink
+                        url={attachment.pdfUrl}
+                        title={attachment.fileName}
                         className="ml-1 text-emerald-700 underline"
                       >
                         Voir
-                      </a>
+                      </DocumentLink>
                     )}
                   </span>
                 ))}

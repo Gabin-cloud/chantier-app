@@ -1,5 +1,6 @@
 "use client";
 
+import { DocumentLink } from "@/components/documents/DocumentLink";
 import {
   INCOMING_FILE_CATEGORY_LABELS,
   type IncomingFileWithDetails,
@@ -60,14 +61,9 @@ export function IncomingFilesTable({
                   {new Date(file.created_at).toLocaleDateString("fr-FR")}
                 </td>
                 <td className="px-4 py-3">
-                  <a
-                    href={fileUrls[file.id]}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                    className="font-medium text-blue-600 hover:underline"
-                  >
+                  <DocumentLink url={fileUrls[file.id]} title={file.file_name}>
                     {file.file_name}
-                  </a>
+                  </DocumentLink>
                   {file.notes && (
                     <p className="mt-0.5 text-xs text-slate-400">{file.notes}</p>
                   )}

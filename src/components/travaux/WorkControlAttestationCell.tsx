@@ -6,6 +6,7 @@ import {
   linkVisitReportToExecution,
   uploadWorkControlAttestation,
 } from "@/lib/actions/work-control";
+import { DocumentLink } from "@/components/documents/DocumentLink";
 import type { WorkControlExecution } from "@/lib/types/work-control";
 
 type WorkControlAttestationCellProps = {
@@ -95,15 +96,13 @@ export function WorkControlAttestationCell({
   if (name && attestationUrl) {
     return (
       <div className="min-w-[9rem] space-y-1">
-        <a
-          href={attestationUrl}
-          target="_blank"
-          rel="noopener noreferrer"
-          className="block truncate text-[11px] font-semibold text-emerald-800 underline"
+        <DocumentLink
+          url={attestationUrl}
           title={name}
+          className="block truncate text-[11px] font-semibold text-emerald-800 underline"
         >
           {name}
-        </a>
+        </DocumentLink>
         {date && <p className="text-[10px] text-slate-500">{date}</p>}
         {canAdmin && (
           <button

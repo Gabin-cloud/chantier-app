@@ -13,6 +13,7 @@ import {
   EmailDraftPreviewModal,
   type EmailConfirmPayload,
 } from "@/components/controls/EmailDraftPreviewModal";
+import { openDocument } from "@/lib/documents/open-document";
 
 export function PcVisitReportsPanel({
   projectId,
@@ -216,14 +217,13 @@ export function PcVisitReportsPanel({
                 </td>
                 <td className="px-4 py-3">
                   {visit.reportUrl ? (
-                    <a
-                      href={visit.reportUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <button
+                      type="button"
+                      onClick={() => openDocument(visit.reportUrl!, `Rapport ${visit.phaseName}`)}
                       className="font-semibold text-emerald-700 hover:underline"
                     >
                       PDF
-                    </a>
+                    </button>
                   ) : (
                     "—"
                   )}

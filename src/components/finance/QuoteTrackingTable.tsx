@@ -3,6 +3,7 @@
 import { useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { updateQuoteValidation, getQuoteFileUrl } from "@/lib/actions/quotes";
+import { openDocument } from "@/lib/documents/open-document";
 import { formatCurrency } from "@/lib/finance/calculations";
 import type { FinancialQuoteWithLot } from "@/lib/types/database";
 
@@ -60,7 +61,7 @@ export function QuoteTrackingTable({ projectId, quotes }: QuoteTrackingTableProp
     const filePath = quote.signed_file_path ?? quote.file_path;
     if (!filePath) return;
     const url = await getQuoteFileUrl(projectId, filePath);
-    window.open(url, "_blank", "noopener,noreferrer");
+    openDocument(url, quote.quote_number || "Devis");
   }
 
   function startEditValidation(quote: FinancialQuoteWithLot) {

@@ -7,6 +7,7 @@ import { VisitReportPreview } from "@/components/visits/VisitReportPreview";
 import { MarkerPhotoAnnotator } from "@/components/visits/MarkerPhotoAnnotator";
 import { PlanViewer } from "@/components/visits/PlanViewer";
 import { PlanPicker } from "@/components/plans/PlanPicker";
+import { openDocument } from "@/lib/documents/open-document";
 import { savePlanDrawings } from "@/lib/actions/checklist";
 import { addCustomLocation } from "@/lib/actions/locations";
 import {
@@ -783,14 +784,13 @@ export function VisitEditor({
               Aperçu rapport
             </button>
             {isCompleted && reportUrl && (
-              <a
-                href={reportUrl}
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                type="button"
+                onClick={() => openDocument(reportUrl, "Rapport de visite")}
                 className="rounded-lg bg-emerald-100 px-2.5 py-1 text-xs font-semibold text-emerald-800"
               >
                 PDF
-              </a>
+              </button>
             )}
           </div>
           <h2 className="text-base font-bold text-zinc-900">Pastilles</h2>

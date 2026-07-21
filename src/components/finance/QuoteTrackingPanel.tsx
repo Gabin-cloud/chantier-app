@@ -8,6 +8,7 @@ import { DevisMouEmailStep } from "@/components/finance/DevisMouEmailStep";
 import { PrintReportBanner } from "@/components/print/PrintReportBanner";
 import { TableExportToolbar } from "@/components/print/TableExportToolbar";
 import { getQuoteFileUrl, updateQuoteField } from "@/lib/actions/quotes";
+import { openDocument } from "@/lib/documents/open-document";
 import { formatCurrency, parseMoneyInput } from "@/lib/finance/calculations";
 import type { ExcelColumn } from "@/lib/print/table-export";
 import type {
@@ -418,7 +419,7 @@ export function QuoteTrackingPanel({
       const filePath = quote.signed_file_path ?? quote.file_path;
       if (!filePath) return;
       const url = await getQuoteFileUrl(projectId, filePath);
-      window.open(url, "_blank", "noopener,noreferrer");
+      openDocument(url, quote.quote_number || "Devis");
     },
     [projectId]
   );

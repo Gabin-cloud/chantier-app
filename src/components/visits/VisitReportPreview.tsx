@@ -13,6 +13,7 @@ import {
   VISIT_CONTROL_SUMMARY_LABELS,
 } from "@/lib/types/database";
 import { computeVisitControlSummary } from "@/lib/control-summary";
+import { openDocument } from "@/lib/documents/open-document";
 
 type VisitReportPreviewProps = {
   visit: Visit;
@@ -75,14 +76,13 @@ export function VisitReportPreview({
           </div>
           <div className="flex gap-2">
             {reportUrl && (
-              <a
-                href={reportUrl}
-                target="_blank"
-                rel="noopener noreferrer"
+              <button
+                type="button"
+                onClick={() => openDocument(reportUrl, "Rapport de visite")}
                 className="rounded-lg bg-emerald-100 px-3 py-1.5 text-sm font-semibold text-emerald-800"
               >
                 PDF
-              </a>
+              </button>
             )}
             <button
               type="button"

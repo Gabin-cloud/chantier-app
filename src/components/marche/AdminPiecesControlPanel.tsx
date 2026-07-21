@@ -13,6 +13,7 @@ import { AdminPieceStatusBadge } from "@/components/marche/AdminPieceStatusBadge
 import { AdminPieceFileAttach } from "@/components/marche/AdminPieceFileAttach";
 import { ADMIN_PIECE_STATUS_LABELS } from "@/lib/admin-pieces/status";
 import type { EnterpriseAdminControlData } from "@/lib/types/admin-pieces";
+import { DocumentLink } from "@/components/documents/DocumentLink";
 import type { Enterprise } from "@/lib/types/database";
 import { ModalPanel } from "@/components/ui/ModalPanel";
 import { RichTextEditor } from "@/components/ui/RichTextEditor";
@@ -254,17 +255,16 @@ export function AdminPiecesControlPanel({
 
                     <div className="flex flex-wrap items-start gap-3">
                       {item.fileUrl && (
-                        <a
-                          href={item.fileUrl}
-                          target="_blank"
-                          rel="noopener noreferrer"
+                        <DocumentLink
+                          url={item.fileUrl}
+                          title={item.submission?.file_name ?? "Document"}
                           className="rounded-lg border border-slate-200 px-3 py-1.5 text-xs font-semibold text-slate-800 hover:bg-slate-50"
                         >
                           Visualiser
                           {item.submission?.file_name
                             ? ` (${item.submission.file_name})`
                             : ""}
-                        </a>
+                        </DocumentLink>
                       )}
                       {canEdit && (
                         <AdminPieceFileAttach
