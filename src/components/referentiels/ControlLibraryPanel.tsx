@@ -3,6 +3,8 @@
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useState, useTransition } from "react";
+import { ModalPanel } from "@/components/ui/ModalPanel";
+import { AppFormField } from "@/components/ui/AppFormField";
 import {
   deleteControlLibraryItem,
   deleteControlLibraryPhase,
@@ -51,6 +53,9 @@ export function ControlLibraryPanel({ items, canEdit }: ControlLibraryPanelProps
   const [success, setSuccess] = useState<string | null>(null);
   const [activePhase, setActivePhase] = useState(DEFAULT_PHASES[0] ?? "Gros œuvre");
   const [newPhaseName, setNewPhaseName] = useState("");
+  const [showRenameModal, setShowRenameModal] = useState(false);
+  const [renameTargetPhase, setRenameTargetPhase] = useState<string>("");
+  const [renameDraft, setRenameDraft] = useState<string>("");
 
   const phases = useMemo(() => {
     const names = new Set(DEFAULT_PHASES);
@@ -139,13 +144,22 @@ export function ControlLibraryPanel({ items, canEdit }: ControlLibraryPanelProps
   }
 
   function renamePhase() {
-    const next = window.prompt("Nouveau nom de la phase", activePhase);
-    if (!next || !next.trim() || next.trim() === activePhase) return;
+    setRenameTargetPhase(activePhase);
+    setRenameDraft(activePhase);
+    setShowRenameModal(true);
+  }
+
+  function confirmRenamePhase() {
+    const from = renameTargetPhase.trim();
+    const next = renameDraft.trim();
+    if (!from || !next || next === from) return;
+
     startTransition(async () => {
       try {
         setError(null);
-        await renameControlLibraryPhase(activePhase, next.trim());
-        setActivePhase(next.trim());
+        await renameControlLibraryPhase(from, next);
+        setActivePhase(next);
+        setShowRenameModal(false);
         refresh();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Erreur renommage.");
@@ -201,7 +215,8 @@ export function ControlLibraryPanel({ items, canEdit }: ControlLibraryPanelProps
   }
 
   return (
-    <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+    <>
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
       <header className="mb-4 flex flex-wrap items-center justify-between gap-2">
         <div>
           <h2 className="text-lg font-semibold text-slate-900">
@@ -426,6 +441,50 @@ export function ControlLibraryPanel({ items, canEdit }: ControlLibraryPanelProps
           </Link>
         </p>
       )}
-    </section>
+      </section>
+
+      {showRenameModal && (
+        <ModalPanel
+          title="Renommer la phase"
+          subtitle="Le changement est propagé à tous les points de la bibliothèque."
+          onClose={() => setShowRenameModal(false)}
+          maxWidth="md"
+        >
+          <div className="space-y-4">
+            <AppFormField
+              label="Nouveau nom"
+              value={renameDraft}
+              onChange={setRenameDraft}
+              placeholder="Ex. Gros œuvre"
+              disabled={isPending}
+            />
+            {renameDraft.trim().length > 0 &&
+              renameDraft.trim() === renameTargetPhase.trim() && (
+                <p className="text-[11px] text-amber-700">
+                  Le nouveau nom est identique : aucune modification.
+                </p>
+              )}
+            <div className="flex flex-wrap justify-end gap-2">
+              <button
+                type="button"
+                onClick={() => setShowRenameModal(false)}
+                disabled={isPending}
+                className="rounded-lg bg-white px-4 py-2 text-sm font-semibold text-zinc-700 hover:bg-zinc-50 disabled:opacity-40"
+              >
+                Annuler
+              </button>
+              <button
+                type="button"
+                onClick={() => confirmRenamePhase()}
+                disabled={isPending}
+                className="rounded-lg bg-violet-600 px-4 py-2 text-sm font-semibold text-white hover:bg-violet-500 disabled:opacity-40"
+              >
+                Confirmer
+              </button>
+            </div>
+          </div>
+        </ModalPanel>
+      )}
+    </>
   );
 }

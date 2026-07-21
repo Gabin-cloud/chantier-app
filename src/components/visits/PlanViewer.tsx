@@ -30,6 +30,7 @@ type PlanViewerProps = {
   drawMode?: boolean;
   drawColor?: string;
   drawWidth?: number;
+  drawOpacity?: number;
   markers: PlanViewerMarker[];
   strokes?: DrawingStroke[];
   onStrokesChange?: (strokes: DrawingStroke[]) => void;
@@ -106,6 +107,7 @@ export function PlanViewer({
   drawMode = false,
   drawColor = "#f59e0b",
   drawWidth = 2.5,
+  drawOpacity = 1,
   markers,
   strokes = [],
   onStrokesChange,
@@ -542,6 +544,7 @@ export function PlanViewer({
           points: [{ x: coords.xPercent, y: coords.yPercent }],
           color: drawColor,
           width: drawWidth,
+          opacity: drawOpacity,
         });
       }
       return;
@@ -610,8 +613,17 @@ export function PlanViewer({
     if (activeGestureRef.current === "pinch" && pointersRef.current.size === 2 && pinchRef.current) {
       const pts = [...pointersRef.current.values()];
       const distance = Math.hypot(pts[1].x - pts[0].x, pts[1].y - pts[0].y);
-      const midX = (pts[0].x + pts[1].x) / 2;
-      const midY = (pts[0].y + pts[1].y) / 2;
+      const midXClient = (pts[0].x + pts[1].x) / 2;
+      const midYClient = (pts[0].y + pts[1].y) / 2;
+
+      // `panRef` est dans le repère du viewport (0,0 = haut-gauche du composant),
+      // alors que `clientX/clientY` sont dans le repère de la fenêtre. On convertit
+      // pour que le zoom suive bien les doigts.
+      const viewport = viewportRef.current;
+      const viewportRect = viewport?.getBoundingClientRect();
+      if (!viewportRect) return;
+      const midX = midXClient - viewportRect.left;
+      const midY = midYClient - viewportRect.top;
 
       if (pinchRef.current.distance > 0) {
         const distRatio = distance / pinchRef.current.distance;
@@ -785,6 +797,7 @@ export function PlanViewer({
                     fill="none"
                     stroke={stroke.color}
                     strokeWidth={stroke.width / 10}
+                    strokeOpacity={stroke.opacity ?? 1}
                     strokeLinecap="round"
                     strokeLinejoin="round"
                   />

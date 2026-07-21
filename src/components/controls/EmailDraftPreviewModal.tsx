@@ -153,6 +153,15 @@ export function EmailDraftPreviewModal({
       maxWidth="2xl"
     >
       <div className="space-y-4">
+        {preview.recipients.length === 0 && (
+          <div className="rounded-lg border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-900">
+            <p className="font-semibold">Attention</p>
+            <p className="mt-1">
+              Aucun destinataire n&apos;est trouvé automatiquement. Ajoutez les destinataires manuellement
+              (et ensuite enregistrez/envoyez).
+            </p>
+          </div>
+        )}
         <div className="overflow-hidden rounded-xl border border-slate-200 bg-white shadow-sm">
           <div className="border-b border-slate-100 bg-slate-50 px-4 py-3">
             <div className="flex flex-wrap items-center gap-2 text-xs font-semibold uppercase tracking-wide text-slate-400">
