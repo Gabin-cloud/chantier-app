@@ -211,6 +211,7 @@ export function VisitEditor({
   const [showPlanPicker, setShowPlanPicker] = useState(false);
   const [drawColor, setDrawColor] = useState<string>(DRAW_COLOR_PRESETS[1]);
   const [drawWidth, setDrawWidth] = useState<number>(DRAW_WIDTH_PRESETS[1]);
+  const [drawOpacity, setDrawOpacity] = useState<number>(1);
   const [remarkDraft, setRemarkDraft] = useState("");
   const [statusDraft, setStatusDraft] = useState<MarkerStatus>("a_traiter");
   const [enterpriseDraft, setEnterpriseDraft] = useState("");
@@ -358,7 +359,9 @@ export function VisitEditor({
   }, [selectedPlanId, planLevelsByPlan, planLevelDraft]);
 
   function isMarkerDraftIncomplete() {
-    return !enterpriseDraft && !remarkDraft.trim();
+    // Une pastille ne doit pas être supprimée automatiquement si on a déjà
+    // renseigné un résultat, même sans entreprise/remark.
+    return !enterpriseDraft && !remarkDraft.trim() && !controlResultDraft;
   }
 
   function applySelectMarker(marker: MarkerWithPhoto) {
@@ -1085,6 +1088,18 @@ export function VisitEditor({
                       </option>
                     ))}
                   </select>
+                  <select
+                    value={drawOpacity}
+                    onChange={(e) => setDrawOpacity(Number(e.target.value))}
+                    className="rounded-lg border border-zinc-200 bg-white px-2 py-1 text-xs font-semibold"
+                    aria-label="Opacité du trait"
+                  >
+                    <option value={1}>100%</option>
+                    <option value={0.8}>80%</option>
+                    <option value={0.6}>60%</option>
+                    <option value={0.4}>40%</option>
+                    <option value={0.25}>25%</option>
+                  </select>
                 </div>
               </>
             )}
@@ -1201,34 +1216,32 @@ export function VisitEditor({
                     </select>
                   </div>
 
-                  {checklistItemDraft && (
-                    <div className="shrink-0">
-                      <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
-                        Résultat
-                      </p>
-                      <div className="flex flex-wrap gap-1">
-                        {CONTROL_STATUS_OPTIONS.map((result) => {
-                          const colors = CONTROL_RESULT_COLORS[result];
-                          const isActive = controlResultDraft === result;
-                          return (
-                            <button
-                              key={result}
-                              type="button"
-                              disabled={isCompleted}
-                              onClick={() => setControlResultDraft(result)}
-                              className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold ${
-                                isActive
-                                  ? `${colors.bg} ${colors.text}`
-                                  : "bg-zinc-100 text-zinc-700"
-                              }`}
-                            >
-                              {CONTROL_RESULT_LABELS[result]}
-                            </button>
-                          );
-                        })}
-                      </div>
+                  <div className="shrink-0">
+                    <p className="mb-0.5 text-[10px] font-semibold uppercase tracking-wide text-zinc-500">
+                      Résultat
+                    </p>
+                    <div className="flex flex-wrap gap-1">
+                      {CONTROL_STATUS_OPTIONS.map((result) => {
+                        const colors = CONTROL_RESULT_COLORS[result];
+                        const isActive = controlResultDraft === result;
+                        return (
+                          <button
+                            key={result}
+                            type="button"
+                            disabled={isCompleted}
+                            onClick={() => setControlResultDraft(result)}
+                            className={`rounded-lg px-2.5 py-1.5 text-xs font-semibold ${
+                              isActive
+                                ? `${colors.bg} ${colors.text}`
+                                : "bg-zinc-100 text-zinc-700"
+                            }`}
+                          >
+                            {CONTROL_RESULT_LABELS[result]}
+                          </button>
+                        );
+                      })}
                     </div>
-                  )}
+                  </div>
 
                   {(controlResultDraft === "ok" || controlResultDraft === "ko") && (
                     <div className="min-w-[9rem] flex-1">
@@ -1441,6 +1454,7 @@ export function VisitEditor({
               drawMode={drawMode && !isCompleted}
               drawColor={drawColor}
               drawWidth={drawWidth}
+              drawOpacity={drawOpacity}
               readOnly={isCompleted}
               markers={planMarkers.map((m) => ({
                 id: m.id,

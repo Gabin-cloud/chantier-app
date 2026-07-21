@@ -685,39 +685,47 @@ async function assembleVisitEmailDraft(
     ),
   ];
 
-  if (!enterpriseIds.length) {
-    return {
-      ok: false,
-      error:
-        "Aucune entreprise associée aux réserves. Assignez une entreprise sur les pastilles.",
-    };
-  }
-
-  const { data: enterprises } = await supabase
-    .from("enterprises")
-    .select("id, name, contact_email, email_chantier, contact_name")
-    .in("id", enterpriseIds);
-
   const recipients: { email: string; name: string }[] = [];
   const skipped: string[] = [];
 
-  for (const enterprise of enterprises ?? []) {
-    const email = enterprise.email_chantier || enterprise.contact_email;
-    if (!email) {
-      skipped.push(`${enterprise.name} : pas d'email`);
-      continue;
+  let enterprises:
+    | {
+        id: string;
+        name: string;
+        contact_email: string | null;
+        email_chantier: string | null;
+        contact_name: string | null;
+      }[]
+    | undefined;
+
+  if (enterpriseIds.length) {
+    const { data } = await supabase
+      .from("enterprises")
+      .select("id, name, contact_email, email_chantier, contact_name")
+      .in("id", enterpriseIds);
+    enterprises = data ?? [];
+
+    for (const enterprise of enterprises) {
+      const email = enterprise.email_chantier || enterprise.contact_email;
+      if (!email) {
+        skipped.push(`${enterprise.name} : pas d'email`);
+        continue;
+      }
+      recipients.push({
+        email,
+        name: enterprise.contact_name || enterprise.name,
+      });
     }
-    recipients.push({
-      email,
-      name: enterprise.contact_name || enterprise.name,
-    });
+  } else {
+    skipped.push(
+      "Aucune entreprise associée aux réserves. Ajoutez les destinataires manuellement."
+    );
   }
 
   if (!recipients.length) {
-    return {
-      ok: false,
-      error: `Aucun destinataire avec email. ${skipped.join(" · ")}`,
-    };
+    // On autorise quand même la prévisualisation du mail (les utilisateurs
+    // pourront ajouter les destinataires à la main).
+    if (!skipped.length) skipped.push("Aucun destinataire avec email.");
   }
 
   let phaseName: string | null = null;

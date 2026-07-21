@@ -99,10 +99,10 @@ export async function blobToOfflineEntries(
 ): Promise<{ name: string; blob: Blob; fileName: string }[]> {
   const entries: { name: string; blob: Blob; fileName: string }[] = [];
   for (const [name, value] of formData.entries()) {
+    // `FormDataEntryValue` côté TS = `string | File`, donc on ignore les string.
+    // Dans l'app, ces FormData sont utilisés pour uploads photo (donc File).
     if (value instanceof File) {
       entries.push({ name, blob: value, fileName: value.name });
-    } else if (value instanceof Blob) {
-      entries.push({ name, blob: value, fileName: "photo.jpg" });
     }
   }
   return entries;
