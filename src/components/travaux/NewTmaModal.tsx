@@ -296,6 +296,23 @@ export function NewTmaModal({
           />
         </div>
 
+        {(nfStatus || pmrStatus) && (
+          <p className="rounded-lg border border-violet-200 bg-violet-50 px-3 py-2 text-xs text-violet-900">
+            <strong>Note :</strong>{" "}
+            {nfStatus === "non" && pmrStatus === "non"
+              ? "Ce logement perd la certification NF et la conformité PMR suite à cette demande TMA."
+              : nfStatus === "non"
+                ? "Ce logement perd la partie NF (norme feu) suite à cette demande TMA."
+                : pmrStatus === "non"
+                  ? "Ce logement perd la partie PMR (accessibilité) suite à cette demande TMA."
+                  : nfStatus === "oui" && pmrStatus === "oui"
+                    ? "Le logement conserve ses certifications NF et PMR."
+                    : nfStatus === "nc" || pmrStatus === "nc"
+                      ? "Vérifiez les impacts NF/PMR : une réponse « NC » nécessite une validation complémentaire."
+                      : "Précisez l'impact NF et PMR avant envoi aux entreprises."}
+          </p>
+        )}
+
         <div>
           <label className="mb-2 block text-sm font-semibold text-slate-700">
             Documents maître d&apos;ouvrage (zone de dépôt)

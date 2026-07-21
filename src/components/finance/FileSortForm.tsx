@@ -16,6 +16,7 @@ import {
   uploadWorkControlAttestation,
 } from "@/lib/actions/work-control";
 import { getProjectQuotes, saveQuote } from "@/lib/actions/quotes";
+import { getOpenTmaLogements } from "@/lib/actions/tma";
 import type { FinancialQuoteWithLot, IncomingFileCategory } from "@/lib/types/database";
 import { INCOMING_FILE_CATEGORY_LABELS } from "@/lib/types/database";
 
@@ -155,6 +156,10 @@ export function FileSortForm({
   const [ncRows, setNcRows] = useState<OpenNcRow[]>([]);
   const [loadingNc, setLoadingNc] = useState(false);
   const [selectedNcKeys, setSelectedNcKeys] = useState<string[]>([]);
+  const [tmaLogements, setTmaLogements] = useState<
+    { logementNumber: string; dossierId: string }[]
+  >([]);
+  const [tmaLogementNumber, setTmaLogementNumber] = useState("");
 
   useEffect(() => {
     setSourceEmail(initialSourceEmail);
@@ -186,6 +191,17 @@ export function FileSortForm({
       .then(setExistingQuotes)
       .catch(() => setExistingQuotes([]));
   }, [category, projectId]);
+
+  useEffect(() => {
+    if (category !== "devis" || !devisValues.isTma || !projectId) {
+      setTmaLogements([]);
+      setTmaLogementNumber("");
+      return;
+    }
+    getOpenTmaLogements(projectId)
+      .then(setTmaLogements)
+      .catch(() => setTmaLogements([]));
+  }, [category, devisValues.isTma, projectId]);
 
   useEffect(() => {
     getQuickSortData(projectId)
@@ -266,6 +282,9 @@ export function FileSortForm({
             {
               mode: devisMode,
               ...(devisMode === "signed" ? { quoteId: selectedQuoteId } : {}),
+              ...(devisValues.isTma && tmaLogementNumber
+                ? { tmaLogementNumber }
+                : {}),
             }
           );
           const result = await saveQuote(projectId, formData, {
@@ -348,6 +367,7 @@ export function FileSortForm({
     (!selectedCategory?.requiresSituation || situationId) &&
     (category !== "levee_controle" || selectedNcKeys.length > 0) &&
     (category !== "devis" || devisMode !== "signed" || selectedQuoteId) &&
+    (category !== "devis" || !devisValues.isTma || Boolean(tmaLogementNumber)) &&
     !isPending;
 
   const gridCols = compact ? "grid-cols-2" : "grid-cols-2";
@@ -571,11 +591,42 @@ export function FileSortForm({
               </div>
             </div>
           ) : (
-            <DevisFormFields
-              values={devisValues}
-              onChange={setDevisValues}
-              mode="new"
-            />
+            <>
+              <DevisFormFields
+                values={devisValues}
+                onChange={setDevisValues}
+                mode="new"
+              />
+              {devisValues.isTma && (
+                <div>
+                  <label className="mb-1 block text-xs font-semibold text-violet-700">
+                    Logement TMA concerné
+                  </label>
+                  {tmaLogements.length === 0 ? (
+                    <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                      Aucune demande TMA ouverte. Créez d&apos;abord une nouvelle TMA dans le
+                      suivi travaux.
+                    </p>
+                  ) : (
+                    <select
+                      value={tmaLogementNumber}
+                      onChange={(e) => setTmaLogementNumber(e.target.value)}
+                      className="w-full rounded-lg border border-violet-200 px-3 py-2 text-sm"
+                    >
+                      <option value="">— Choisir le logement —</option>
+                      {tmaLogements.map((l) => (
+                        <option key={l.dossierId} value={l.logementNumber}>
+                          Logt {l.logementNumber}
+                        </option>
+                      ))}
+                    </select>
+                  )}
+                  <p className="mt-1 text-[10px] text-slate-500">
+                    Le dépôt sera placé dans « Dépôts à analyser » du suivi TMA.
+                  </p>
+                </div>
+              )}
+            </>
           )}
         </section>
       )}

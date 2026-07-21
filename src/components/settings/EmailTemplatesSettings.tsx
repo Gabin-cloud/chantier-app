@@ -7,6 +7,8 @@ import {
   updateAmendmentEmailTemplate,
   updateDevisMouEmailTemplate,
   updatePlatformInvitationEmailTemplate,
+  updateTmaComptabiliteEmailTemplate,
+  updateTmaEntrepriseEmailTemplate,
   updateVisitReportEmailTemplate,
 } from "@/lib/actions/email-templates";
 import { RichTextEditor, type RichTextEditorHandle } from "@/components/ui/RichTextEditor";
@@ -94,10 +96,28 @@ export function EmailTemplatesSettings({ data }: { data: EmailTemplatesSettingsD
   const [amendmentSuccess, setAmendmentSuccess] = useState<string | null>(null);
   const [devisMouError, setDevisMouError] = useState<string | null>(null);
   const [devisMouSuccess, setDevisMouSuccess] = useState<string | null>(null);
+  const [tmaEntrepriseSubject, setTmaEntrepriseSubject] = useState(
+    data.tmaEntrepriseSend.subjectTemplate
+  );
+  const [tmaEntrepriseBody, setTmaEntrepriseBody] = useState(data.tmaEntrepriseSend.bodyTemplate);
+  const [tmaEntrepriseCc, setTmaEntrepriseCc] = useState(data.tmaEntrepriseSend.defaultCc);
+  const [tmaComptabiliteSubject, setTmaComptabiliteSubject] = useState(
+    data.tmaComptabiliteSend.subjectTemplate
+  );
+  const [tmaComptabiliteBody, setTmaComptabiliteBody] = useState(
+    data.tmaComptabiliteSend.bodyTemplate
+  );
+  const [tmaComptabiliteCc, setTmaComptabiliteCc] = useState(data.tmaComptabiliteSend.defaultCc);
+  const [tmaEntrepriseError, setTmaEntrepriseError] = useState<string | null>(null);
+  const [tmaEntrepriseSuccess, setTmaEntrepriseSuccess] = useState<string | null>(null);
+  const [tmaComptabiliteError, setTmaComptabiliteError] = useState<string | null>(null);
+  const [tmaComptabiliteSuccess, setTmaComptabiliteSuccess] = useState<string | null>(null);
   const [isVisitPending, startVisitTransition] = useTransition();
   const [isInvitePending, startInviteTransition] = useTransition();
   const [isAmendmentPending, startAmendmentTransition] = useTransition();
   const [isDevisMouPending, startDevisMouTransition] = useTransition();
+  const [isTmaEntreprisePending, startTmaEntrepriseTransition] = useTransition();
+  const [isTmaComptabilitePending, startTmaComptabiliteTransition] = useTransition();
   const visitSubjectRef = useRef<HTMLInputElement>(null);
   const inviteSubjectRef = useRef<HTMLInputElement>(null);
   const amendmentSubjectRef = useRef<HTMLInputElement>(null);
@@ -106,6 +126,10 @@ export function EmailTemplatesSettings({ data }: { data: EmailTemplatesSettingsD
   const amendmentBodyRef = useRef<RichTextEditorHandle>(null);
   const devisMouSubjectRef = useRef<HTMLInputElement>(null);
   const devisMouBodyRef = useRef<RichTextEditorHandle>(null);
+  const tmaEntrepriseSubjectRef = useRef<HTMLInputElement>(null);
+  const tmaEntrepriseBodyRef = useRef<RichTextEditorHandle>(null);
+  const tmaComptabiliteSubjectRef = useRef<HTMLInputElement>(null);
+  const tmaComptabiliteBodyRef = useRef<RichTextEditorHandle>(null);
 
   function insertTag(
     field: "subject" | "body",
@@ -225,6 +249,50 @@ export function EmailTemplatesSettings({ data }: { data: EmailTemplatesSettingsD
       }
       setDevisMouBody(latestBody);
       setDevisMouSuccess("Modèle enregistré.");
+      router.refresh();
+    });
+  }
+
+  function saveTmaEntreprise(event: React.FormEvent) {
+    event.preventDefault();
+    setTmaEntrepriseError(null);
+    setTmaEntrepriseSuccess(null);
+    const latestBody = tmaEntrepriseBodyRef.current?.getHtml() ?? tmaEntrepriseBody;
+
+    startTmaEntrepriseTransition(async () => {
+      const result = await updateTmaEntrepriseEmailTemplate({
+        subjectTemplate: tmaEntrepriseSubject,
+        bodyTemplate: latestBody,
+        defaultCc: tmaEntrepriseCc,
+      });
+      if (!result.ok) {
+        setTmaEntrepriseError(result.error);
+        return;
+      }
+      setTmaEntrepriseBody(latestBody);
+      setTmaEntrepriseSuccess("Modèle enregistré.");
+      router.refresh();
+    });
+  }
+
+  function saveTmaComptabilite(event: React.FormEvent) {
+    event.preventDefault();
+    setTmaComptabiliteError(null);
+    setTmaComptabiliteSuccess(null);
+    const latestBody = tmaComptabiliteBodyRef.current?.getHtml() ?? tmaComptabiliteBody;
+
+    startTmaComptabiliteTransition(async () => {
+      const result = await updateTmaComptabiliteEmailTemplate({
+        subjectTemplate: tmaComptabiliteSubject,
+        bodyTemplate: latestBody,
+        defaultCc: tmaComptabiliteCc,
+      });
+      if (!result.ok) {
+        setTmaComptabiliteError(result.error);
+        return;
+      }
+      setTmaComptabiliteBody(latestBody);
+      setTmaComptabiliteSuccess("Modèle enregistré.");
       router.refresh();
     });
   }
@@ -559,6 +627,177 @@ export function EmailTemplatesSettings({ data }: { data: EmailTemplatesSettingsD
                 devisMouSubjectRef,
                 devisMouBodyRef,
                 setDevisMouBody
+              )
+            }
+          />
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-semibold text-slate-900">Mails type — envoi TMA aux entreprises</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          Utilisé depuis « Nouvelle TMA » pour envoyer la demande aux entreprises concernées.
+        </p>
+        <form onSubmit={saveTmaEntreprise} className="mt-5 space-y-5">
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">Objet du mail</label>
+            <input
+              ref={tmaEntrepriseSubjectRef}
+              type="text"
+              value={tmaEntrepriseSubject}
+              onChange={(e) => setTmaEntrepriseSubject(e.target.value)}
+              disabled={!data.canEdit || isTmaEntreprisePending}
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">Cc par défaut</label>
+            <input
+              type="text"
+              value={tmaEntrepriseCc}
+              onChange={(e) => setTmaEntrepriseCc(e.target.value)}
+              disabled={!data.canEdit || isTmaEntreprisePending}
+              className={inputClass}
+            />
+          </div>
+          <RichTextEditor
+            ref={tmaEntrepriseBodyRef}
+            value={tmaEntrepriseBody}
+            onChange={setTmaEntrepriseBody}
+            disabled={!data.canEdit || isTmaEntreprisePending}
+            minHeight="200px"
+          />
+          {data.canEdit && (
+            <button
+              type="submit"
+              disabled={isTmaEntreprisePending}
+              className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+            >
+              Enregistrer le modèle
+            </button>
+          )}
+        </form>
+        {tmaEntrepriseSuccess && (
+          <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+            {tmaEntrepriseSuccess}
+          </p>
+        )}
+        {tmaEntrepriseError && (
+          <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+            {tmaEntrepriseError}
+          </p>
+        )}
+        <div className="mt-6">
+          <MergeTagsPanel
+            tags={data.tmaEntrepriseMergeTags}
+            canEdit={data.canEdit}
+            onInsertSubject={(key) =>
+              insertTag(
+                "subject",
+                key,
+                tmaEntrepriseSubject,
+                setTmaEntrepriseSubject,
+                tmaEntrepriseSubjectRef,
+                tmaEntrepriseBodyRef,
+                setTmaEntrepriseBody
+              )
+            }
+            onInsertBody={(key) =>
+              insertTag(
+                "body",
+                key,
+                tmaEntrepriseSubject,
+                setTmaEntrepriseSubject,
+                tmaEntrepriseSubjectRef,
+                tmaEntrepriseBodyRef,
+                setTmaEntrepriseBody
+              )
+            }
+          />
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-semibold text-slate-900">
+          Mails type — envoi dépôts TMA à la comptabilité
+        </h2>
+        <p className="mt-1 text-sm text-slate-500">
+          Utilisé depuis le suivi TMA pour transmettre les dépôts analysés (PDF renommés).
+        </p>
+        <form onSubmit={saveTmaComptabilite} className="mt-5 space-y-5">
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">Objet du mail</label>
+            <input
+              ref={tmaComptabiliteSubjectRef}
+              type="text"
+              value={tmaComptabiliteSubject}
+              onChange={(e) => setTmaComptabiliteSubject(e.target.value)}
+              disabled={!data.canEdit || isTmaComptabilitePending}
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">Cc par défaut</label>
+            <input
+              type="text"
+              value={tmaComptabiliteCc}
+              onChange={(e) => setTmaComptabiliteCc(e.target.value)}
+              disabled={!data.canEdit || isTmaComptabilitePending}
+              placeholder="comptabilite@danobat.fr"
+              className={inputClass}
+            />
+          </div>
+          <RichTextEditor
+            ref={tmaComptabiliteBodyRef}
+            value={tmaComptabiliteBody}
+            onChange={setTmaComptabiliteBody}
+            disabled={!data.canEdit || isTmaComptabilitePending}
+            minHeight="200px"
+          />
+          {data.canEdit && (
+            <button
+              type="submit"
+              disabled={isTmaComptabilitePending}
+              className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+            >
+              Enregistrer le modèle
+            </button>
+          )}
+        </form>
+        {tmaComptabiliteSuccess && (
+          <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+            {tmaComptabiliteSuccess}
+          </p>
+        )}
+        {tmaComptabiliteError && (
+          <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+            {tmaComptabiliteError}
+          </p>
+        )}
+        <div className="mt-6">
+          <MergeTagsPanel
+            tags={data.tmaComptabiliteMergeTags}
+            canEdit={data.canEdit}
+            onInsertSubject={(key) =>
+              insertTag(
+                "subject",
+                key,
+                tmaComptabiliteSubject,
+                setTmaComptabiliteSubject,
+                tmaComptabiliteSubjectRef,
+                tmaComptabiliteBodyRef,
+                setTmaComptabiliteBody
+              )
+            }
+            onInsertBody={(key) =>
+              insertTag(
+                "body",
+                key,
+                tmaComptabiliteSubject,
+                setTmaComptabiliteSubject,
+                tmaComptabiliteSubjectRef,
+                tmaComptabiliteBodyRef,
+                setTmaComptabiliteBody
               )
             }
           />
