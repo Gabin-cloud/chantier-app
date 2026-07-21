@@ -1,8 +1,9 @@
-import { QuoteTrackingTable } from "@/components/finance/QuoteTrackingTable";
+import { QuoteTrackingPanel } from "@/components/finance/QuoteTrackingPanel";
 import {
   DatabaseErrorNotice,
   SupabaseSetupNotice,
 } from "@/components/SupabaseSetupNotice";
+import { getProject } from "@/lib/actions/projects";
 import { getProjectQuotes } from "@/lib/actions/quotes";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
@@ -18,8 +19,10 @@ export default async function SuiviDevisPage({ params }: PageProps) {
   const { id } = await params;
 
   try {
-    const quotes = await getProjectQuotes(id);
-    return <QuoteTrackingTable projectId={id} quotes={quotes} />;
+    const [quotes, project] = await Promise.all([getProjectQuotes(id), getProject(id)]);
+    return (
+      <QuoteTrackingPanel projectId={id} quotes={quotes} project={project} />
+    );
   } catch (error) {
     return (
       <DatabaseErrorNotice

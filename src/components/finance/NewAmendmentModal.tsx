@@ -2,10 +2,13 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
+import { AmendmentEmailStep } from "@/components/finance/AmendmentEmailStep";
 import { AppFormField } from "@/components/ui/AppFormField";
 import { createAmendmentFromQuotes } from "@/lib/actions/finance";
 import { getQuotesForAmendment } from "@/lib/actions/quotes";
 import { buildAmendmentDocumentHtml } from "@/lib/finance/amendment-document";
+import { htmlToPdfBase64 } from "@/lib/finance/amendment-pdf-client";
+import { uploadAmendmentMergedPdf } from "@/lib/finance/amendment-pdf-merge";
 import { formatCurrency, parseMoneyInput } from "@/lib/finance/calculations";
 import type {
   FinancialQuote,
@@ -25,6 +28,7 @@ type NewAmendmentModalProps = {
   project: Project;
   lots: LotWithFinancials[];
   open: boolean;
+  m365Ready: boolean;
   onClose: () => void;
 };
 
@@ -37,6 +41,7 @@ export function NewAmendmentModal({
   project,
   lots,
   open,
+  m365Ready,
   onClose,
 }: NewAmendmentModalProps) {
   const router = useRouter();
@@ -50,9 +55,7 @@ export function NewAmendmentModal({
   const [danobatComment, setDanobatComment] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [step, setStep] = useState<"form" | "email">("form");
-  const [emailDraft, setEmailDraft] = useState<{ subject: string; body: string } | null>(
-    null
-  );
+  const [createdAmendmentId, setCreatedAmendmentId] = useState<string | null>(null);
 
   const selectedLot = useMemo(
     () => lots.find((lot) => lot.id === enterpriseId) ?? null,
@@ -85,7 +88,7 @@ export function NewAmendmentModal({
       selected: true,
     }));
 
-  const allLines = [...selectedQuoteLines, ...manualLines.filter((l) => l.designation.trim())];
+  const allLines = [...selectedQuoteLines, ...manualLines];
 
   function toggleQuote(id: string) {
     setSelectedQuoteIds((prev) => {
@@ -129,19 +132,34 @@ export function NewAmendmentModal({
       setError("Sélectionnez une entreprise.");
       return;
     }
-    if (allLines.length === 0) {
+
+    const linesToSave = allLines
+      .filter((line) => line.quote_id || line.designation.trim())
+      .map((line) => ({
+        designation: line.designation.trim() || (line.quote_id ? `Devis` : ""),
+        amount_ht: parseMoneyInput(line.amount_ht),
+        quote_id: line.quote_id,
+      }))
+      .filter((line) => line.quote_id || line.designation);
+
+    if (linesToSave.length === 0) {
       setError("Ajoutez au moins une ligne à l'avenant.");
       return;
     }
 
+    for (const line of linesToSave) {
+      if (!line.quote_id && !line.designation.trim()) {
+        setError("Renseignez la désignation des lignes manuelles.");
+        return;
+      }
+      if (!Number.isFinite(line.amount_ht)) {
+        setError("Montant invalide sur une ligne.");
+        return;
+      }
+    }
+
     setError(null);
     startTransition(async () => {
-      const lines = allLines.map((line) => ({
-        designation: line.designation.trim(),
-        amount_ht: parseMoneyInput(line.amount_ht),
-        quote_id: line.quote_id,
-      }));
-
       const documentHtml = buildAmendmentDocumentHtml({
         project,
         lot: selectedLot,
@@ -151,14 +169,13 @@ export function NewAmendmentModal({
             0
           ) ?? 0) + 1,
         amendmentType,
-        lines,
-        danobatComment,
+        lines: linesToSave,
       });
 
       const result = await createAmendmentFromQuotes(project.id, {
         enterpriseId,
         amendmentType,
-        lines,
+        lines: linesToSave,
         danobatComment,
         documentHtml,
       });
@@ -168,21 +185,35 @@ export function NewAmendmentModal({
         return;
       }
 
-      setEmailDraft(result.emailDraft);
+      try {
+        const avenantPdfBase64 = await htmlToPdfBase64(documentHtml);
+        const uploadResult = await uploadAmendmentMergedPdf(
+          project.id,
+          result.amendmentId,
+          avenantPdfBase64,
+          result.quoteIds
+        );
+
+        if (!uploadResult.ok) {
+          setError(uploadResult.error);
+          return;
+        }
+      } catch (err) {
+        setError(
+          err instanceof Error ? err.message : "Impossible de générer le PDF de l'avenant."
+        );
+        return;
+      }
+
+      setCreatedAmendmentId(result.amendmentId);
       setStep("email");
       router.refresh();
     });
   }
 
-  function openMailClient() {
-    if (!emailDraft) return;
-    const mailto = `mailto:?subject=${encodeURIComponent(emailDraft.subject)}&body=${encodeURIComponent(emailDraft.body)}`;
-    window.location.href = mailto;
-  }
-
   function handleClose() {
     setStep("form");
-    setEmailDraft(null);
+    setCreatedAmendmentId(null);
     setError(null);
     setManualLines([]);
     setSelectedQuoteIds(new Set());
@@ -190,13 +221,23 @@ export function NewAmendmentModal({
     onClose();
   }
 
+  if (step === "email" && createdAmendmentId) {
+    return (
+      <AmendmentEmailStep
+        projectId={project.id}
+        amendmentId={createdAmendmentId}
+        m365Ready={m365Ready}
+        onClose={handleClose}
+        onComplete={handleClose}
+      />
+    );
+  }
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
       <div className="max-h-[90vh] w-full max-w-3xl overflow-y-auto rounded-2xl bg-white shadow-xl">
         <div className="sticky top-0 flex items-center justify-between border-b border-slate-200 bg-white px-5 py-4">
-          <h3 className="text-lg font-semibold text-slate-900">
-            {step === "form" ? "Création AVENANT" : "Mail type — envoi à l'entreprise"}
-          </h3>
+          <h3 className="text-lg font-semibold text-slate-900">Création AVENANT</h3>
           <button
             type="button"
             onClick={handleClose}
@@ -206,196 +247,163 @@ export function NewAmendmentModal({
           </button>
         </div>
 
-        {step === "form" ? (
-          <div className="space-y-4 p-5">
-            <div>
-              <label className="mb-1 block text-sm font-medium text-slate-700">
-                Lot / Entreprise
-              </label>
-              <select
-                value={enterpriseId}
-                onChange={(e) => setEnterpriseId(e.target.value)}
-                className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
-              >
-                {lots.map((lot) => (
-                  <option key={lot.id} value={lot.id}>
-                    {formatLotOption(lot)}
-                  </option>
-                ))}
-              </select>
-            </div>
-
-            <div className="flex gap-4">
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="radio"
-                  name="amendmentType"
-                  checked={amendmentType === "tma"}
-                  onChange={() => setAmendmentType("tma")}
-                />
-                TMA
-              </label>
-              <label className="flex items-center gap-2 text-sm">
-                <input
-                  type="radio"
-                  name="amendmentType"
-                  checked={amendmentType === "ts"}
-                  onChange={() => setAmendmentType("ts")}
-                />
-                TS
-              </label>
-            </div>
-
-            <div>
-              <p className="mb-2 text-sm font-medium text-slate-700">
-                Devis validés ou sans réponse
-              </p>
-              {loadingQuotes ? (
-                <p className="text-sm text-slate-500">Chargement des devis…</p>
-              ) : availableQuotes.length === 0 ? (
-                <p className="text-sm text-slate-500">
-                  Aucun devis disponible pour cette entreprise.
-                </p>
-              ) : (
-                <div className="max-h-40 overflow-y-auto rounded-lg border border-slate-200">
-                  {availableQuotes.map((quote) => (
-                    <label
-                      key={quote.id}
-                      className="flex cursor-pointer items-center gap-2 border-b border-slate-100 px-3 py-2 text-sm last:border-b-0 hover:bg-slate-50"
-                    >
-                      <input
-                        type="checkbox"
-                        checked={selectedQuoteIds.has(quote.id)}
-                        onChange={() => toggleQuote(quote.id)}
-                      />
-                      <span className="flex-1">
-                        {quote.quote_number || "Devis"} — {quote.designation ?? ""}
-                      </span>
-                      <span className="tabular-nums text-slate-600">
-                        {formatCurrency(Number(quote.amount_ht))}
-                      </span>
-                      <span className="text-xs text-slate-400">
-                        {quote.validated_at
-                          ? `Validé ${new Date(quote.validated_at).toLocaleDateString("fr-FR")}`
-                          : "Sans réponse"}
-                      </span>
-                    </label>
-                  ))}
-                </div>
-              )}
-            </div>
-
-            <div>
-              <div className="mb-2 flex items-center justify-between">
-                <p className="text-sm font-medium text-slate-700">
-                  Détail du présent avenant
-                </p>
-                <button
-                  type="button"
-                  onClick={addManualLine}
-                  className="text-sm text-blue-600 hover:text-blue-800"
-                >
-                  + Ligne manuelle
-                </button>
-              </div>
-              <div className="space-y-2">
-                {allLines.map((line) => (
-                  <div key={line.id} className="flex gap-2">
-                    <input
-                      type="text"
-                      value={line.designation}
-                      readOnly={Boolean(line.quote_id)}
-                      onChange={(e) =>
-                        !line.quote_id &&
-                        updateManualLine(line.id, "designation", e.target.value)
-                      }
-                      placeholder="Désignation"
-                      className="flex-1 rounded border border-slate-300 px-2 py-1.5 text-sm"
-                    />
-                    <input
-                      type="text"
-                      inputMode="decimal"
-                      value={line.amount_ht}
-                      readOnly={Boolean(line.quote_id)}
-                      onChange={(e) =>
-                        !line.quote_id &&
-                        updateManualLine(line.id, "amount_ht", e.target.value)
-                      }
-                      placeholder="Montant HT"
-                      className="w-32 rounded border border-slate-300 px-2 py-1.5 text-sm text-right"
-                    />
-                    {!line.quote_id && (
-                      <button
-                        type="button"
-                        onClick={() => removeManualLine(line.id)}
-                        className="text-red-500"
-                      >
-                        ×
-                      </button>
-                    )}
-                  </div>
-                ))}
-              </div>
-              <p className="mt-2 text-right text-sm font-semibold">
-                Total avenant : {formatCurrency(totalHt)}
-              </p>
-            </div>
-
-            <AppFormField
-              label="Commentaire suivie DANOBAT"
-              name="danobat_comment"
-              value={danobatComment}
-              onChange={setDanobatComment}
-            />
-
-            {error && (
-              <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
-                {error}
-              </p>
-            )}
-
-            <button
-              type="button"
-              onClick={handleCreate}
-              disabled={isPending}
-              className="w-full rounded-xl bg-violet-600 px-4 py-3 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-60"
+        <div className="space-y-4 p-5">
+          <div>
+            <label className="mb-1 block text-sm font-medium text-slate-700">
+              Lot / Entreprise
+            </label>
+            <select
+              value={enterpriseId}
+              onChange={(e) => setEnterpriseId(e.target.value)}
+              className="w-full rounded-lg border border-slate-300 px-3 py-2 text-sm"
             >
-              {isPending ? "Création…" : "Création AVENANT"}
-            </button>
+              {lots.map((lot) => (
+                <option key={lot.id} value={lot.id}>
+                  {formatLotOption(lot)}
+                </option>
+              ))}
+            </select>
           </div>
-        ) : (
-          <div className="space-y-4 p-5">
-            <p className="text-sm text-slate-600">
-              L&apos;avenant a été créé. Les devis cités sont liés. Utilisez le mail type ci-dessous pour l&apos;envoyer à l&apos;entreprise (devis et avenant à joindre manuellement).
+
+          <div className="flex gap-4">
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="radio"
+                name="amendmentType"
+                checked={amendmentType === "tma"}
+                onChange={() => setAmendmentType("tma")}
+              />
+              TMA
+            </label>
+            <label className="flex items-center gap-2 text-sm">
+              <input
+                type="radio"
+                name="amendmentType"
+                checked={amendmentType === "ts"}
+                onChange={() => setAmendmentType("ts")}
+              />
+              TS
+            </label>
+          </div>
+
+          <div>
+            <p className="mb-2 text-sm font-medium text-slate-700">
+              Devis validés ou sans réponse
             </p>
-            <div>
-              <p className="text-xs font-semibold uppercase text-slate-400">Objet</p>
-              <p className="mt-1 text-sm">{emailDraft?.subject}</p>
-            </div>
-            <div>
-              <p className="text-xs font-semibold uppercase text-slate-400">Corps</p>
-              <pre className="mt-1 whitespace-pre-wrap rounded-lg bg-slate-50 p-3 text-sm">
-                {emailDraft?.body}
-              </pre>
-            </div>
-            <div className="flex gap-2">
-              <button
-                type="button"
-                onClick={openMailClient}
-                className="flex-1 rounded-xl bg-blue-600 px-4 py-2.5 text-sm font-semibold text-white hover:bg-blue-700"
-              >
-                Ouvrir dans Outlook
-              </button>
-              <button
-                type="button"
-                onClick={handleClose}
-                className="rounded-xl border border-slate-200 px-4 py-2.5 text-sm font-medium text-slate-700 hover:bg-slate-50"
-              >
-                Terminer
-              </button>
-            </div>
+            {loadingQuotes ? (
+              <p className="text-sm text-slate-500">Chargement des devis…</p>
+            ) : availableQuotes.length === 0 ? (
+              <p className="text-sm text-slate-500">
+                Aucun devis disponible pour cette entreprise.
+              </p>
+            ) : (
+              <div className="max-h-40 overflow-y-auto rounded-lg border border-slate-200">
+                {availableQuotes.map((quote) => (
+                  <label
+                    key={quote.id}
+                    className="flex cursor-pointer items-center gap-2 border-b border-slate-100 px-3 py-2 text-sm last:border-b-0 hover:bg-slate-50"
+                  >
+                    <input
+                      type="checkbox"
+                      checked={selectedQuoteIds.has(quote.id)}
+                      onChange={() => toggleQuote(quote.id)}
+                    />
+                    <span className="flex-1">
+                      {quote.quote_number || "Devis"} — {quote.designation ?? ""}
+                    </span>
+                    <span className="tabular-nums text-slate-600">
+                      {formatCurrency(Number(quote.amount_ht))}
+                    </span>
+                    <span className="text-xs text-slate-400">
+                      {quote.validated_at
+                        ? `Validé ${new Date(quote.validated_at).toLocaleDateString("fr-FR")}`
+                        : "Sans réponse"}
+                    </span>
+                  </label>
+                ))}
+              </div>
+            )}
           </div>
-        )}
+
+          <div>
+            <div className="mb-2 flex items-center justify-between">
+              <p className="text-sm font-medium text-slate-700">
+                Détail du présent avenant
+              </p>
+              <button
+                type="button"
+                onClick={addManualLine}
+                className="text-sm text-blue-600 hover:text-blue-800"
+              >
+                + Ligne manuelle
+              </button>
+            </div>
+            <div className="space-y-2">
+              {allLines.map((line) => (
+                <div key={line.id} className="flex gap-2">
+                  <input
+                    type="text"
+                    value={line.designation}
+                    readOnly={Boolean(line.quote_id)}
+                    onChange={(e) =>
+                      !line.quote_id &&
+                      updateManualLine(line.id, "designation", e.target.value)
+                    }
+                    placeholder="Désignation"
+                    className="flex-1 rounded border border-slate-300 px-2 py-1.5 text-sm"
+                  />
+                  <input
+                    type="text"
+                    inputMode="decimal"
+                    value={line.amount_ht}
+                    readOnly={Boolean(line.quote_id)}
+                    onChange={(e) =>
+                      !line.quote_id &&
+                      updateManualLine(line.id, "amount_ht", e.target.value)
+                    }
+                    placeholder="Montant HT"
+                    className="w-32 rounded border border-slate-300 px-2 py-1.5 text-sm text-right"
+                  />
+                  {!line.quote_id && (
+                    <button
+                      type="button"
+                      onClick={() => removeManualLine(line.id)}
+                      className="text-red-500"
+                    >
+                      ×
+                    </button>
+                  )}
+                </div>
+              ))}
+            </div>
+            <p className="mt-2 text-right text-sm font-semibold">
+              Total avenant : {formatCurrency(totalHt)}
+            </p>
+          </div>
+
+          <AppFormField
+            label="Commentaire suivie DANOBAT"
+            name="danobat_comment"
+            value={danobatComment}
+            onChange={setDanobatComment}
+            hint="Visible uniquement en interne — n'apparaît pas dans les avenants."
+          />
+
+          {error && (
+            <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
+              {error}
+            </p>
+          )}
+
+          <button
+            type="button"
+            onClick={handleCreate}
+            disabled={isPending}
+            className="w-full rounded-xl bg-violet-600 px-4 py-3 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-60"
+          >
+            {isPending ? "Création…" : "Création AVENANT"}
+          </button>
+        </div>
       </div>
     </div>
   );

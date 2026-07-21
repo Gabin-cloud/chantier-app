@@ -2,6 +2,11 @@
 
 import { useEffect, useMemo, useState, useTransition } from "react";
 import {
+  DevisFormFields,
+  devisValuesToFormData,
+  type DevisFormValues,
+} from "@/components/finance/DevisFormFields";
+import {
   classifyIncomingFile,
   getQuickSortData,
   type QuickSortLot,
@@ -10,7 +15,8 @@ import {
   getOpenNcExecutionsForOutlook,
   uploadWorkControlAttestation,
 } from "@/lib/actions/work-control";
-import type { IncomingFileCategory } from "@/lib/types/database";
+import { getProjectQuotes, saveQuote } from "@/lib/actions/quotes";
+import type { FinancialQuoteWithLot, IncomingFileCategory } from "@/lib/types/database";
 import { INCOMING_FILE_CATEGORY_LABELS } from "@/lib/types/database";
 
 function normalizeClassifyError(message: string): string {
@@ -97,17 +103,34 @@ type FileSortFormProps = {
   file: File | null;
   sourceEmail?: string;
   defaultNotes?: string;
+  mailDate?: string;
   compact?: boolean;
   submitLabel?: string;
   onSuccess?: (message: string) => void;
   onClassified?: () => void;
 };
 
+function defaultDevisValues(mailDate?: string, designation = ""): DevisFormValues {
+  return {
+    quoteNumber: "",
+    quoteDate: mailDate ?? new Date().toISOString().slice(0, 10),
+    designation,
+    amountHt: "",
+    comment: designation,
+    isCie: false,
+    isTs: false,
+    isTma: false,
+    markRejected: false,
+    validatedAt: "",
+  };
+}
+
 export function FileSortForm({
   projectId,
   file,
   sourceEmail: initialSourceEmail = "",
   defaultNotes = "",
+  mailDate,
   compact = false,
   submitLabel = "Classer le fichier",
   onSuccess,
@@ -121,6 +144,12 @@ export function FileSortForm({
   const [situationId, setSituationId] = useState<string | null>(null);
   const [sourceEmail, setSourceEmail] = useState(initialSourceEmail);
   const [notes, setNotes] = useState(defaultNotes);
+  const [devisMode, setDevisMode] = useState<"new" | "signed">("new");
+  const [devisValues, setDevisValues] = useState<DevisFormValues>(() =>
+    defaultDevisValues(mailDate, defaultNotes)
+  );
+  const [existingQuotes, setExistingQuotes] = useState<FinancialQuoteWithLot[]>([]);
+  const [selectedQuoteId, setSelectedQuoteId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
   const [ncRows, setNcRows] = useState<OpenNcRow[]>([]);
@@ -132,10 +161,31 @@ export function FileSortForm({
   }, [initialSourceEmail]);
 
   useEffect(() => {
-    if (defaultNotes && !notes) {
-      setNotes(defaultNotes);
+    if (defaultNotes) {
+      setDevisValues((prev) => ({
+        ...prev,
+        designation: defaultNotes,
+        comment: prev.comment || defaultNotes,
+      }));
     }
-  }, [defaultNotes, notes]);
+  }, [defaultNotes]);
+
+  useEffect(() => {
+    if (mailDate) {
+      setDevisValues((prev) => ({ ...prev, quoteDate: mailDate }));
+    }
+  }, [mailDate]);
+
+  useEffect(() => {
+    if (category !== "devis" || !projectId) {
+      setExistingQuotes([]);
+      setSelectedQuoteId("");
+      return;
+    }
+    getProjectQuotes(projectId)
+      .then(setExistingQuotes)
+      .catch(() => setExistingQuotes([]));
+  }, [category, projectId]);
 
   useEffect(() => {
     getQuickSortData(projectId)
@@ -178,12 +228,66 @@ export function FileSortForm({
     );
   }
 
+  const enterpriseQuotes = useMemo(() => {
+    if (!enterpriseId) return [];
+    return existingQuotes.filter(
+      (q) => q.enterprise_id === enterpriseId && !q.is_rejected
+    );
+  }, [existingQuotes, enterpriseId]);
+
+  function resetAfterSuccess(message: string) {
+    setSuccess(message);
+    setCategory(null);
+    setEnterpriseId(null);
+    setSituationId(null);
+    setSelectedNcKeys([]);
+    setDevisMode("new");
+    setDevisValues(defaultDevisValues(mailDate, defaultNotes));
+    setSelectedQuoteId("");
+    onSuccess?.(message);
+    onClassified?.();
+  }
+
   function handleSubmit() {
     if (!file || !category || !enterpriseId) return;
     if (selectedCategory?.requiresSituation && !situationId) return;
     if (category === "levee_controle" && selectedNcKeys.length === 0) return;
+    if (category === "devis" && devisMode === "signed" && !selectedQuoteId) return;
 
     setError(null);
+
+    if (category === "devis") {
+      startTransition(async () => {
+        try {
+          const formData = devisValuesToFormData(
+            devisValues,
+            enterpriseId,
+            file,
+            {
+              mode: devisMode,
+              ...(devisMode === "signed" ? { quoteId: selectedQuoteId } : {}),
+            }
+          );
+          const result = await saveQuote(projectId, formData, {
+            skipRevalidate: true,
+          });
+          if (!result.ok) {
+            setError(normalizeClassifyError(result.error));
+            return;
+          }
+          const message =
+            devisMode === "signed"
+              ? `Devis signé enregistré pour « ${file.name} ».`
+              : `Devis enregistré dans le suivi pour « ${file.name} ».`;
+          resetAfterSuccess(message);
+        } catch (err) {
+          const raw = err instanceof Error ? err.message : "Erreur d'enregistrement.";
+          setError(normalizeClassifyError(raw));
+        }
+      });
+      return;
+    }
+
     const formData = new FormData();
     formData.append("file", file);
     formData.append("category", category);
@@ -222,28 +326,14 @@ export function FileSortForm({
           category === "levee_controle"
             ? `« ${result.fileName} » classé en ${INCOMING_FILE_CATEGORY_LABELS[category]} — ${lifted} point(s) levé(s).`
             : `« ${result.fileName} » classé en ${INCOMING_FILE_CATEGORY_LABELS[category]}.`;
-        setSuccess(message);
-        setCategory(null);
-        setEnterpriseId(null);
-        setSituationId(null);
-        setSelectedNcKeys([]);
-        onSuccess?.(message);
-        onClassified?.();
+        resetAfterSuccess(message);
       } catch (err) {
         const raw = err instanceof Error ? err.message : "Erreur de classement.";
         // Outlook taskpane : revalidate/RSC peut throw après un save réussi
         if (raw.includes("Server Components render")) {
-          setSuccess(
+          resetAfterSuccess(
             "Fichier probablement classé. Actualisez le volet si besoin."
           );
-          setCategory(null);
-          setEnterpriseId(null);
-          setSituationId(null);
-          setSelectedNcKeys([]);
-          onSuccess?.(
-            "Fichier probablement classé. Actualisez le volet si besoin."
-          );
-          onClassified?.();
           return;
         }
         setError(normalizeClassifyError(raw));
@@ -257,6 +347,7 @@ export function FileSortForm({
     enterpriseId &&
     (!selectedCategory?.requiresSituation || situationId) &&
     (category !== "levee_controle" || selectedNcKeys.length > 0) &&
+    (category !== "devis" || devisMode !== "signed" || selectedQuoteId) &&
     !isPending;
 
   const gridCols = compact ? "grid-cols-2" : "grid-cols-2";
@@ -428,7 +519,68 @@ export function FileSortForm({
         </section>
       )}
 
-      {category && enterpriseId && (
+      {category === "devis" && enterpriseId && (
+        <section className="space-y-3">
+          <div className="flex gap-2">
+            <button
+              type="button"
+              onClick={() => setDevisMode("new")}
+              className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold ${
+                devisMode === "new"
+                  ? "bg-amber-100 text-amber-900"
+                  : "bg-slate-100 text-slate-600"
+              }`}
+            >
+              Nouveau devis
+            </button>
+            <button
+              type="button"
+              onClick={() => setDevisMode("signed")}
+              className={`flex-1 rounded-lg px-3 py-2 text-xs font-semibold ${
+                devisMode === "signed"
+                  ? "bg-emerald-100 text-emerald-900"
+                  : "bg-slate-100 text-slate-600"
+              }`}
+            >
+              Devis signé
+            </button>
+          </div>
+          {devisMode === "signed" ? (
+            <div>
+              <label className="mb-1 block text-xs font-semibold text-slate-600">
+                Devis existant
+              </label>
+              <select
+                value={selectedQuoteId}
+                onChange={(e) => setSelectedQuoteId(e.target.value)}
+                className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+              >
+                <option value="">— Choisir —</option>
+                {enterpriseQuotes.map((quote) => (
+                  <option key={quote.id} value={quote.id}>
+                    {quote.quote_number || "Devis"} — {quote.designation ?? ""}
+                  </option>
+                ))}
+              </select>
+              <div className="mt-2">
+                <DevisFormFields
+                  values={devisValues}
+                  onChange={setDevisValues}
+                  mode="signed"
+                />
+              </div>
+            </div>
+          ) : (
+            <DevisFormFields
+              values={devisValues}
+              onChange={setDevisValues}
+              mode="new"
+            />
+          )}
+        </section>
+      )}
+
+      {category && enterpriseId && category !== "devis" && (
         <section className="space-y-2">
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-500">
@@ -456,6 +608,20 @@ export function FileSortForm({
         </section>
       )}
 
+      {category === "devis" && enterpriseId && (
+        <section>
+          <label className="mb-1 block text-xs font-medium text-slate-500">
+            E-mail expéditeur
+          </label>
+          <input
+            type="email"
+            value={sourceEmail}
+            onChange={(e) => setSourceEmail(e.target.value)}
+            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+          />
+        </section>
+      )}
+
       {error && (
         <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
           {error}
@@ -475,9 +641,13 @@ export function FileSortForm({
       >
         {isPending
           ? "Classement…"
-          : category === "levee_controle" && selectedNcKeys.length > 0
-            ? `Classer et lever (${selectedNcKeys.length})`
-            : submitLabel}
+          : category === "devis"
+            ? devisMode === "signed"
+              ? "Enregistrer le devis signé"
+              : "Enregistrer dans le suivi devis"
+            : category === "levee_controle" && selectedNcKeys.length > 0
+              ? `Classer et lever (${selectedNcKeys.length})`
+              : submitLabel}
       </button>
     </div>
   );

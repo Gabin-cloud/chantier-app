@@ -14,6 +14,11 @@ import {
   DEFAULT_INVITATION_SUBJECT,
   INVITATION_EMAIL_MERGE_TAGS,
 } from "@/lib/notifications/invitation-email";
+import {
+  AMENDMENT_EMAIL_MERGE_TAGS,
+  DEFAULT_AMENDMENT_EMAIL_BODY,
+  DEFAULT_AMENDMENT_EMAIL_SUBJECT,
+} from "@/lib/notifications/amendment-email";
 
 export type EmailTemplateData = {
   id: string;
@@ -29,8 +34,10 @@ export type EmailTemplatesSettingsData = {
   canEdit: boolean;
   visitReport: EmailTemplateData;
   platformInvitation: EmailTemplateData;
+  amendmentSend: EmailTemplateData;
   mergeTags: typeof VISIT_EMAIL_MERGE_TAGS;
   invitationMergeTags: typeof INVITATION_EMAIL_MERGE_TAGS;
+  amendmentMergeTags: typeof AMENDMENT_EMAIL_MERGE_TAGS;
 };
 
 async function canManageEmailTemplates(userId: string): Promise<boolean> {
@@ -87,12 +94,13 @@ export async function getEmailTemplatesSettings(): Promise<EmailTemplatesSetting
   const { data: rows, error } = await supabase
     .from("email_templates")
     .select("id, slug, name, subject_template, body_template, default_cc, updated_at")
-    .in("slug", ["visit_report", "platform_invitation"]);
+    .in("slug", ["visit_report", "platform_invitation", "amendment_send"]);
 
   if (error) throw new Error(error.message);
 
   const visitRow = rows?.find((r) => r.slug === "visit_report") ?? null;
   const inviteRow = rows?.find((r) => r.slug === "platform_invitation") ?? null;
+  const amendmentRow = rows?.find((r) => r.slug === "amendment_send") ?? null;
 
   return {
     canEdit,
@@ -114,8 +122,18 @@ export async function getEmailTemplatesSettings(): Promise<EmailTemplatesSetting
       defaultCc: "",
       updatedAt: new Date().toISOString(),
     }),
+    amendmentSend: mapTemplateRow(amendmentRow, {
+      id: "default",
+      slug: "amendment_send",
+      name: "Envoi avenant entreprise",
+      subjectTemplate: DEFAULT_AMENDMENT_EMAIL_SUBJECT,
+      bodyTemplate: DEFAULT_AMENDMENT_EMAIL_BODY,
+      defaultCc: "",
+      updatedAt: new Date().toISOString(),
+    }),
     mergeTags: VISIT_EMAIL_MERGE_TAGS,
     invitationMergeTags: INVITATION_EMAIL_MERGE_TAGS,
+    amendmentMergeTags: AMENDMENT_EMAIL_MERGE_TAGS,
   };
 }
 
@@ -158,6 +176,91 @@ export async function getVisitReportEmailTemplate(): Promise<{
     bodyTemplate: data.body_template,
     defaultCc: data.default_cc ?? "",
   };
+}
+
+export async function getAmendmentEmailTemplate(): Promise<{
+  subjectTemplate: string;
+  bodyTemplate: string;
+  defaultCc: string;
+}> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("email_templates")
+    .select("subject_template, body_template, default_cc")
+    .eq("slug", "amendment_send")
+    .maybeSingle();
+
+  if (error || !data) {
+    return {
+      subjectTemplate: DEFAULT_AMENDMENT_EMAIL_SUBJECT,
+      bodyTemplate: DEFAULT_AMENDMENT_EMAIL_BODY,
+      defaultCc: "",
+    };
+  }
+
+  return {
+    subjectTemplate: data.subject_template,
+    bodyTemplate: data.body_template,
+    defaultCc: data.default_cc ?? "",
+  };
+}
+
+export async function updateAmendmentEmailTemplate(input: {
+  subjectTemplate: string;
+  bodyTemplate: string;
+  defaultCc?: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const user = await requireUser();
+    const allowed = await canManageEmailTemplates(user.id);
+    if (!allowed) {
+      return {
+        ok: false,
+        error: "Droits insuffisants pour modifier le mail type.",
+      };
+    }
+
+    const supabase = await createClient();
+    const subjectTemplate = input.subjectTemplate.trim();
+    const bodyTemplate = input.bodyTemplate.trim();
+    const defaultCc = input.defaultCc?.trim() ?? "";
+
+    if (!subjectTemplate) {
+      return { ok: false, error: "L'objet du mail est obligatoire." };
+    }
+    if (!isMeaningfulHtml(bodyTemplate)) {
+      return { ok: false, error: "Le corps du mail est obligatoire." };
+    }
+
+    const row = {
+      slug: "amendment_send",
+      name: "Envoi avenant entreprise",
+      subject_template: subjectTemplate,
+      body_template: bodyTemplate,
+      default_cc: defaultCc || null,
+      updated_by: user.id,
+    };
+
+    const { data: existing } = await supabase
+      .from("email_templates")
+      .select("id")
+      .eq("slug", "amendment_send")
+      .maybeSingle();
+
+    const { error } = existing
+      ? await supabase.from("email_templates").update(row).eq("slug", "amendment_send")
+      : await supabase.from("email_templates").insert(row);
+
+    if (error) return { ok: false, error: error.message };
+
+    revalidatePath("/pc/parametres");
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Impossible d'enregistrer le modèle.",
+    };
+  }
 }
 
 export async function getPlatformInvitationEmailTemplate(): Promise<{

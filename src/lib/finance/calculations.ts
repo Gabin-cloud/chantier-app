@@ -104,11 +104,20 @@ export function getEndOfMonthLabel(dateStr: string): string {
 }
 
 export function parseMoneyInput(value: string): number {
-  const cleaned = value
-    .replace(/\s/g, "")
-    .replace(/€/g, "")
-    .replace(/\./g, "")
-    .replace(",", ".");
+  let cleaned = value.replace(/\s/g, "").replace(/€/g, "").trim();
+  if (!cleaned) return 0;
+
+  const lastComma = cleaned.lastIndexOf(",");
+  const lastDot = cleaned.lastIndexOf(".");
+
+  if (lastComma >= 0 && lastComma > lastDot) {
+    cleaned = cleaned.replace(/\./g, "").replace(",", ".");
+  } else if (lastDot >= 0 && lastComma >= 0) {
+    cleaned = cleaned.replace(/,/g, "");
+  } else if (lastComma >= 0) {
+    cleaned = cleaned.replace(",", ".");
+  }
+
   const parsed = Number.parseFloat(cleaned);
   return Number.isFinite(parsed) ? round2(parsed) : 0;
 }

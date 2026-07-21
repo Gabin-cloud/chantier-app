@@ -176,7 +176,7 @@ export function SituationForm({
         await saveSituationDelegations(project.id, lot.id, situationId, []);
 
         router.push(
-          `/pc/projets/${project.id}/finance/situations/${lot.id}/${situationId}`
+          `/pc/projets/${project.id}/suivi-financier/situation-travaux/${lot.id}/${situationId}`
         );
         router.refresh();
       } catch (err) {
@@ -191,7 +191,7 @@ export function SituationForm({
     startTransition(async () => {
       try {
         await deleteSituation(project.id, lot.id, situation.id);
-        router.push(`/pc/projets/${project.id}/finance/situations/${lot.id}`);
+        router.push(`/pc/projets/${project.id}/suivi-financier/situation-travaux/${lot.id}`);
         router.refresh();
       } catch (err) {
         setError(err instanceof Error ? err.message : "Une erreur est survenue.");

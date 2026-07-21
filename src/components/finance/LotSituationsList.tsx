@@ -6,6 +6,9 @@ import {
 } from "@/lib/finance/calculations";
 import type { LotWithFinancials, Project } from "@/lib/types/database";
 
+const SITUATIONS_BASE = (projectId: string) =>
+  `/pc/projets/${projectId}/suivi-financier/situation-travaux`;
+
 type LotSituationsListProps = {
   project: Project;
   lot: LotWithFinancials;
@@ -26,7 +29,7 @@ export function LotSituationsList({ project, lot }: LotSituationsListProps) {
           </p>
         </div>
         <Link
-          href={`/pc/projets/${project.id}/finance/situations/${lot.id}/nouvelle`}
+          href={`${SITUATIONS_BASE(project.id)}/${lot.id}/nouvelle`}
           className="rounded-xl bg-blue-600 px-4 py-2 text-sm font-semibold text-white hover:bg-blue-500"
         >
           + Nouvelle situation
@@ -67,13 +70,13 @@ export function LotSituationsList({ project, lot }: LotSituationsListProps) {
                 </div>
                 <div className="flex gap-2">
                   <Link
-                    href={`/pc/projets/${project.id}/finance/situations/${lot.id}/${situation.id}`}
+                    href={`${SITUATIONS_BASE(project.id)}/${lot.id}/${situation.id}`}
                     className="rounded-lg bg-slate-100 px-3 py-1.5 text-sm font-medium text-slate-700 hover:bg-slate-200"
                   >
                     Modifier
                   </Link>
                   <Link
-                    href={`/pc/projets/${project.id}/finance/situations/${lot.id}/${situation.id}/print`}
+                    href={`${SITUATIONS_BASE(project.id)}/${lot.id}/${situation.id}/print`}
                     className="rounded-lg bg-blue-50 px-3 py-1.5 text-sm font-medium text-blue-700 hover:bg-blue-100"
                   >
                     PDF

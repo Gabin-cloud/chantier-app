@@ -13,6 +13,7 @@ type MailContext = {
   subject: string;
   fromEmail: string;
   fromName: string;
+  dateReceived: string | null;
   attachments: MailAttachment[];
 };
 
@@ -71,10 +72,14 @@ export function useOutlookMailItem() {
           }
 
           setMailboxItem(item);
+          const dateCreated = item.dateTimeCreated;
           setMail({
             subject: item.subject ?? "",
             fromEmail: item.from?.emailAddress ?? "",
             fromName: item.from?.displayName ?? "",
+            dateReceived: dateCreated
+              ? new Date(dateCreated).toISOString().slice(0, 10)
+              : null,
             attachments: (item.attachments ?? [])
               .filter((att) => !att.isInline)
               .map((att) => ({
