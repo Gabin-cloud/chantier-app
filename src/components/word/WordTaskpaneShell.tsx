@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { APP_NAME } from "@/lib/brand";
 import { AuthForm } from "@/components/auth/AuthForm";
 import { WordLabelsPane } from "@/components/word/WordLabelsPane";
 import { getWordAddinBootstrap } from "@/lib/actions/word-addin";
@@ -62,7 +63,7 @@ export function WordTaskpaneShell() {
   if (!userEmail) {
     return (
       <div className="p-4">
-        <h1 className="mb-1 text-lg font-bold text-slate-900">Chantier App</h1>
+        <h1 className="mb-1 text-lg font-bold text-slate-900">{APP_NAME}</h1>
         <p className="mb-4 text-sm text-slate-500">
           Connectez-vous pour insérer et remplir les étiquettes dans votre document Word.
         </p>
@@ -74,7 +75,7 @@ export function WordTaskpaneShell() {
   return (
     <div>
       <div className="border-b border-slate-100 bg-blue-600 px-4 py-3 text-white">
-        <p className="text-sm font-bold">Chantier App</p>
+        <p className="text-sm font-bold">{APP_NAME}</p>
         <p className="text-xs text-blue-100">
           Étiquettes documents · {userEmail}
         </p>

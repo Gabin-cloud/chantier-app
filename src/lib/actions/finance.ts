@@ -451,7 +451,7 @@ export async function createAmendmentFromQuotes(
   projectId: string,
   input: CreateAmendmentInput
 ): Promise<
-  | { ok: true; amendmentId: string; amendmentNumber: number; emailDraft: { subject: string; body: string } }
+  | { ok: true; amendmentId: string; amendmentNumber: number; quoteIds: string[] }
   | { ok: false; error: string }
 > {
   try {
@@ -521,37 +521,19 @@ export async function createAmendmentFromQuotes(
       if (linesError) {
         return { ok: false, error: linesError.message };
       }
-
-      const quoteIds = input.lines
-        .map((line) => line.quote_id)
-        .filter((id): id is string => Boolean(id));
-
-      if (quoteIds.length > 0) {
-        await supabase
-          .from("financial_quotes")
-          .update({ amendment_id: amendment.id })
-          .in("id", quoteIds)
-          .eq("project_id", projectId);
-      }
     }
 
-    const { data: project } = await supabase
-      .from("projects")
-      .select("name")
-      .eq("id", projectId)
-      .single();
+    const quoteIds = input.lines
+      .map((line) => line.quote_id)
+      .filter((id): id is string => Boolean(id));
 
-    const { buildAmendmentEmailDraft } = await import(
-      "@/lib/finance/amendment-document"
-    );
-
-    const emailDraft = buildAmendmentEmailDraft({
-      project: { name: project?.name ?? "Opération" } as import("@/lib/types/database").Project,
-      lot,
-      amendmentNumber,
-      amendmentType: input.amendmentType,
-      totalHt,
-    });
+    if (quoteIds.length > 0) {
+      await supabase
+        .from("financial_quotes")
+        .update({ amendment_id: amendment.id })
+        .in("id", quoteIds)
+        .eq("project_id", projectId);
+    }
 
     await logAudit(
       projectId,
@@ -567,7 +549,7 @@ export async function createAmendmentFromQuotes(
       ok: true,
       amendmentId: amendment.id,
       amendmentNumber,
-      emailDraft,
+      quoteIds,
     };
   } catch (error) {
     return {

@@ -160,6 +160,7 @@ export function OutlookFileSortPane({ projects }: OutlookFileSortPaneProps) {
           file={loadedFile}
           sourceEmail={mail.fromEmail}
           defaultNotes={mail.subject}
+          mailDate={mail.dateReceived ?? undefined}
           compact
           submitLabel="Classer dans le suivi"
           onClassified={() => {

@@ -4,6 +4,7 @@ import { useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import type { EmailTemplatesSettingsData } from "@/lib/actions/email-templates";
 import {
+  updateAmendmentEmailTemplate,
   updatePlatformInvitationEmailTemplate,
   updateVisitReportEmailTemplate,
 } from "@/lib/actions/email-templates";
@@ -78,16 +79,24 @@ export function EmailTemplatesSettings({ data }: { data: EmailTemplatesSettingsD
   const [visitCc, setVisitCc] = useState(data.visitReport.defaultCc);
   const [inviteSubject, setInviteSubject] = useState(data.platformInvitation.subjectTemplate);
   const [inviteBody, setInviteBody] = useState(data.platformInvitation.bodyTemplate);
+  const [amendmentSubject, setAmendmentSubject] = useState(data.amendmentSend.subjectTemplate);
+  const [amendmentBody, setAmendmentBody] = useState(data.amendmentSend.bodyTemplate);
+  const [amendmentCc, setAmendmentCc] = useState(data.amendmentSend.defaultCc);
   const [visitError, setVisitError] = useState<string | null>(null);
   const [visitSuccess, setVisitSuccess] = useState<string | null>(null);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
+  const [amendmentError, setAmendmentError] = useState<string | null>(null);
+  const [amendmentSuccess, setAmendmentSuccess] = useState<string | null>(null);
   const [isVisitPending, startVisitTransition] = useTransition();
   const [isInvitePending, startInviteTransition] = useTransition();
+  const [isAmendmentPending, startAmendmentTransition] = useTransition();
   const visitSubjectRef = useRef<HTMLInputElement>(null);
   const inviteSubjectRef = useRef<HTMLInputElement>(null);
+  const amendmentSubjectRef = useRef<HTMLInputElement>(null);
   const visitBodyRef = useRef<RichTextEditorHandle>(null);
   const inviteBodyRef = useRef<RichTextEditorHandle>(null);
+  const amendmentBodyRef = useRef<RichTextEditorHandle>(null);
 
   function insertTag(
     field: "subject" | "body",
@@ -163,6 +172,28 @@ export function EmailTemplatesSettings({ data }: { data: EmailTemplatesSettingsD
       }
       setInviteBody(latestBody);
       setInviteSuccess("Modèle enregistré.");
+      router.refresh();
+    });
+  }
+
+  function saveAmendment(event: React.FormEvent) {
+    event.preventDefault();
+    setAmendmentError(null);
+    setAmendmentSuccess(null);
+    const latestBody = amendmentBodyRef.current?.getHtml() ?? amendmentBody;
+
+    startAmendmentTransition(async () => {
+      const result = await updateAmendmentEmailTemplate({
+        subjectTemplate: amendmentSubject,
+        bodyTemplate: latestBody,
+        defaultCc: amendmentCc,
+      });
+      if (!result.ok) {
+        setAmendmentError(result.error);
+        return;
+      }
+      setAmendmentBody(latestBody);
+      setAmendmentSuccess("Modèle enregistré.");
       router.refresh();
     });
   }
@@ -312,6 +343,99 @@ export function EmailTemplatesSettings({ data }: { data: EmailTemplatesSettingsD
             }
             onInsertBody={(key) =>
               insertTag("body", key, inviteSubject, setInviteSubject, inviteSubjectRef, inviteBodyRef, setInviteBody)
+            }
+          />
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-semibold text-slate-900">Mails type — envoi avenant</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          Utilisé après la création d&apos;un avenant pour l&apos;envoyer à l&apos;entreprise avec le PDF
+          fusionné (avenant + devis).
+        </p>
+
+        <form onSubmit={saveAmendment} className="mt-5 space-y-5">
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">Objet du mail</label>
+            <input
+              ref={amendmentSubjectRef}
+              type="text"
+              value={amendmentSubject}
+              onChange={(e) => setAmendmentSubject(e.target.value)}
+              disabled={!data.canEdit || isAmendmentPending}
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">
+              Copie carbone par défaut (Cc)
+            </label>
+            <input
+              type="text"
+              value={amendmentCc}
+              onChange={(e) => setAmendmentCc(e.target.value)}
+              disabled={!data.canEdit || isAmendmentPending}
+              placeholder="email1@entreprise.fr, email2@entreprise.fr"
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">Corps du mail</label>
+            <RichTextEditor
+              ref={amendmentBodyRef}
+              value={amendmentBody}
+              onChange={setAmendmentBody}
+              disabled={!data.canEdit || isAmendmentPending}
+              minHeight="260px"
+              placeholder="Rédigez le contenu du mail type…"
+            />
+          </div>
+          {data.canEdit && (
+            <button
+              type="submit"
+              disabled={isAmendmentPending}
+              className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+            >
+              Enregistrer le modèle
+            </button>
+          )}
+        </form>
+
+        {amendmentSuccess && (
+          <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+            {amendmentSuccess}
+          </p>
+        )}
+        {amendmentError && (
+          <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{amendmentError}</p>
+        )}
+
+        <div className="mt-6">
+          <MergeTagsPanel
+            tags={data.amendmentMergeTags}
+            canEdit={data.canEdit}
+            onInsertSubject={(key) =>
+              insertTag(
+                "subject",
+                key,
+                amendmentSubject,
+                setAmendmentSubject,
+                amendmentSubjectRef,
+                amendmentBodyRef,
+                setAmendmentBody
+              )
+            }
+            onInsertBody={(key) =>
+              insertTag(
+                "body",
+                key,
+                amendmentSubject,
+                setAmendmentSubject,
+                amendmentSubjectRef,
+                amendmentBodyRef,
+                setAmendmentBody
+              )
             }
           />
         </div>

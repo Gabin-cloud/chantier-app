@@ -18,14 +18,12 @@ export function buildAmendmentDocumentHtml({
   amendmentNumber,
   amendmentType,
   lines,
-  danobatComment,
 }: {
   project: Project;
   lot: LotWithFinancials;
   amendmentNumber: number;
   amendmentType: "ts" | "tma";
   lines: AmendmentLineInput[];
-  danobatComment?: string | null;
 }): string {
   const contractHt = Number(lot.contract_amount_ht);
   const amendmentTotalHt = lines.reduce((sum, line) => sum + line.amount_ht, 0);
@@ -130,12 +128,6 @@ export function buildAmendmentDocumentHtml({
       <td style="padding:8px;border:1px solid #000;text-align:right;font-weight:bold;">${formatCurrency(amendmentTtc)}</td>
     </tr>
   </table>
-
-  ${
-    danobatComment?.trim()
-      ? `<p style="margin-top:16px;"><strong>Commentaire suivie DANOBAT :</strong> ${escapeHtml(danobatComment.trim())}</p>`
-      : ""
-  }
 
   <p class="footer">
     Les conditions générales et particulières du marché initial restent applicables

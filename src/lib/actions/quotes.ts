@@ -3,6 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { requireFinanceAccess } from "@/lib/actions/members";
 import { parseMoneyInput } from "@/lib/finance/calculations";
+import {
+  normalizeQuoteCategory,
+  validateQuoteCategory,
+} from "@/lib/finance/quote-category";
 import { createClient } from "@/lib/supabase/server";
 import type { FinancialQuote, FinancialQuoteWithLot } from "@/lib/types/database";
 
@@ -13,11 +17,7 @@ export type QuoteActionResult =
   | { ok: false; error: string };
 
 function quotePaths(projectId: string) {
-  return [
-    `/pc/projets/${projectId}/suivi-financier/suivi-devis`,
-    `/pc/projets/${projectId}/suivi-financier/synthese`,
-    `/pc/projets/${projectId}/finance/tri`,
-  ];
+  return [`/pc/projets/${projectId}/suivi-financier/suivi-devis`];
 }
 
 function revalidateQuotes(projectId: string) {
@@ -29,6 +29,10 @@ function revalidateQuotes(projectId: string) {
 function mapQuoteRow(row: Record<string, unknown>): FinancialQuoteWithLot {
   const enterprise = row.enterprise as
     | { name: string; lot_number: string | null; designation: string | null }
+    | null
+    | undefined;
+  const amendment = row.amendment as
+    | { amendment_number: number; document_html: string | null; document_path: string | null }
     | null
     | undefined;
 
@@ -57,6 +61,9 @@ function mapQuoteRow(row: Record<string, unknown>): FinancialQuoteWithLot {
     lot_number: enterprise?.lot_number ?? null,
     enterprise_name: enterprise?.name ?? "",
     lot_designation: enterprise?.designation ?? null,
+    amendment_number: amendment?.amendment_number ?? null,
+    amendment_document_html: amendment?.document_html ?? null,
+    amendment_document_path: amendment?.document_path ?? null,
   };
 }
 
@@ -70,7 +77,8 @@ export async function getProjectQuotes(
     .from("financial_quotes")
     .select(
       `*,
-      enterprise:enterprises(name, lot_number, designation)`
+      enterprise:enterprises(name, lot_number, designation),
+      amendment:financial_amendments(amendment_number, document_html, document_path)`
     )
     .eq("project_id", projectId)
     .order("quote_date", { ascending: false });
@@ -96,13 +104,33 @@ export async function getQuotesForAmendment(
     .order("quote_date", { ascending: false });
 
   if (error) throw new Error(error.message);
-
   return (data ?? []) as FinancialQuote[];
 }
 
-export async function upsertQuoteFromOutlook(
+async function uploadQuoteFile(
+  supabase: Awaited<ReturnType<typeof createClient>>,
   projectId: string,
-  formData: FormData
+  enterpriseId: string,
+  file: File,
+  prefix: string
+) {
+  const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+  const storagePath = `${projectId}/quotes/${enterpriseId}/${prefix}_${Date.now()}_${safeName}`;
+  const buffer = Buffer.from(await file.arrayBuffer());
+  const { error: uploadError } = await supabase.storage
+    .from(FINANCIAL_BUCKET)
+    .upload(storagePath, buffer, {
+      contentType: file.type || "application/octet-stream",
+      upsert: false,
+    });
+  if (uploadError) return { error: uploadError.message as string };
+  return { path: storagePath, name: file.name };
+}
+
+export async function saveQuote(
+  projectId: string,
+  formData: FormData,
+  options?: { skipRevalidate?: boolean }
 ): Promise<QuoteActionResult> {
   try {
     await requireFinanceAccess(projectId);
@@ -111,12 +139,18 @@ export async function upsertQuoteFromOutlook(
     const quoteId = (formData.get("quoteId") as string) || null;
     const enterpriseId = formData.get("enterpriseId") as string;
     const quoteNumber = ((formData.get("quoteNumber") as string) ?? "").trim();
-    const quoteDate = (formData.get("quoteDate") as string) || new Date().toISOString().slice(0, 10);
+    const quoteDate =
+      (formData.get("quoteDate") as string) || new Date().toISOString().slice(0, 10);
     const designation = ((formData.get("designation") as string) ?? "").trim() || null;
     const amount_ht = parseMoneyInput(String(formData.get("amount_ht") ?? "0"));
-    const is_cie = formData.get("is_cie") === "on" || formData.get("is_cie") === "true";
-    const is_ts = formData.get("is_ts") === "on" || formData.get("is_ts") === "true";
-    const is_tma = formData.get("is_tma") === "on" || formData.get("is_tma") === "true";
+    const category = normalizeQuoteCategory({
+      is_cie: formData.get("is_cie") === "on" || formData.get("is_cie") === "true",
+      is_ts: formData.get("is_ts") === "on" || formData.get("is_ts") === "true",
+      is_tma: formData.get("is_tma") === "on" || formData.get("is_tma") === "true",
+    });
+    const categoryError = validateQuoteCategory(category);
+    if (categoryError) return { ok: false, error: categoryError };
+
     const comment = ((formData.get("comment") as string) ?? "").trim() || null;
     const mode = (formData.get("mode") as string) || "new";
     const file = formData.get("file") as File | null;
@@ -127,40 +161,34 @@ export async function upsertQuoteFromOutlook(
       return { ok: false, error: "Veuillez sélectionner un lot / entreprise." };
     }
 
-    let filePath: string | null = null;
-    let fileName: string | null = null;
-    let signedFilePath: string | null = null;
-    let signedFileName: string | null = null;
+    let filePath: string | undefined;
+    let fileName: string | undefined;
+    let signedFilePath: string | undefined;
+    let signedFileName: string | undefined;
 
     if (file && file.size > 0) {
-      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-      const storagePath = `${projectId}/quotes/${enterpriseId}/${Date.now()}_${safeName}`;
-      const buffer = Buffer.from(await file.arrayBuffer());
-      const { error: uploadError } = await supabase.storage
-        .from(FINANCIAL_BUCKET)
-        .upload(storagePath, buffer, {
-          contentType: file.type || "application/octet-stream",
-          upsert: false,
-        });
-      if (uploadError) return { ok: false, error: uploadError.message };
-
+      const uploaded = await uploadQuoteFile(
+        supabase,
+        projectId,
+        enterpriseId,
+        file,
+        mode === "signed" ? "signed" : "quote"
+      );
+      if ("error" in uploaded) return { ok: false, error: uploaded.error ?? "Erreur upload." };
       if (mode === "signed" && quoteId) {
-        signedFilePath = storagePath;
-        signedFileName = file.name;
+        signedFilePath = uploaded.path;
+        signedFileName = uploaded.name;
       } else {
-        filePath = storagePath;
-        fileName = file.name;
+        filePath = uploaded.path;
+        fileName = uploaded.name;
       }
     }
 
     if (mode === "signed" && quoteId) {
       const updatePayload: Record<string, unknown> = {
         is_rejected: markRejected,
+        validated_at: markRejected ? null : validatedAt,
       };
-      if (validatedAt) updatePayload.validated_at = validatedAt;
-      if (markRejected) {
-        updatePayload.validated_at = null;
-      }
       if (signedFilePath) {
         updatePayload.signed_file_path = signedFilePath;
         updatePayload.signed_file_name = signedFileName;
@@ -173,25 +201,27 @@ export async function upsertQuoteFromOutlook(
         .eq("project_id", projectId);
 
       if (error) return { ok: false, error: error.message };
-      revalidateQuotes(projectId);
+      if (!options?.skipRevalidate) revalidateQuotes(projectId);
       return { ok: true, id: quoteId };
     }
 
-    const payload = {
+    const payload: Record<string, unknown> = {
       project_id: projectId,
       enterprise_id: enterpriseId,
       quote_number: quoteNumber,
       quote_date: quoteDate,
-      is_cie,
-      is_ts,
-      is_tma,
+      ...category,
       designation,
       amount_ht: Number.isFinite(amount_ht) ? amount_ht : 0,
       comment,
       is_rejected: markRejected,
-      validated_at: markRejected ? null : validatedAt,
-      ...(filePath ? { file_path: filePath, file_name: fileName } : {}),
+      validated_at: markRejected ? null : validatedAt || null,
     };
+
+    if (filePath) {
+      payload.file_path = filePath;
+      payload.file_name = fileName;
+    }
 
     if (quoteId) {
       const { error } = await supabase
@@ -200,7 +230,7 @@ export async function upsertQuoteFromOutlook(
         .eq("id", quoteId)
         .eq("project_id", projectId);
       if (error) return { ok: false, error: error.message };
-      revalidateQuotes(projectId);
+      if (!options?.skipRevalidate) revalidateQuotes(projectId);
       return { ok: true, id: quoteId };
     }
 
@@ -211,14 +241,103 @@ export async function upsertQuoteFromOutlook(
       .single();
 
     if (error) return { ok: false, error: error.message };
-    revalidateQuotes(projectId);
+    if (!options?.skipRevalidate) revalidateQuotes(projectId);
     return { ok: true, id: data.id };
   } catch (error) {
     return {
       ok: false,
-      error: error instanceof Error ? error.message : "Erreur lors de l'enregistrement du devis.",
+      error:
+        error instanceof Error ? error.message : "Erreur lors de l'enregistrement du devis.",
     };
   }
+}
+
+export async function upsertQuoteFromOutlook(
+  projectId: string,
+  formData: FormData
+): Promise<QuoteActionResult> {
+  return saveQuote(projectId, formData, { skipRevalidate: true });
+}
+
+export async function updateQuoteField(
+  projectId: string,
+  quoteId: string,
+  field: string,
+  value: string | boolean | null
+): Promise<QuoteActionResult> {
+  await requireFinanceAccess(projectId);
+  const supabase = await createClient();
+
+  if (field === "is_cie" || field === "is_ts" || field === "is_tma") {
+    const { data: current } = await supabase
+      .from("financial_quotes")
+      .select("is_cie, is_ts, is_tma")
+      .eq("id", quoteId)
+      .single();
+    const flags = normalizeQuoteCategory({
+      is_cie: field === "is_cie" ? Boolean(value) : Boolean(current?.is_cie),
+      is_ts: field === "is_ts" ? Boolean(value) : Boolean(current?.is_ts),
+      is_tma: field === "is_tma" ? Boolean(value) : Boolean(current?.is_tma),
+    });
+    const err = validateQuoteCategory(flags);
+    if (err) return { ok: false, error: err };
+    const { error } = await supabase
+      .from("financial_quotes")
+      .update(flags)
+      .eq("id", quoteId)
+      .eq("project_id", projectId);
+    if (error) return { ok: false, error: error.message };
+    revalidateQuotes(projectId);
+    return { ok: true };
+  }
+
+  if (field === "validated_at") {
+    const str = String(value ?? "").trim().toLowerCase();
+    if (str === "non") {
+      const { error } = await supabase
+        .from("financial_quotes")
+        .update({ is_rejected: true, validated_at: null })
+        .eq("id", quoteId)
+        .eq("project_id", projectId);
+      if (error) return { ok: false, error: error.message };
+      revalidateQuotes(projectId);
+      return { ok: true };
+    }
+    const { error } = await supabase
+      .from("financial_quotes")
+      .update({ validated_at: str || null, is_rejected: false })
+      .eq("id", quoteId)
+      .eq("project_id", projectId);
+    if (error) return { ok: false, error: error.message };
+    revalidateQuotes(projectId);
+    return { ok: true };
+  }
+
+  let updateValue: unknown = value;
+  if (field === "amount_ht") {
+    updateValue = parseMoneyInput(String(value ?? "0"));
+  }
+
+  const allowed = new Set([
+    "quote_number",
+    "quote_date",
+    "designation",
+    "amount_ht",
+    "comment",
+  ]);
+  if (!allowed.has(field)) {
+    return { ok: false, error: "Champ non modifiable." };
+  }
+
+  const { error } = await supabase
+    .from("financial_quotes")
+    .update({ [field]: updateValue })
+    .eq("id", quoteId)
+    .eq("project_id", projectId);
+
+  if (error) return { ok: false, error: error.message };
+  revalidateQuotes(projectId);
+  return { ok: true };
 }
 
 export async function updateQuoteValidation(
@@ -227,21 +346,12 @@ export async function updateQuoteValidation(
   validatedAt: string | null,
   isRejected: boolean
 ): Promise<QuoteActionResult> {
-  await requireFinanceAccess(projectId);
-  const supabase = await createClient();
-
-  const { error } = await supabase
-    .from("financial_quotes")
-    .update({
-      validated_at: isRejected ? null : validatedAt,
-      is_rejected: isRejected,
-    })
-    .eq("id", quoteId)
-    .eq("project_id", projectId);
-
-  if (error) return { ok: false, error: error.message };
-  revalidateQuotes(projectId);
-  return { ok: true };
+  return updateQuoteField(
+    projectId,
+    quoteId,
+    "validated_at",
+    isRejected ? "non" : validatedAt
+  );
 }
 
 export async function getQuoteFileUrl(
@@ -252,56 +362,4 @@ export async function getQuoteFileUrl(
   const supabase = await createClient();
   const { data } = supabase.storage.from(FINANCIAL_BUCKET).getPublicUrl(filePath);
   return data.publicUrl;
-}
-
-export async function linkIncomingFileToQuote(
-  projectId: string,
-  incomingFileId: string,
-  quoteData: {
-    enterpriseId: string;
-    quoteNumber: string;
-    quoteDate: string;
-    is_cie: boolean;
-    is_ts: boolean;
-    is_tma: boolean;
-    designation: string | null;
-    amount_ht: number;
-  }
-): Promise<QuoteActionResult> {
-  await requireFinanceAccess(projectId);
-  const supabase = await createClient();
-
-  const { data: incoming, error: incomingError } = await supabase
-    .from("incoming_files")
-    .select("file_path, file_name")
-    .eq("id", incomingFileId)
-    .eq("project_id", projectId)
-    .single();
-
-  if (incomingError || !incoming) {
-    return { ok: false, error: "Fichier entrant introuvable." };
-  }
-
-  const { data, error } = await supabase
-    .from("financial_quotes")
-    .insert({
-      project_id: projectId,
-      enterprise_id: quoteData.enterpriseId,
-      quote_number: quoteData.quoteNumber,
-      quote_date: quoteData.quoteDate,
-      is_cie: quoteData.is_cie,
-      is_ts: quoteData.is_ts,
-      is_tma: quoteData.is_tma,
-      designation: quoteData.designation,
-      amount_ht: quoteData.amount_ht,
-      file_path: incoming.file_path,
-      file_name: incoming.file_name,
-      incoming_file_id: incomingFileId,
-    })
-    .select("id")
-    .single();
-
-  if (error) return { ok: false, error: error.message };
-  revalidateQuotes(projectId);
-  return { ok: true, id: data.id };
 }

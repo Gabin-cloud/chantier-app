@@ -6,9 +6,9 @@
   xsi:type="MailApp">
   <Id>8f3c2a1b-7d4e-5f6a-9b0c-1d2e3f4a5b6c</Id>
   <Version>1.0.0.1</Version>
-  <ProviderName>Chantier App</ProviderName>
+  <ProviderName>OCTOBAT</ProviderName>
   <DefaultLocale>fr-FR</DefaultLocale>
-  <DisplayName DefaultValue="Chantier App - Tri fichiers"/>
+  <DisplayName DefaultValue="OCTOBAT - Tri fichiers"/>
   <Description DefaultValue="Classer les pieces jointes du mail ouvert vers le suivi chantier."/>
   <IconUrl DefaultValue="https://chantier-app-gab31.vercel.app/icons/icon-192.png"/>
   <HighResolutionIconUrl DefaultValue="https://chantier-app-gab31.vercel.app/icons/icon-512.png"/>
@@ -81,7 +81,7 @@
           <bt:Url id="Taskpane.Url" DefaultValue="https://chantier-app-gab31.vercel.app/outlook/taskpane"/>
         </bt:Urls>
         <bt:ShortStrings>
-          <bt:String id="Group.Label" DefaultValue="Chantier App"/>
+          <bt:String id="Group.Label" DefaultValue="OCTOBAT"/>
           <bt:String id="TaskpaneButton.Label" DefaultValue="Classer"/>
           <bt:String id="TaskpaneButton.Title" DefaultValue="Classer les pieces jointes"/>
         </bt:ShortStrings>

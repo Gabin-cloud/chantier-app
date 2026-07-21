@@ -58,7 +58,7 @@ export function SituationsTravauxPanel({
                 </td>
                 <td className="px-4 py-3 text-right">
                   <Link
-                    href={`/pc/projets/${projectId}/finance/situations/${lot.id}`}
+                    href={`/pc/projets/${projectId}/suivi-financier/situation-travaux/${lot.id}`}
                     className="rounded-lg bg-blue-50 px-3 py-1.5 font-medium text-blue-700 hover:bg-blue-100"
                   >
                     Ouvrir

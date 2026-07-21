@@ -185,6 +185,8 @@ export type FinancialAmendment = {
   internal_comment: string | null;
   document_html: string | null;
   danobat_comment: string | null;
+  document_path: string | null;
+  document_file_name: string | null;
   created_at: string;
   updated_at: string;
   lines?: FinancialAmendmentLine[];
@@ -312,6 +314,9 @@ export type FinancialQuoteWithLot = FinancialQuote & {
   lot_number: string | null;
   enterprise_name: string;
   lot_designation: string | null;
+  amendment_number?: number | null;
+  amendment_document_html?: string | null;
+  amendment_document_path?: string | null;
 };
 
 export type FinancialAmendmentLine = {

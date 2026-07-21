@@ -1,17 +1,17 @@
 "use client";
 
 import { useEffect, useState } from "react";
+import { APP_NAME } from "@/lib/brand";
 import { AuthForm } from "@/components/auth/AuthForm";
 import { OutlookFileSortPane } from "@/components/outlook/OutlookFileSortPane";
 import { OutlookAttestationPane } from "@/components/outlook/OutlookAttestationPane";
-import { OutlookQuoteSortPane } from "@/components/outlook/OutlookQuoteSortPane";
 import {
   getFinanceProjects,
   type FinanceProjectOption,
 } from "@/lib/actions/incoming-files";
 import { createClient } from "@/lib/supabase/client";
 
-type OutlookTab = "attestations" | "files" | "devis";
+type OutlookTab = "attestations" | "files";
 
 export function OutlookTaskpaneShell() {
   const [loading, setLoading] = useState(true);
@@ -68,7 +68,7 @@ export function OutlookTaskpaneShell() {
   if (!userEmail) {
     return (
       <div className="p-4">
-        <h1 className="mb-1 text-lg font-bold text-slate-900">Chantier App</h1>
+        <h1 className="mb-1 text-lg font-bold text-slate-900">{APP_NAME}</h1>
         <p className="mb-4 text-sm text-slate-500">
           Connectez-vous pour classer les pièces jointes ou lever des NC.
         </p>
@@ -80,7 +80,7 @@ export function OutlookTaskpaneShell() {
   return (
     <div>
       <div className="border-b border-slate-100 bg-blue-600 px-4 py-3 text-white">
-        <p className="text-sm font-bold">Chantier App</p>
+        <p className="text-sm font-bold">{APP_NAME}</p>
         <p className="text-xs text-blue-100">{userEmail}</p>
       </div>
       <div className="flex border-b border-slate-200">
@@ -94,17 +94,6 @@ export function OutlookTaskpaneShell() {
           }`}
         >
           Levée NC
-        </button>
-        <button
-          type="button"
-          onClick={() => setTab("devis")}
-          className={`flex-1 px-2 py-2 text-[11px] font-semibold ${
-            tab === "devis"
-              ? "border-b-2 border-emerald-600 text-emerald-800"
-              : "text-slate-500"
-          }`}
-        >
-          Suivi devis
         </button>
         <button
           type="button"
@@ -122,8 +111,6 @@ export function OutlookTaskpaneShell() {
         <p className="p-4 text-sm text-red-700">{error}</p>
       ) : tab === "attestations" ? (
         <OutlookAttestationPane projects={projects} />
-      ) : tab === "devis" ? (
-        <OutlookQuoteSortPane projects={projects} />
       ) : (
         <OutlookFileSortPane projects={projects} />
       )}

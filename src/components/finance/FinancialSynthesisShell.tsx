@@ -15,11 +15,13 @@ import type {
 type FinancialSynthesisShellProps = {
   project: Project;
   lots: LotWithFinancials[];
+  m365Ready: boolean;
 };
 
 export function FinancialSynthesisShell({
   project,
   lots,
+  m365Ready,
 }: FinancialSynthesisShellProps) {
   const [showNewAmendment, setShowNewAmendment] = useState(false);
   const [documentHtml, setDocumentHtml] = useState<string | null>(null);
@@ -41,7 +43,6 @@ export function FinancialSynthesisShell({
             amendmentNumber: amendment.amendment_number,
             amendmentType: amendment.amendment_type,
             lines: linesFromAmendment(result.amendment.lines),
-            danobatComment: amendment.danobat_comment,
           });
         }
       }
@@ -84,6 +85,7 @@ export function FinancialSynthesisShell({
         project={project}
         lots={lots}
         open={showNewAmendment}
+        m365Ready={m365Ready}
         onClose={() => setShowNewAmendment(false)}
       />
 

@@ -56,6 +56,7 @@ declare namespace Office {
     itemType: MailboxEnums.ItemType;
     subject: string;
     from: EmailAddressDetails;
+    dateTimeCreated?: Date;
     attachments: AttachmentDetails[];
     getAttachmentContentAsync(
       attachmentId: string,

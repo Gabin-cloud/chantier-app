@@ -3,6 +3,7 @@ import {
   DatabaseErrorNotice,
   SupabaseSetupNotice,
 } from "@/components/SupabaseSetupNotice";
+import { getM365DraftReadiness } from "@/lib/actions/control-board";
 import { getProjectFinancialData } from "@/lib/actions/finance";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
@@ -18,10 +19,17 @@ export default async function FinanceSynthesePage({ params }: PageProps) {
   const { id } = await params;
 
   try {
-    const project = await getProjectFinancialData(id);
+    const [project, m365] = await Promise.all([
+      getProjectFinancialData(id),
+      getM365DraftReadiness(),
+    ]);
 
     return (
-      <FinancialSynthesisShell project={project} lots={project.enterprises ?? []} />
+      <FinancialSynthesisShell
+        project={project}
+        lots={project.enterprises ?? []}
+        m365Ready={m365.ready}
+      />
     );
   } catch (error) {
     return (
