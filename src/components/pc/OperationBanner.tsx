@@ -150,20 +150,28 @@ export function OperationBanner({
           )}
         </div>
 
-        {/* Logo maître d'ouvrage — droite */}
-        <div className="flex h-14 w-24 shrink-0 items-center justify-end">
-          {logoSrc ? (
-            // eslint-disable-next-line @next/next/no-img-element
-            <img
-              src={logoSrc}
-              alt="Logo maître d'ouvrage"
-              className="max-h-14 max-w-[96px] object-contain object-right"
-            />
-          ) : (
-            <div className="flex h-14 w-20 items-center justify-center rounded-md border border-dashed border-slate-200 text-[10px] text-slate-400">
-              Logo MOA
-            </div>
-          )}
+        {/* Logo maître d'ouvrage + Fiche opération — droite */}
+        <div className="flex shrink-0 items-center gap-2">
+          <div className="flex h-14 w-24 items-center justify-end">
+            {logoSrc ? (
+              // eslint-disable-next-line @next/next/no-img-element
+              <img
+                src={logoSrc}
+                alt="Logo maître d'ouvrage"
+                className="max-h-14 max-w-[96px] object-contain object-right"
+              />
+            ) : (
+              <div className="flex h-14 w-20 items-center justify-center rounded-md border border-dashed border-slate-200 text-[10px] text-slate-400">
+                Logo MOA
+              </div>
+            )}
+          </div>
+          <Link
+            href={parametresHref}
+            className="shrink-0 rounded-md border border-slate-300 px-3 py-1.5 text-xs font-semibold text-slate-700 hover:bg-slate-50"
+          >
+            Fiche opération
+          </Link>
         </div>
       </div>
     </div>

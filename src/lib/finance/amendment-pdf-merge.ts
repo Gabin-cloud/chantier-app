@@ -3,6 +3,10 @@
 import { PDFDocument } from "pdf-lib";
 import { revalidatePath } from "next/cache";
 import { requireFinanceAccess } from "@/lib/actions/members";
+import {
+  createAmendmentFromQuotes,
+  type CreateAmendmentInput,
+} from "@/lib/actions/finance";
 import { createClient } from "@/lib/supabase/server";
 
 const FINANCIAL_BUCKET = "financial-files";
@@ -24,7 +28,8 @@ export async function uploadAmendmentMergedPdf(
   projectId: string,
   amendmentId: string,
   avenantPdfBase64: string,
-  quoteIds: string[]
+  quoteIds: string[],
+  localPdfBase64List: string[] = []
 ): Promise<{ ok: true; documentPath: string } | { ok: false; error: string }> {
   try {
     await requireFinanceAccess(projectId);
@@ -55,6 +60,18 @@ export async function uploadAmendmentMergedPdf(
 
     const merged = await PDFDocument.create();
     await appendPdfBytes(merged, decodeBase64Pdf(avenantPdfBase64));
+
+    for (const localBase64 of localPdfBase64List) {
+      if (!localBase64?.trim()) continue;
+      try {
+        await appendPdfBytes(merged, decodeBase64Pdf(localBase64));
+      } catch (err) {
+        console.warn(
+          "[uploadAmendmentMergedPdf] PDF local ignoré:",
+          err instanceof Error ? err.message : err
+        );
+      }
+    }
 
     if (quoteIds.length > 0) {
       const { data: quotes, error: quotesError } = await supabase
@@ -133,6 +150,38 @@ export async function uploadAmendmentMergedPdf(
       error: error instanceof Error ? error.message : "Impossible d'enregistrer le PDF.",
     };
   }
+}
+
+/** Crée l'avenant et fusionne le PDF en une seule action serveur (évite les erreurs RSC). */
+export async function createAmendmentWithDocument(
+  projectId: string,
+  input: CreateAmendmentInput,
+  avenantPdfBase64: string,
+  localPdfBase64List: string[] = []
+): Promise<
+  | { ok: true; amendmentId: string; amendmentNumber: number }
+  | { ok: false; error: string }
+> {
+  const created = await createAmendmentFromQuotes(projectId, input);
+  if (!created.ok) return created;
+
+  const uploaded = await uploadAmendmentMergedPdf(
+    projectId,
+    created.amendmentId,
+    avenantPdfBase64,
+    created.quoteIds,
+    localPdfBase64List
+  );
+
+  if (!uploaded.ok) {
+    return { ok: false, error: uploaded.error };
+  }
+
+  return {
+    ok: true,
+    amendmentId: created.amendmentId,
+    amendmentNumber: created.amendmentNumber,
+  };
 }
 
 export type AmendmentExtraAttachment = {

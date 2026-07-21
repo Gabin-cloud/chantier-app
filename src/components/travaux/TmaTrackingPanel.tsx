@@ -9,8 +9,10 @@ import type { Enterprise, WorkTmaEntry } from "@/lib/types/database";
 
 type TmaTrackingPanelProps = {
   projectId: string;
+  projectName: string;
   entries: WorkTmaEntry[];
   enterprises: Enterprise[];
+  m365Ready: boolean;
 };
 
 const BORDER = "border border-slate-300";
@@ -124,8 +126,10 @@ function EditableMoney({
 
 export function TmaTrackingPanel({
   projectId,
+  projectName,
   entries,
   enterprises,
+  m365Ready,
 }: TmaTrackingPanelProps) {
   const router = useRouter();
   const [modalOpen, setModalOpen] = useState(false);
@@ -297,7 +301,9 @@ export function TmaTrackingPanel({
 
       <NewTmaModal
         projectId={projectId}
+        projectName={projectName}
         enterprises={enterprises}
+        m365Ready={m365Ready}
         open={modalOpen}
         onClose={() => setModalOpen(false)}
         onSaved={() => router.refresh()}

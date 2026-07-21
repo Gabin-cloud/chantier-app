@@ -1,14 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState, useTransition } from "react";
-import { useRouter } from "next/navigation";
 import { AmendmentEmailStep } from "@/components/finance/AmendmentEmailStep";
 import { AppFormField } from "@/components/ui/AppFormField";
-import { createAmendmentFromQuotes } from "@/lib/actions/finance";
 import { getQuotesForAmendment } from "@/lib/actions/quotes";
 import { buildAmendmentDocumentHtml } from "@/lib/finance/amendment-document";
 import { htmlToPdfBase64 } from "@/lib/finance/amendment-pdf-client";
-import { uploadAmendmentMergedPdf, uploadAmendmentExtraAttachments } from "@/lib/finance/amendment-pdf-merge";
+import { createAmendmentWithDocument, uploadAmendmentExtraAttachments } from "@/lib/finance/amendment-pdf-merge";
 import { formatCurrency, parseMoneyInput } from "@/lib/finance/calculations";
 import type {
   FinancialQuote,
@@ -44,7 +42,6 @@ export function NewAmendmentModal({
   m365Ready,
   onClose,
 }: NewAmendmentModalProps) {
-  const router = useRouter();
   const [isPending, startTransition] = useTransition();
   const [enterpriseId, setEnterpriseId] = useState(lots[0]?.id ?? "");
   const [amendmentType, setAmendmentType] = useState<"ts" | "tma">("ts");
@@ -57,6 +54,7 @@ export function NewAmendmentModal({
   const [step, setStep] = useState<"form" | "attachments" | "email">("form");
   const [createdAmendmentId, setCreatedAmendmentId] = useState<string | null>(null);
   const [extraFiles, setExtraFiles] = useState<File[]>([]);
+  const [localMergeFiles, setLocalMergeFiles] = useState<File[]>([]);
   const [uploadingExtras, setUploadingExtras] = useState(false);
 
   const selectedLot = useMemo(
@@ -129,6 +127,14 @@ export function NewAmendmentModal({
     return sum + (Number.isFinite(amount) ? amount : 0);
   }, 0);
 
+  async function fileToBase64(file: File): Promise<string> {
+    const buffer = await file.arrayBuffer();
+    const bytes = new Uint8Array(buffer);
+    let binary = "";
+    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+    return btoa(binary);
+  }
+
   function handleCreate() {
     if (!selectedLot) {
       setError("Sélectionnez une entreprise.");
@@ -162,54 +168,54 @@ export function NewAmendmentModal({
 
     setError(null);
     startTransition(async () => {
-      const documentHtml = buildAmendmentDocumentHtml({
-        project,
-        lot: selectedLot,
-        amendmentNumber:
-          (selectedLot.amendments?.reduce(
-            (max, a) => Math.max(max, a.amendment_number),
-            0
-          ) ?? 0) + 1,
-        amendmentType,
-        lines: linesToSave,
-      });
-
-      const result = await createAmendmentFromQuotes(project.id, {
-        enterpriseId,
-        amendmentType,
-        lines: linesToSave,
-        danobatComment,
-        documentHtml,
-      });
-
-      if (!result.ok) {
-        setError(result.error);
-        return;
-      }
-
       try {
+        const documentHtml = buildAmendmentDocumentHtml({
+          project,
+          lot: selectedLot,
+          amendmentNumber:
+            (selectedLot.amendments?.reduce(
+              (max, a) => Math.max(max, a.amendment_number),
+              0
+            ) ?? 0) + 1,
+          amendmentType,
+          lines: linesToSave,
+        });
+
         const avenantPdfBase64 = await htmlToPdfBase64(documentHtml);
-        const uploadResult = await uploadAmendmentMergedPdf(
-          project.id,
-          result.amendmentId,
-          avenantPdfBase64,
-          result.quoteIds
+        const localPdfBase64List = await Promise.all(
+          localMergeFiles.map((file) => fileToBase64(file))
         );
 
-        if (!uploadResult.ok) {
-          setError(uploadResult.error);
+        const result = await createAmendmentWithDocument(
+          project.id,
+          {
+            enterpriseId,
+            amendmentType,
+            lines: linesToSave,
+            danobatComment,
+            documentHtml,
+          },
+          avenantPdfBase64,
+          localPdfBase64List
+        );
+
+        if (!result.ok) {
+          setError(result.error);
           return;
         }
-      } catch (err) {
-        setError(
-          err instanceof Error ? err.message : "Impossible de générer le PDF de l'avenant."
-        );
-        return;
-      }
 
-      setCreatedAmendmentId(result.amendmentId);
-      setStep("attachments");
-      router.refresh();
+        setCreatedAmendmentId(result.amendmentId);
+        setStep("attachments");
+      } catch (err) {
+        const raw = err instanceof Error ? err.message : String(err);
+        if (raw.includes("unexpected response")) {
+          setError(
+            "Erreur de communication avec le serveur. Vérifiez votre connexion et réessayez."
+          );
+        } else {
+          setError(raw || "Impossible de créer l'avenant.");
+        }
+      }
     });
   }
 
@@ -254,6 +260,7 @@ export function NewAmendmentModal({
     setStep("form");
     setCreatedAmendmentId(null);
     setExtraFiles([]);
+    setLocalMergeFiles([]);
     setError(null);
     setManualLines([]);
     setSelectedQuoteIds(new Set());
@@ -487,6 +494,29 @@ export function NewAmendmentModal({
             onChange={setDanobatComment}
             hint="Visible uniquement en interne — n'apparaît pas dans les avenants."
           />
+
+          <div>
+            <label className="mb-2 block text-sm font-medium text-slate-700">
+              Fusionner des PDF depuis votre ordinateur
+            </label>
+            <input
+              type="file"
+              accept=".pdf,application/pdf"
+              multiple
+              onChange={(e) => setLocalMergeFiles(Array.from(e.target.files ?? []))}
+              className="block w-full cursor-pointer text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-violet-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-violet-700 hover:file:bg-violet-100"
+            />
+            {localMergeFiles.length > 0 && (
+              <ul className="mt-2 space-y-1 text-sm text-slate-600">
+                {localMergeFiles.map((file) => (
+                  <li key={`${file.name}-${file.size}`}>{file.name}</li>
+                ))}
+              </ul>
+            )}
+            <p className="mt-1 text-xs text-slate-400">
+              Ces PDF seront fusionnés au document d&apos;avenant généré.
+            </p>
+          </div>
 
           {error && (
             <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">

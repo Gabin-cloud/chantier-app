@@ -7,6 +7,7 @@ import {
   normalizeQuoteCategory,
   validateQuoteCategory,
 } from "@/lib/finance/quote-category";
+import { fillTmaFromQuote } from "@/lib/actions/tma";
 import { createClient } from "@/lib/supabase/server";
 import type {
   FinancialQuote,
@@ -256,6 +257,13 @@ export async function saveQuote(
       .single();
 
     if (error) return { ok: false, error: error.message };
+    if (category.is_tma && data.id) {
+      try {
+        await fillTmaFromQuote(projectId, data.id);
+      } catch {
+        /* TMA sync best-effort */
+      }
+    }
     if (!options?.skipRevalidate) revalidateQuotes(projectId);
     return { ok: true, id: data.id };
   } catch (error) {

@@ -353,6 +353,7 @@ export type FinancialDgdRow = FinancialDgdEntry & {
 export type WorkTmaEntry = {
   id: string;
   project_id: string;
+  dossier_id: string | null;
   logement_number: string;
   localisation: string;
   modif_demandee_le: string | null;
@@ -364,7 +365,25 @@ export type WorkTmaEntry = {
   mou_envoi: string | null;
   mou_acceptation: string | null;
   montant_ht: number;
+  nf_status: TmaTriState | null;
+  pmr_status: TmaTriState | null;
+  status: "draft" | "sent" | "completed";
   sort_order: number;
+  created_at: string;
+  updated_at: string;
+};
+
+export type TmaTriState = "oui" | "non" | "nc";
+
+export type WorkTmaDossier = {
+  id: string;
+  project_id: string;
+  logement_number: string;
+  nf_status: TmaTriState | null;
+  pmr_status: TmaTriState | null;
+  status: "draft" | "sent";
+  mou_document_paths: string[];
+  sent_at: string | null;
   created_at: string;
   updated_at: string;
 };

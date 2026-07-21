@@ -2,7 +2,6 @@
 
 import { useRouter } from "next/navigation";
 import { useTransition } from "react";
-import { SlantedColumnHeader } from "@/components/marche/SlantedColumnHeader";
 import { updateDgdBooleanField, updateDgdDateField } from "@/lib/actions/dgd";
 import type { FinancialDgdRow } from "@/lib/types/database";
 
@@ -12,6 +11,7 @@ type DgdTrackingPanelProps = {
 };
 
 const BORDER = "border border-slate-300";
+const TH = `${BORDER} px-2 py-2 text-left align-top text-[10px] font-bold leading-tight text-slate-800`;
 
 function formatDate(value: string | null): string {
   if (!value) return "";
@@ -114,21 +114,21 @@ export function DgdTrackingPanel({ projectId, rows }: DgdTrackingPanelProps) {
         <table className={`w-full min-w-[1400px] border-collapse text-xs ${BORDER}`}>
           <thead>
             <tr className="bg-slate-50">
-              <th className={`${BORDER} px-2 py-2 text-left font-bold`}>lot n°</th>
-              <th className={`${BORDER} px-2 py-2 text-left font-bold`}>lot</th>
-              <th className={`${BORDER} px-2 py-2 text-left font-bold`}>Entreprises</th>
-              <SlantedColumnHeader label="Projet DGD envoyé par l'entreprise à DANOBAT" />
-              <SlantedColumnHeader label="Projet DGD envoyé au MOU pour validation le:" />
-              <SlantedColumnHeader label="Réserves de réception levées" title="Réserves de réception levées" />
-              <SlantedColumnHeader label="Avis du BC levés" title="Avis du BC levés" />
-              <SlantedColumnHeader label="Sous-traitants payés" title="Sous-traitants payés" />
-              <SlantedColumnHeader label="CIE ok" title="CIE ok" />
-              <SlantedColumnHeader label="Avenants" title="Avenants" />
-              <SlantedColumnHeader label="Proposition DGD transmis à l'entreprise le:" />
-              <SlantedColumnHeader label="Projet DGD retourné par l'Entreprise à DANOBAT le:" />
-              <SlantedColumnHeader label="Exemplaire DGD (signé par Entreprise + DANOBAT) envoyé au Mou le:" />
-              <SlantedColumnHeader label="DGD (accepté par le Mou) reçu par DANOBAT le:" />
-              <SlantedColumnHeader label="Libération RG / CB le :" />
+              <th className={TH}>lot n°</th>
+              <th className={TH}>lot</th>
+              <th className={TH}>Entreprises</th>
+              <th className={TH}>Projet DGD envoyé par l&apos;entreprise à DANOBAT</th>
+              <th className={TH}>Projet DGD envoyé au MOU pour validation le:</th>
+              <th className={`${TH} italic`}>Réserves de réception levées</th>
+              <th className={`${TH} italic`}>Avis du BC levés</th>
+              <th className={`${TH} italic`}>Sous-traitants payés</th>
+              <th className={`${TH} italic`}>CIE ok</th>
+              <th className={`${TH} italic`}>Avenants</th>
+              <th className={TH}>Proposition DGD transmis à l&apos;entreprise le:</th>
+              <th className={TH}>Projet DGD retourné par l&apos;Entreprise à DANOBAT le:</th>
+              <th className={TH}>Exemplaire DGD (signé par Entreprise + DANOBAT) envoyé au Mou le:</th>
+              <th className={TH}>DGD (accepté par le Mou) reçu par DANOBAT le:</th>
+              <th className={TH}>Libération RG / CB le :</th>
             </tr>
           </thead>
           <tbody>
