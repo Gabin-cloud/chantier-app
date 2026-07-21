@@ -1,4 +1,4 @@
-import { FinancialSynthesis } from "@/components/finance/FinancialSynthesis";
+import { FinancialSynthesisShell } from "@/components/finance/FinancialSynthesisShell";
 import {
   DatabaseErrorNotice,
   SupabaseSetupNotice,
@@ -21,7 +21,7 @@ export default async function FinanceSynthesePage({ params }: PageProps) {
     const project = await getProjectFinancialData(id);
 
     return (
-      <FinancialSynthesis project={project} lots={project.enterprises ?? []} />
+      <FinancialSynthesisShell project={project} lots={project.enterprises ?? []} />
     );
   } catch (error) {
     return (

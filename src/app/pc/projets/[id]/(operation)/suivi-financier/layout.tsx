@@ -16,8 +16,9 @@ export default async function SuiviFinancierLayout({
   const items: NavTabItem[] = [
     { href: `${base}/synthese`, label: "Synthèse financière" },
     { href: `${base}/situations`, label: "Synthèse des situations" },
+    { href: `${base}/situation-travaux`, label: "Situation de travaux" },
     { href: `${base}/previsionnel`, label: "Prévisionnel" },
-    { href: `${base}/cycle-de-vie`, label: "Cycle de vie" },
+    { href: `${base}/suivi-devis`, label: "Suivi des devis" },
     { href: `${base}/cie`, label: "CIE" },
     { href: `${base}/prorata`, label: "ProRata" },
     { href: `${base}/dgd`, label: "DGD" },

@@ -1,3 +1,5 @@
+"use client";
+
 import { ActionDot } from "@/components/ui/ActionDot";
 import {
   AMENDMENT_SIGNATURE_STATUS_COLORS,
@@ -19,6 +21,10 @@ import type { FinancialAmendment, LotWithFinancials, Project } from "@/lib/types
 type FinancialSynthesisProps = {
   project: Project;
   lots: LotWithFinancials[];
+  onAmendmentClick?: (
+    amendment: FinancialAmendment,
+    lot: LotWithFinancials
+  ) => void;
 };
 
 type AmendmentCell = {
@@ -37,7 +43,18 @@ function buildAmendmentTooltip(amendment: FinancialAmendment): string {
   return parts.join(" — ");
 }
 
-function AmendmentAmountCell({ amendment, amount }: AmendmentCell) {
+function AmendmentAmountCell({
+  amendment,
+  amount,
+  lot,
+  onAmendmentClick,
+}: AmendmentCell & {
+  lot: LotWithFinancials;
+  onAmendmentClick?: (
+    amendment: FinancialAmendment,
+    lot: LotWithFinancials
+  ) => void;
+}) {
   if (!amendment || amount === 0) {
     return <span className="text-slate-400">—</span>;
   }
@@ -45,14 +62,32 @@ function AmendmentAmountCell({ amendment, amount }: AmendmentCell) {
   const bg = getAmendmentCellBackground(amendment.signature_status);
   const textClass = getAmendmentAmountTextClass(amendment.amendment_type);
   const tooltip = buildAmendmentTooltip(amendment);
+  const clickable = Boolean(onAmendmentClick);
 
-  return (
+  const content = (
     <span
       title={tooltip}
-      className={`inline-block min-w-[4.5rem] rounded px-1.5 py-0.5 ${bg} ${textClass}`}
+      className={`inline-block min-w-[4.5rem] rounded px-1.5 py-0.5 ${bg} ${textClass} ${
+        clickable ? "cursor-pointer hover:ring-2 hover:ring-violet-300" : ""
+      }`}
     >
       {formatCurrency(amount)}
     </span>
+  );
+
+  if (!clickable || !onAmendmentClick) {
+    return content;
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => onAmendmentClick(amendment, lot)}
+      className="inline-block text-left"
+      title={`${tooltip} — Cliquer pour ouvrir l'avenant`}
+    >
+      {content}
+    </button>
   );
 }
 
@@ -67,7 +102,7 @@ function computeLotAdvancement(lot: LotWithFinancials, totalHt: number): number 
   return worksCum / totalHt;
 }
 
-export function FinancialSynthesis({ project, lots }: FinancialSynthesisProps) {
+export function FinancialSynthesis({ project, lots, onAmendmentClick }: FinancialSynthesisProps) {
   const maxAmendmentNumber = lots.reduce((max, lot) => {
     const lotMax = (lot.amendments ?? []).reduce(
       (inner, amendment) => Math.max(inner, amendment.amendment_number),
@@ -241,7 +276,11 @@ export function FinancialSynthesis({ project, lots }: FinancialSynthesisProps) {
                   </td>
                   {amendmentCells.map((cell, index) => (
                     <td key={index} className="px-2 py-2 text-right">
-                      <AmendmentAmountCell {...cell} />
+                      <AmendmentAmountCell
+                        {...cell}
+                        lot={lot}
+                        onAmendmentClick={onAmendmentClick}
+                      />
                     </td>
                   ))}
                   <td className="px-2 py-2 text-right">

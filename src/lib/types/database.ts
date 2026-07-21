@@ -183,8 +183,11 @@ export type FinancialAmendment = {
   amendment_type: AmendmentType;
   signature_status: AmendmentSignatureStatus;
   internal_comment: string | null;
+  document_html: string | null;
+  danobat_comment: string | null;
   created_at: string;
   updated_at: string;
+  lines?: FinancialAmendmentLine[];
 };
 
 export type FinancialSituation = {
@@ -228,6 +231,96 @@ export type FinancialAuditLog = {
   entity_id: string | null;
   action: string;
   summary: string | null;
+  created_at: string;
+};
+
+export type PrevisionnelColumnType =
+  | "situation_amount"
+  | "situation_percent"
+  | "manual_cumulative"
+  | "manual_monthly"
+  | "manual_percent";
+
+export type FinancialPrevisionnelColumn = {
+  id: string;
+  project_id: string;
+  sort_order: number;
+  column_type: PrevisionnelColumnType;
+  month_date: string | null;
+  label: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type FinancialPrevisionnelCell = {
+  id: string;
+  column_id: string;
+  enterprise_id: string;
+  raw_value: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type FinancialPrevisionnelComment = {
+  id: string;
+  project_id: string;
+  enterprise_id: string;
+  comment: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type PrevisionnelData = {
+  columns: FinancialPrevisionnelColumn[];
+  cells: FinancialPrevisionnelCell[];
+  comments: FinancialPrevisionnelComment[];
+};
+
+export const PREVISIONNEL_COLUMN_TYPE_LABELS: Record<PrevisionnelColumnType, string> = {
+  situation_amount: "Montant cumulé des situations (choix du mois)",
+  situation_percent: "Pourcentage cumulé des situations (choix du mois)",
+  manual_cumulative: "Montant cumulé saisi à la main",
+  manual_monthly: "Montant du mois facturé (saisie manuelle)",
+  manual_percent: "Pourcentage cumulé saisi à la main",
+};
+
+export type FinancialQuote = {
+  id: string;
+  project_id: string;
+  enterprise_id: string;
+  quote_number: string;
+  quote_date: string;
+  is_cie: boolean;
+  is_ts: boolean;
+  is_tma: boolean;
+  designation: string | null;
+  amount_ht: number;
+  is_rejected: boolean;
+  validated_at: string | null;
+  amendment_id: string | null;
+  comment: string | null;
+  file_path: string | null;
+  file_name: string | null;
+  signed_file_path: string | null;
+  signed_file_name: string | null;
+  incoming_file_id: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+export type FinancialQuoteWithLot = FinancialQuote & {
+  lot_number: string | null;
+  enterprise_name: string;
+  lot_designation: string | null;
+};
+
+export type FinancialAmendmentLine = {
+  id: string;
+  amendment_id: string;
+  sort_order: number;
+  designation: string;
+  amount_ht: number;
+  quote_id: string | null;
   created_at: string;
 };
 
