@@ -1,10 +1,10 @@
-import { PlaceholderPanel } from "@/components/pc/PlaceholderPanel";
+import { redirect } from "next/navigation";
 
-export default function FinanceCycleDeViePage() {
-  return (
-    <PlaceholderPanel
-      title="Tableau de bord cycle de vie"
-      description="Suivi du cycle de vie financier de l'opération."
-    />
-  );
+type PageProps = {
+  params: Promise<{ id: string }>;
+};
+
+export default async function FinanceCycleDeVieRedirectPage({ params }: PageProps) {
+  const { id } = await params;
+  redirect(`/pc/projets/${id}/suivi-financier/suivi-devis`);
 }

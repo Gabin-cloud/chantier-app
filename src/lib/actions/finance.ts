@@ -27,6 +27,10 @@ function financePaths(projectId: string) {
     `/pc/projets/${projectId}/suivi-financier/synthese`,
     `/pc/projets/${projectId}/suivi-financier/avenants`,
     `/pc/projets/${projectId}/suivi-financier/situations`,
+    `/pc/projets/${projectId}/suivi-financier/suivi-devis`,
+    `/pc/projets/${projectId}/suivi-financier/situation-travaux`,
+    `/pc/projets/${projectId}/suivi-financier/previsionnel`,
+    `/pc/projets/${projectId}/suivi-financier/prorata`,
   ];
 }
 
@@ -433,6 +437,183 @@ export async function upsertAmendment(
     }
     return { ok: false, error: message };
   }
+}
+
+export type CreateAmendmentInput = {
+  enterpriseId: string;
+  amendmentType: "ts" | "tma";
+  lines: { designation: string; amount_ht: number; quote_id?: string | null }[];
+  danobatComment?: string | null;
+  documentHtml: string;
+};
+
+export async function createAmendmentFromQuotes(
+  projectId: string,
+  input: CreateAmendmentInput
+): Promise<
+  | { ok: true; amendmentId: string; amendmentNumber: number; emailDraft: { subject: string; body: string } }
+  | { ok: false; error: string }
+> {
+  try {
+    await requireFinanceAccess(projectId);
+    const supabase = await createClient();
+
+    const { data: lot, error: lotError } = await supabase
+      .from("enterprises")
+      .select("*")
+      .eq("id", input.enterpriseId)
+      .eq("project_id", projectId)
+      .single();
+
+    if (lotError || !lot) {
+      return { ok: false, error: "Lot / entreprise introuvable." };
+    }
+
+    const { data: existingAmendments, error: amendmentsError } = await supabase
+      .from("financial_amendments")
+      .select("amendment_number")
+      .eq("enterprise_id", input.enterpriseId)
+      .order("amendment_number", { ascending: false })
+      .limit(1);
+
+    if (amendmentsError) {
+      return { ok: false, error: amendmentsError.message };
+    }
+
+    const amendmentNumber =
+      (existingAmendments?.[0]?.amendment_number ?? 0) + 1;
+    const totalHt = input.lines.reduce((sum, line) => sum + line.amount_ht, 0);
+    const amountTtc = computeAmendmentTtc(totalHt, Number(lot.vat_rate ?? 20));
+
+    const { data: amendment, error: insertError } = await supabase
+      .from("financial_amendments")
+      .insert({
+        enterprise_id: input.enterpriseId,
+        amendment_number: amendmentNumber,
+        designation: `Avenant n°${amendmentNumber} - ${input.amendmentType.toUpperCase()}`,
+        amount_ht: totalHt,
+        amount_ttc: amountTtc,
+        amendment_type: input.amendmentType,
+        signature_status: "chez_entreprise",
+        document_html: input.documentHtml,
+        danobat_comment: input.danobatComment?.trim() || null,
+      })
+      .select("id")
+      .single();
+
+    if (insertError) {
+      return { ok: false, error: formatAmendmentDbError(insertError.message) };
+    }
+
+    if (input.lines.length > 0) {
+      const { error: linesError } = await supabase
+        .from("financial_amendment_lines")
+        .insert(
+          input.lines.map((line, index) => ({
+            amendment_id: amendment.id,
+            sort_order: index,
+            designation: line.designation,
+            amount_ht: line.amount_ht,
+            quote_id: line.quote_id ?? null,
+          }))
+        );
+
+      if (linesError) {
+        return { ok: false, error: linesError.message };
+      }
+
+      const quoteIds = input.lines
+        .map((line) => line.quote_id)
+        .filter((id): id is string => Boolean(id));
+
+      if (quoteIds.length > 0) {
+        await supabase
+          .from("financial_quotes")
+          .update({ amendment_id: amendment.id })
+          .in("id", quoteIds)
+          .eq("project_id", projectId);
+      }
+    }
+
+    const { data: project } = await supabase
+      .from("projects")
+      .select("name")
+      .eq("id", projectId)
+      .single();
+
+    const { buildAmendmentEmailDraft } = await import(
+      "@/lib/finance/amendment-document"
+    );
+
+    const emailDraft = buildAmendmentEmailDraft({
+      project: { name: project?.name ?? "Opération" } as import("@/lib/types/database").Project,
+      lot,
+      amendmentNumber,
+      amendmentType: input.amendmentType,
+      totalHt,
+    });
+
+    await logAudit(
+      projectId,
+      input.enterpriseId,
+      "amendment",
+      amendment.id,
+      "create",
+      `Avenant n°${amendmentNumber} créé depuis devis`
+    );
+
+    revalidateFinance(projectId);
+    return {
+      ok: true,
+      amendmentId: amendment.id,
+      amendmentNumber,
+      emailDraft,
+    };
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Erreur lors de la création de l'avenant.",
+    };
+  }
+}
+
+export async function getAmendmentDocument(
+  projectId: string,
+  amendmentId: string
+): Promise<{ html: string | null; amendment: import("@/lib/types/database").FinancialAmendment | null }> {
+  await requireFinanceAccess(projectId);
+  const supabase = await createClient();
+
+  const { data, error } = await supabase
+    .from("financial_amendments")
+    .select(
+      `*,
+      enterprise:enterprises!inner(project_id),
+      financial_amendment_lines(*)
+    `
+    )
+    .eq("id", amendmentId)
+    .single();
+
+  if (error || !data) {
+    return { html: null, amendment: null };
+  }
+
+  const enterprise = data.enterprise as { project_id: string };
+  if (enterprise.project_id !== projectId) {
+    return { html: null, amendment: null };
+  }
+
+  const { financial_amendment_lines, enterprise: _, ...amendmentRaw } = data;
+  const amendment = normalizeAmendment(amendmentRaw) as import("@/lib/types/database").FinancialAmendment;
+  amendment.lines = (financial_amendment_lines ?? []).sort(
+    (a: { sort_order: number }, b: { sort_order: number }) => a.sort_order - b.sort_order
+  );
+
+  return {
+    html: amendment.document_html,
+    amendment,
+  };
 }
 
 export async function deleteAmendment(

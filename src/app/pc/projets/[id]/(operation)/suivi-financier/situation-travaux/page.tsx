@@ -1,17 +1,16 @@
-import { PrevisionnelPanel } from "@/components/finance/PrevisionnelPanel";
+import { SituationsTravauxPanel } from "@/components/finance/SituationsTravauxPanel";
 import {
   DatabaseErrorNotice,
   SupabaseSetupNotice,
 } from "@/components/SupabaseSetupNotice";
 import { getProjectFinancialData } from "@/lib/actions/finance";
-import { getPrevisionnelData } from "@/lib/actions/previsionnel";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
 type PageProps = {
   params: Promise<{ id: string }>;
 };
 
-export default async function FinancePrevisionnelPage({ params }: PageProps) {
+export default async function SituationTravauxPage({ params }: PageProps) {
   if (!isSupabaseConfigured()) {
     return <SupabaseSetupNotice />;
   }
@@ -19,25 +18,21 @@ export default async function FinancePrevisionnelPage({ params }: PageProps) {
   const { id } = await params;
 
   try {
-    const [project, previsionnel] = await Promise.all([
-      getProjectFinancialData(id),
-      getPrevisionnelData(id),
-    ]);
-
+    const project = await getProjectFinancialData(id);
     return (
-      <PrevisionnelPanel
+      <SituationsTravauxPanel
         project={project}
+        projectId={id}
         lots={project.enterprises ?? []}
-        columns={previsionnel.columns}
-        cells={previsionnel.cells}
-        comments={previsionnel.comments}
       />
     );
   } catch (error) {
     return (
       <DatabaseErrorNotice
         message={
-          error instanceof Error ? error.message : "Impossible de charger le prévisionnel."
+          error instanceof Error
+            ? error.message
+            : "Impossible de charger les situations de travaux."
         }
       />
     );
