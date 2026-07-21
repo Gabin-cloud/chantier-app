@@ -176,6 +176,28 @@ export function EmailTemplatesSettings({ data }: { data: EmailTemplatesSettingsD
     });
   }
 
+  function saveAmendment(event: React.FormEvent) {
+    event.preventDefault();
+    setAmendmentError(null);
+    setAmendmentSuccess(null);
+    const latestBody = amendmentBodyRef.current?.getHtml() ?? amendmentBody;
+
+    startAmendmentTransition(async () => {
+      const result = await updateAmendmentEmailTemplate({
+        subjectTemplate: amendmentSubject,
+        bodyTemplate: latestBody,
+        defaultCc: amendmentCc,
+      });
+      if (!result.ok) {
+        setAmendmentError(result.error);
+        return;
+      }
+      setAmendmentBody(latestBody);
+      setAmendmentSuccess("Modèle enregistré.");
+      router.refresh();
+    });
+  }
+
   return (
     <div className="space-y-8">
       <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">

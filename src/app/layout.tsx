@@ -13,13 +13,13 @@ const geistMono = Geist_Mono({
 });
 
 export const metadata: Metadata = {
-  title: "Contrôle de chantier",
+  title: "OCTOBAT",
   description: "Application de suivi et contrôle de chantier",
   manifest: "/manifest.webmanifest",
   appleWebApp: {
     capable: true,
     statusBarStyle: "default",
-    title: "Chantier",
+    title: "OCTOBAT",
   },
   icons: {
     icon: [

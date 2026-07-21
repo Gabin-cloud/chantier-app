@@ -1,3 +1,5 @@
+import { APP_NAME } from "@/lib/brand";
+
 const ADDIN_ID = "8f3c2a1b-7d4e-5f6a-9b0c-1d2e3f4a5b6c";
 const MANIFEST_VERSION = "1.0.0.1";
 
@@ -12,9 +14,9 @@ export function buildOutlookManifestXml(base: string) {
   xsi:type="MailApp">
   <Id>${ADDIN_ID}</Id>
   <Version>${MANIFEST_VERSION}</Version>
-  <ProviderName>Chantier App</ProviderName>
+  <ProviderName>${APP_NAME}</ProviderName>
   <DefaultLocale>fr-FR</DefaultLocale>
-  <DisplayName DefaultValue="Chantier App - Tri fichiers"/>
+  <DisplayName DefaultValue="${APP_NAME} - Tri fichiers"/>
   <Description DefaultValue="Classer les pieces jointes du mail ouvert vers le suivi chantier."/>
   <IconUrl DefaultValue="${base}/icons/icon-192.png"/>
   <HighResolutionIconUrl DefaultValue="${base}/icons/icon-512.png"/>
@@ -87,7 +89,7 @@ export function buildOutlookManifestXml(base: string) {
           <bt:Url id="Taskpane.Url" DefaultValue="${base}/outlook/taskpane"/>
         </bt:Urls>
         <bt:ShortStrings>
-          <bt:String id="Group.Label" DefaultValue="Chantier App"/>
+          <bt:String id="Group.Label" DefaultValue="${APP_NAME}"/>
           <bt:String id="TaskpaneButton.Label" DefaultValue="Classer"/>
           <bt:String id="TaskpaneButton.Title" DefaultValue="Classer les pieces jointes"/>
         </bt:ShortStrings>

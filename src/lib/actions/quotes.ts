@@ -174,7 +174,7 @@ export async function saveQuote(
         file,
         mode === "signed" ? "signed" : "quote"
       );
-      if ("error" in uploaded) return { ok: false, error: uploaded.error };
+      if ("error" in uploaded) return { ok: false, error: uploaded.error ?? "Erreur upload." };
       if (mode === "signed" && quoteId) {
         signedFilePath = uploaded.path;
         signedFileName = uploaded.name;

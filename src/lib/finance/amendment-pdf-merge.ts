@@ -42,7 +42,8 @@ export async function uploadAmendmentMergedPdf(
       return { ok: false, error: "Avenant introuvable." };
     }
 
-    const enterprise = amendment.enterprise as {
+    const enterpriseRaw = amendment.enterprise as unknown;
+    const enterprise = (Array.isArray(enterpriseRaw) ? enterpriseRaw[0] : enterpriseRaw) as {
       project_id: string;
       lot_number: string | null;
       name: string;

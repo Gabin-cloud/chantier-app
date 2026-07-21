@@ -36,13 +36,17 @@ function setCategory(
   if (!checked) {
     return { ...values, isCie: key === "is_cie" ? false : values.isCie, isTs: key === "is_ts" ? false : values.isTs, isTma: key === "is_tma" ? false : values.isTma };
   }
-  return normalizeQuoteCategory({
+  const normalized = normalizeQuoteCategory({
     is_cie: key === "is_cie",
     is_ts: key === "is_ts",
     is_tma: key === "is_tma",
-  }) as unknown as DevisFormValues extends infer _ ? DevisFormValues : never
-    ? never
-    : DevisFormValues;
+  });
+  return {
+    ...values,
+    isCie: normalized.is_cie,
+    isTs: normalized.is_ts,
+    isTma: normalized.is_tma,
+  };
 }
 
 export function DevisFormFields({
