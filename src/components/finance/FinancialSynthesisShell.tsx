@@ -1,9 +1,13 @@
 "use client";
 
-import { useState } from "react";
-import { FinancialSynthesis } from "@/components/finance/FinancialSynthesis";
+import { useMemo, useState } from "react";
+import {
+  buildFinancialSynthesisExport,
+  FinancialSynthesis,
+} from "@/components/finance/FinancialSynthesis";
 import { NewAmendmentModal } from "@/components/finance/NewAmendmentModal";
 import { AmendmentDocumentModal } from "@/components/finance/AmendmentDocumentModal";
+import { TableExportToolbar } from "@/components/print/TableExportToolbar";
 import { buildAmendmentDocumentHtml, linesFromAmendment } from "@/lib/finance/amendment-document";
 import { getAmendmentDocument } from "@/lib/actions/finance";
 import type {
@@ -23,6 +27,11 @@ export function FinancialSynthesisShell({
   lots,
   m365Ready,
 }: FinancialSynthesisShellProps) {
+  const printRootId = `financial-synthesis-print-${project.id}`;
+  const exportData = useMemo(
+    () => buildFinancialSynthesisExport(lots),
+    [lots]
+  );
   const [showNewAmendment, setShowNewAmendment] = useState(false);
   const [documentHtml, setDocumentHtml] = useState<string | null>(null);
   const [documentTitle, setDocumentTitle] = useState("");
@@ -59,7 +68,14 @@ export function FinancialSynthesisShell({
 
   return (
     <>
-      <div className="mb-3 flex justify-end">
+      <div className="mb-3 flex flex-wrap items-center justify-between gap-3">
+        <TableExportToolbar
+          printRootId={printRootId}
+          excelFilename={`synthese-financiere-${project.name}.csv`}
+          excelColumns={exportData.columns}
+          excelRows={exportData.rows}
+          disabled={lots.length === 0}
+        />
         <button
           type="button"
           onClick={() => setShowNewAmendment(true)}
@@ -73,6 +89,8 @@ export function FinancialSynthesisShell({
         project={project}
         lots={lots}
         onAmendmentClick={handleAmendmentClick}
+        printRootId={printRootId}
+        printBannerTitle="SYNTHESE FINANCIERE"
       />
 
       {loadingDoc && (

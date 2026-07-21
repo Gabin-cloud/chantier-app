@@ -12,6 +12,7 @@ import {
 } from "@/lib/email/recipients";
 import { requireUser } from "@/lib/auth/permissions";
 import { buildAmendmentEmailFromTemplates } from "@/lib/notifications/amendment-email";
+import { listAmendmentExtraAttachments } from "@/lib/finance/amendment-pdf-merge";
 import { createClient } from "@/lib/supabase/server";
 
 const FINANCIAL_BUCKET = "financial-files";
@@ -26,6 +27,7 @@ export type AmendmentEmailPreviewResult =
       pdfFileName: string;
       pdfUrl: string | null;
       defaultCc: string;
+      extraAttachments: { name: string; url: string | null }[];
     }
   | { ok: false; error: string };
 
@@ -59,7 +61,43 @@ type AssembledAmendmentEmail = {
   pdfBase64: string;
   pdfUrl: string | null;
   defaultCc: string;
+  extraAttachments: { name: string; contentBytes: string; url: string | null }[];
 };
+
+async function loadExtraAttachmentBytes(
+  supabase: Awaited<ReturnType<typeof createClient>>,
+  projectId: string,
+  amendmentId: string
+): Promise<{ name: string; contentBytes: string; url: string | null }[]> {
+  const listed = await listAmendmentExtraAttachments(projectId, amendmentId);
+  if (!listed.ok || listed.files.length === 0) {
+    return [];
+  }
+
+  const attachments: { name: string; contentBytes: string; url: string | null }[] = [];
+
+  for (const file of listed.files) {
+    const { data: blob, error } = await supabase.storage
+      .from(FINANCIAL_BUCKET)
+      .download(file.path);
+
+    if (error || !blob) {
+      console.warn(
+        `[assembleAmendmentEmail] Pièce jointe ${file.name} ignorée:`,
+        error?.message
+      );
+      continue;
+    }
+
+    attachments.push({
+      name: file.name,
+      contentBytes: Buffer.from(await blob.arrayBuffer()).toString("base64"),
+      url: file.url,
+    });
+  }
+
+  return attachments;
+}
 
 function resolveAmendmentEmailPayload(
   assembled: AssembledAmendmentEmail,
@@ -211,6 +249,8 @@ async function assembleAmendmentEmail(
     };
   }
 
+  const extraAttachments = await loadExtraAttachmentBytes(supabase, projectId, amendmentId);
+
   return {
     ok: true,
     data: {
@@ -222,6 +262,7 @@ async function assembleAmendmentEmail(
       pdfBase64,
       pdfUrl: publicUrlData.publicUrl ?? null,
       defaultCc: emailTemplate.defaultCc,
+      extraAttachments,
     },
   };
 }
@@ -236,7 +277,7 @@ export async function prepareAmendmentEmailPreview(
       return assembled;
     }
 
-    const { subject, htmlBody, recipients, skipped, pdfFileName, pdfUrl, defaultCc } =
+    const { subject, htmlBody, recipients, skipped, pdfFileName, pdfUrl, defaultCc, extraAttachments } =
       assembled.data;
 
     return {
@@ -248,6 +289,10 @@ export async function prepareAmendmentEmailPreview(
       pdfFileName,
       pdfUrl,
       defaultCc,
+      extraAttachments: extraAttachments.map((file) => ({
+        name: file.name,
+        url: file.url,
+      })),
     };
   } catch (error) {
     return {
@@ -280,20 +325,27 @@ export async function createAmendmentEmailDraft(
     }
 
     const { subject, htmlBody, recipients, cc } = resolved.data;
-    const { skipped, pdfFileName, pdfBase64 } = assembled.data;
+    const { skipped, pdfFileName, pdfBase64, extraAttachments } = assembled.data;
+
+    const attachments = [
+      {
+        name: pdfFileName,
+        contentType: "application/pdf",
+        contentBytes: pdfBase64,
+      },
+      ...extraAttachments.map((file) => ({
+        name: file.name,
+        contentType: "application/pdf",
+        contentBytes: file.contentBytes,
+      })),
+    ];
 
     const draft = await createUserMailDraft(user.id, {
       subject,
       htmlBody,
       to: recipients,
       cc,
-      attachments: [
-        {
-          name: pdfFileName,
-          contentType: "application/pdf",
-          contentBytes: pdfBase64,
-        },
-      ],
+      attachments,
     });
 
     revalidatePath(`/pc/projets/${projectId}/suivi-financier/avenants`);
@@ -339,20 +391,27 @@ export async function sendAmendmentEmail(
     }
 
     const { subject, htmlBody, recipients, cc } = resolved.data;
-    const { skipped, pdfFileName, pdfBase64 } = assembled.data;
+    const { skipped, pdfFileName, pdfBase64, extraAttachments } = assembled.data;
+
+    const attachments = [
+      {
+        name: pdfFileName,
+        contentType: "application/pdf",
+        contentBytes: pdfBase64,
+      },
+      ...extraAttachments.map((file) => ({
+        name: file.name,
+        contentType: "application/pdf",
+        contentBytes: file.contentBytes,
+      })),
+    ];
 
     await sendUserMail(user.id, {
       subject,
       htmlBody,
       to: recipients,
       cc,
-      attachments: [
-        {
-          name: pdfFileName,
-          contentType: "application/pdf",
-          contentBytes: pdfBase64,
-        },
-      ],
+      attachments,
     });
 
     revalidatePath(`/pc/projets/${projectId}/suivi-financier/avenants`);

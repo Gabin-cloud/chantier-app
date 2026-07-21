@@ -5,6 +5,7 @@ import { useRouter } from "next/navigation";
 import type { EmailTemplatesSettingsData } from "@/lib/actions/email-templates";
 import {
   updateAmendmentEmailTemplate,
+  updateDevisMouEmailTemplate,
   updatePlatformInvitationEmailTemplate,
   updateVisitReportEmailTemplate,
 } from "@/lib/actions/email-templates";
@@ -82,21 +83,29 @@ export function EmailTemplatesSettings({ data }: { data: EmailTemplatesSettingsD
   const [amendmentSubject, setAmendmentSubject] = useState(data.amendmentSend.subjectTemplate);
   const [amendmentBody, setAmendmentBody] = useState(data.amendmentSend.bodyTemplate);
   const [amendmentCc, setAmendmentCc] = useState(data.amendmentSend.defaultCc);
+  const [devisMouSubject, setDevisMouSubject] = useState(data.devisMouSend.subjectTemplate);
+  const [devisMouBody, setDevisMouBody] = useState(data.devisMouSend.bodyTemplate);
+  const [devisMouCc, setDevisMouCc] = useState(data.devisMouSend.defaultCc);
   const [visitError, setVisitError] = useState<string | null>(null);
   const [visitSuccess, setVisitSuccess] = useState<string | null>(null);
   const [inviteError, setInviteError] = useState<string | null>(null);
   const [inviteSuccess, setInviteSuccess] = useState<string | null>(null);
   const [amendmentError, setAmendmentError] = useState<string | null>(null);
   const [amendmentSuccess, setAmendmentSuccess] = useState<string | null>(null);
+  const [devisMouError, setDevisMouError] = useState<string | null>(null);
+  const [devisMouSuccess, setDevisMouSuccess] = useState<string | null>(null);
   const [isVisitPending, startVisitTransition] = useTransition();
   const [isInvitePending, startInviteTransition] = useTransition();
   const [isAmendmentPending, startAmendmentTransition] = useTransition();
+  const [isDevisMouPending, startDevisMouTransition] = useTransition();
   const visitSubjectRef = useRef<HTMLInputElement>(null);
   const inviteSubjectRef = useRef<HTMLInputElement>(null);
   const amendmentSubjectRef = useRef<HTMLInputElement>(null);
   const visitBodyRef = useRef<RichTextEditorHandle>(null);
   const inviteBodyRef = useRef<RichTextEditorHandle>(null);
   const amendmentBodyRef = useRef<RichTextEditorHandle>(null);
+  const devisMouSubjectRef = useRef<HTMLInputElement>(null);
+  const devisMouBodyRef = useRef<RichTextEditorHandle>(null);
 
   function insertTag(
     field: "subject" | "body",
@@ -194,6 +203,28 @@ export function EmailTemplatesSettings({ data }: { data: EmailTemplatesSettingsD
       }
       setAmendmentBody(latestBody);
       setAmendmentSuccess("Modèle enregistré.");
+      router.refresh();
+    });
+  }
+
+  function saveDevisMou(event: React.FormEvent) {
+    event.preventDefault();
+    setDevisMouError(null);
+    setDevisMouSuccess(null);
+    const latestBody = devisMouBodyRef.current?.getHtml() ?? devisMouBody;
+
+    startDevisMouTransition(async () => {
+      const result = await updateDevisMouEmailTemplate({
+        subjectTemplate: devisMouSubject,
+        bodyTemplate: latestBody,
+        defaultCc: devisMouCc,
+      });
+      if (!result.ok) {
+        setDevisMouError(result.error);
+        return;
+      }
+      setDevisMouBody(latestBody);
+      setDevisMouSuccess("Modèle enregistré.");
       router.refresh();
     });
   }
@@ -435,6 +466,99 @@ export function EmailTemplatesSettings({ data }: { data: EmailTemplatesSettingsD
                 amendmentSubjectRef,
                 amendmentBodyRef,
                 setAmendmentBody
+              )
+            }
+          />
+        </div>
+      </section>
+
+      <section className="rounded-2xl border border-slate-200 bg-white p-5 shadow-sm">
+        <h2 className="text-lg font-semibold text-slate-900">Mails type — envoi devis MOU</h2>
+        <p className="mt-1 text-sm text-slate-500">
+          Utilisé depuis le suivi des devis pour envoyer une sélection de devis au maître
+          d&apos;ouvrage avec les PDF joints.
+        </p>
+
+        <form onSubmit={saveDevisMou} className="mt-5 space-y-5">
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">Objet du mail</label>
+            <input
+              ref={devisMouSubjectRef}
+              type="text"
+              value={devisMouSubject}
+              onChange={(e) => setDevisMouSubject(e.target.value)}
+              disabled={!data.canEdit || isDevisMouPending}
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">
+              Copie carbone par défaut (Cc)
+            </label>
+            <input
+              type="text"
+              value={devisMouCc}
+              onChange={(e) => setDevisMouCc(e.target.value)}
+              disabled={!data.canEdit || isDevisMouPending}
+              placeholder="email1@entreprise.fr, email2@entreprise.fr"
+              className={inputClass}
+            />
+          </div>
+          <div>
+            <label className="mb-1.5 block text-sm font-medium text-slate-700">Corps du mail</label>
+            <RichTextEditor
+              ref={devisMouBodyRef}
+              value={devisMouBody}
+              onChange={setDevisMouBody}
+              disabled={!data.canEdit || isDevisMouPending}
+              minHeight="260px"
+              placeholder="Rédigez le contenu du mail type…"
+            />
+          </div>
+          {data.canEdit && (
+            <button
+              type="submit"
+              disabled={isDevisMouPending}
+              className="rounded-xl bg-slate-900 px-4 py-3 text-sm font-semibold text-white hover:bg-slate-800 disabled:opacity-50"
+            >
+              Enregistrer le modèle
+            </button>
+          )}
+        </form>
+
+        {devisMouSuccess && (
+          <p className="mt-3 rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">
+            {devisMouSuccess}
+          </p>
+        )}
+        {devisMouError && (
+          <p className="mt-3 rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{devisMouError}</p>
+        )}
+
+        <div className="mt-6">
+          <MergeTagsPanel
+            tags={data.devisMouMergeTags}
+            canEdit={data.canEdit}
+            onInsertSubject={(key) =>
+              insertTag(
+                "subject",
+                key,
+                devisMouSubject,
+                setDevisMouSubject,
+                devisMouSubjectRef,
+                devisMouBodyRef,
+                setDevisMouBody
+              )
+            }
+            onInsertBody={(key) =>
+              insertTag(
+                "body",
+                key,
+                devisMouSubject,
+                setDevisMouSubject,
+                devisMouSubjectRef,
+                devisMouBodyRef,
+                setDevisMouBody
               )
             }
           />

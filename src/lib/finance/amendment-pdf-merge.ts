@@ -134,3 +134,137 @@ export async function uploadAmendmentMergedPdf(
     };
   }
 }
+
+export type AmendmentExtraAttachment = {
+  name: string;
+  path: string;
+  url: string | null;
+};
+
+function extraAttachmentsPrefix(projectId: string, amendmentId: string): string {
+  return `${projectId}/amendments/${amendmentId}/extra`;
+}
+
+export async function listAmendmentExtraAttachments(
+  projectId: string,
+  amendmentId: string
+): Promise<
+  { ok: true; files: AmendmentExtraAttachment[] } | { ok: false; error: string }
+> {
+  try {
+    await requireFinanceAccess(projectId);
+    const supabase = await createClient();
+    const prefix = extraAttachmentsPrefix(projectId, amendmentId);
+
+    const { data: files, error } = await supabase.storage
+      .from(FINANCIAL_BUCKET)
+      .list(prefix);
+
+    if (error) {
+      return { ok: false, error: error.message };
+    }
+
+    const attachments: AmendmentExtraAttachment[] = (files ?? [])
+      .filter((file) => file.name && !file.name.endsWith("/"))
+      .map((file) => {
+        const path = `${prefix}/${file.name}`;
+        const { data } = supabase.storage.from(FINANCIAL_BUCKET).getPublicUrl(path);
+        return {
+          name: file.name,
+          path,
+          url: data.publicUrl ?? null,
+        };
+      });
+
+    return { ok: true, files: attachments };
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        error instanceof Error ? error.message : "Impossible de lister les pièces jointes.",
+    };
+  }
+}
+
+export async function uploadAmendmentExtraAttachments(
+  projectId: string,
+  amendmentId: string,
+  formData: FormData
+): Promise<
+  { ok: true; files: AmendmentExtraAttachment[] } | { ok: false; error: string }
+> {
+  try {
+    await requireFinanceAccess(projectId);
+    const supabase = await createClient();
+
+    const { data: amendment, error: amendmentError } = await supabase
+      .from("financial_amendments")
+      .select("id, enterprise:enterprises!inner(project_id)")
+      .eq("id", amendmentId)
+      .single();
+
+    if (amendmentError || !amendment) {
+      return { ok: false, error: "Avenant introuvable." };
+    }
+
+    const enterpriseRaw = amendment.enterprise as unknown;
+    const enterprise = (Array.isArray(enterpriseRaw) ? enterpriseRaw[0] : enterpriseRaw) as {
+      project_id: string;
+    };
+
+    if (enterprise.project_id !== projectId) {
+      return { ok: false, error: "Avenant introuvable." };
+    }
+
+    const incoming = formData.getAll("files") as File[];
+    const files = incoming.filter((file) => file instanceof File && file.size > 0);
+
+    if (files.length === 0) {
+      return { ok: true, files: [] };
+    }
+
+    const prefix = extraAttachmentsPrefix(projectId, amendmentId);
+    const uploaded: AmendmentExtraAttachment[] = [];
+
+    for (const file of files) {
+      const isPdf =
+        file.type === "application/pdf" || file.name.toLowerCase().endsWith(".pdf");
+      if (!isPdf) {
+        return { ok: false, error: "Seuls les fichiers PDF sont acceptés." };
+      }
+
+      const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+      const filePath = `${prefix}/${safeName}`;
+      const buffer = Buffer.from(await file.arrayBuffer());
+
+      const { error: uploadError } = await supabase.storage
+        .from(FINANCIAL_BUCKET)
+        .upload(filePath, buffer, {
+          contentType: "application/pdf",
+          upsert: true,
+        });
+
+      if (uploadError) {
+        return { ok: false, error: uploadError.message };
+      }
+
+      const { data } = supabase.storage.from(FINANCIAL_BUCKET).getPublicUrl(filePath);
+      uploaded.push({
+        name: file.name,
+        path: filePath,
+        url: data.publicUrl ?? null,
+      });
+    }
+
+    revalidatePath(`/pc/projets/${projectId}/suivi-financier/avenants`);
+    revalidatePath(`/pc/projets/${projectId}/suivi-financier/synthese`);
+
+    return { ok: true, files: uploaded };
+  } catch (error) {
+    return {
+      ok: false,
+      error:
+        error instanceof Error ? error.message : "Impossible d'enregistrer les pièces jointes.",
+    };
+  }
+}

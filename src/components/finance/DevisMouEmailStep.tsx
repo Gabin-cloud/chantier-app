@@ -4,12 +4,11 @@ import { useEffect, useState, useTransition } from "react";
 import { ModalPanel } from "@/components/ui/ModalPanel";
 import { RichTextEditor } from "@/components/ui/RichTextEditor";
 import {
-  createAmendmentEmailDraft,
-  prepareAmendmentEmailPreview,
-  sendAmendmentEmail,
-  type AmendmentEmailPreviewResult,
-} from "@/lib/actions/amendment-email";
-import { uploadAmendmentExtraAttachments } from "@/lib/finance/amendment-pdf-merge";
+  createDevisMouEmailDraft,
+  prepareDevisMouEmailPreview,
+  sendDevisMouEmail,
+  type DevisMouEmailPreviewResult,
+} from "@/lib/actions/devis-mou-email";
 import {
   normalizeRecipients,
   parseEmailList,
@@ -18,7 +17,7 @@ import {
 
 type RecipientRow = { id: string; email: string; name: string };
 
-export type AmendmentEmailConfirmPayload = {
+export type DevisMouEmailConfirmPayload = {
   subject: string;
   recipients: { email: string; name: string }[];
   cc: string;
@@ -37,7 +36,7 @@ function buildPayload(
   recipientRows: RecipientRow[],
   cc: string,
   htmlBody: string
-): { ok: true; payload: AmendmentEmailConfirmPayload } | { ok: false; error: string } {
+): { ok: true; payload: DevisMouEmailConfirmPayload } | { ok: false; error: string } {
   const trimmedSubject = subject.trim();
   const recipients = normalizeRecipients(recipientRows);
   const trimmedBody = htmlBody.trim();
@@ -72,26 +71,26 @@ function buildPayload(
   };
 }
 
-type AmendmentEmailStepProps = {
+type DevisMouEmailStepProps = {
   projectId: string;
-  amendmentId: string;
+  quoteIds: string[];
   m365Ready: boolean;
   onClose: () => void;
-  onComplete: () => void;
+  onSent?: () => void;
 };
 
-export function AmendmentEmailStep({
+export function DevisMouEmailStep({
   projectId,
-  amendmentId,
+  quoteIds,
   m365Ready,
   onClose,
-  onComplete,
-}: AmendmentEmailStepProps) {
+  onSent,
+}: DevisMouEmailStepProps) {
   const [, startTransition] = useTransition();
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [preview, setPreview] = useState<
-    Extract<AmendmentEmailPreviewResult, { ok: true }> | null
+    Extract<DevisMouEmailPreviewResult, { ok: true }> | null
   >(null);
   const [subject, setSubject] = useState("");
   const [htmlBody, setHtmlBody] = useState("");
@@ -101,10 +100,6 @@ export function AmendmentEmailStep({
   const [success, setSuccess] = useState<string | null>(null);
   const [draftLink, setDraftLink] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
-  const [extraAttachments, setExtraAttachments] = useState<
-    { name: string; url: string | null }[]
-  >([]);
-  const [uploadingExtra, setUploadingExtra] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -112,7 +107,7 @@ export function AmendmentEmailStep({
     async function loadPreview() {
       setLoading(true);
       setLoadError(null);
-      const result = await prepareAmendmentEmailPreview(projectId, amendmentId);
+      const result = await prepareDevisMouEmailPreview(projectId, quoteIds);
       if (cancelled) return;
 
       if (!result.ok) {
@@ -125,7 +120,6 @@ export function AmendmentEmailStep({
       setSubject(result.subject);
       setHtmlBody(result.htmlBody);
       setCc(result.defaultCc);
-      setExtraAttachments(result.extraAttachments);
       setRecipientRows(
         result.recipients.map((r) => ({
           id: newRecipientId(),
@@ -140,7 +134,7 @@ export function AmendmentEmailStep({
     return () => {
       cancelled = true;
     };
-  }, [projectId, amendmentId]);
+  }, [projectId, quoteIds]);
 
   function updateRecipient(id: string, field: "email" | "name", value: string) {
     setRecipientRows((rows) =>
@@ -159,47 +153,8 @@ export function AmendmentEmailStep({
     ]);
   }
 
-  async function handleExtraFilesChange(event: React.ChangeEvent<HTMLInputElement>) {
-    const selected = Array.from(event.target.files ?? []);
-    event.target.value = "";
-    if (selected.length === 0) return;
-
-    setUploadingExtra(true);
-    setFormError(null);
-
-    try {
-      const formData = new FormData();
-      for (const file of selected) {
-        formData.append("files", file);
-      }
-
-      const result = await uploadAmendmentExtraAttachments(
-        projectId,
-        amendmentId,
-        formData
-      );
-
-      if (!result.ok) {
-        setFormError(result.error);
-        return;
-      }
-
-      const previewResult = await prepareAmendmentEmailPreview(projectId, amendmentId);
-      if (previewResult.ok) {
-        setExtraAttachments(previewResult.extraAttachments);
-      } else {
-        setExtraAttachments((current) => [
-          ...current,
-          ...result.files.map((file) => ({ name: file.name, url: file.url })),
-        ]);
-      }
-    } finally {
-      setUploadingExtra(false);
-    }
-  }
-
   async function runEmailAction(
-    payload: AmendmentEmailConfirmPayload,
+    payload: DevisMouEmailConfirmPayload,
     mode: "draft" | "send"
   ) {
     setIsSubmitting(true);
@@ -215,7 +170,7 @@ export function AmendmentEmailStep({
 
     try {
       if (mode === "draft") {
-        const result = await createAmendmentEmailDraft(projectId, amendmentId, overrides);
+        const result = await createDevisMouEmailDraft(projectId, quoteIds, overrides);
         if (!result.ok) {
           setFormError(result.error);
           return;
@@ -226,8 +181,9 @@ export function AmendmentEmailStep({
         }
         setSuccess(msg);
         setDraftLink(result.webLink);
+        onSent?.();
       } else {
-        const result = await sendAmendmentEmail(projectId, amendmentId, overrides);
+        const result = await sendDevisMouEmail(projectId, quoteIds, overrides);
         if (!result.ok) {
           setFormError(result.error);
           return;
@@ -238,7 +194,7 @@ export function AmendmentEmailStep({
         }
         setSuccess(msg);
         setDraftLink(null);
-        onComplete();
+        onSent?.();
       }
     } finally {
       setIsSubmitting(false);
@@ -288,7 +244,7 @@ export function AmendmentEmailStep({
 
   return (
     <ModalPanel
-      title="Envoyer l'avenant à l'entreprise"
+      title="Envoyer les devis au maître d'ouvrage"
       subtitle="Modifiez le contenu, puis envoyez ou enregistrez en brouillon"
       onClose={onClose}
       maxWidth="2xl"
@@ -335,7 +291,7 @@ export function AmendmentEmailStep({
                       type="email"
                       value={row.email}
                       onChange={(e) => updateRecipient(row.id, "email", e.target.value)}
-                      placeholder="email@entreprise.fr"
+                      placeholder="email@mou.fr"
                       className={`${inputClass} min-w-[200px] flex-1`}
                     />
                     <input
@@ -372,53 +328,27 @@ export function AmendmentEmailStep({
               />
             </div>
 
-            {preview && (
-              <div className="space-y-2">
-                <div className="flex flex-wrap items-center gap-2">
-                  <span className="font-medium text-slate-500">Pièce jointe</span>
-                  <span className="inline-flex items-center gap-1 rounded-lg bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700">
-                    PDF {preview.pdfFileName}
+            {preview && preview.attachments.length > 0 && (
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="font-medium text-slate-500">Pièces jointes</span>
+                {preview.attachments.map((attachment) => (
+                  <span
+                    key={attachment.fileName}
+                    className="inline-flex items-center gap-1 rounded-lg bg-red-50 px-2.5 py-1 text-xs font-semibold text-red-700"
+                  >
+                    PDF {attachment.fileName}
+                    {attachment.pdfUrl && (
+                      <a
+                        href={attachment.pdfUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="ml-1 text-emerald-700 underline"
+                      >
+                        Voir
+                      </a>
+                    )}
                   </span>
-                  {preview.pdfUrl && (
-                    <a
-                      href={preview.pdfUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="text-xs font-semibold text-emerald-700 underline"
-                    >
-                      Voir le PDF
-                    </a>
-                  )}
-                </div>
-
-                {extraAttachments.length > 0 && (
-                  <div>
-                    <span className="mb-1 block font-medium text-slate-500">
-                      Devis complémentaires
-                    </span>
-                    <ul className="space-y-1">
-                      {extraAttachments.map((file) => (
-                        <li
-                          key={file.name}
-                          className="inline-flex items-center gap-2 rounded-lg bg-slate-50 px-2.5 py-1 text-xs text-slate-700"
-                        >
-                          <span className="font-semibold text-red-700">PDF</span>
-                          <span>{file.name}</span>
-                          {file.url && (
-                            <a
-                              href={file.url}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="font-semibold text-emerald-700 underline"
-                            >
-                              Voir
-                            </a>
-                          )}
-                        </li>
-                      ))}
-                    </ul>
-                  </div>
-                )}
+                ))}
               </div>
             )}
           </div>
@@ -433,26 +363,9 @@ export function AmendmentEmailStep({
 
         {preview && preview.skipped.length > 0 && (
           <p className="rounded-lg bg-amber-50 px-3 py-2 text-sm text-amber-800">
-            Entreprises sans e-mail (non ajoutées) : {preview.skipped.join(" · ")}
+            Avertissements : {preview.skipped.join(" · ")}
           </p>
         )}
-
-        <div className="rounded-xl border border-dashed border-slate-200 bg-slate-50 px-4 py-3">
-          <label className="mb-2 block text-xs font-semibold uppercase tracking-wide text-slate-500">
-            Ajouter des devis complémentaires (optionnel)
-          </label>
-          <input
-            type="file"
-            accept=".pdf,application/pdf"
-            multiple
-            disabled={uploadingExtra || isSubmitting}
-            onChange={handleExtraFilesChange}
-            className="block w-full cursor-pointer text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-white file:px-3 file:py-2 file:text-sm file:font-medium file:text-slate-700 hover:file:bg-slate-100 disabled:opacity-50"
-          />
-          {uploadingExtra && (
-            <p className="mt-2 text-xs text-slate-500">Enregistrement des fichiers…</p>
-          )}
-        </div>
 
         {success && (
           <div className="rounded-lg bg-emerald-50 px-3 py-2 text-sm text-emerald-800">

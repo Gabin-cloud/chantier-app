@@ -8,7 +8,7 @@ import { createAmendmentFromQuotes } from "@/lib/actions/finance";
 import { getQuotesForAmendment } from "@/lib/actions/quotes";
 import { buildAmendmentDocumentHtml } from "@/lib/finance/amendment-document";
 import { htmlToPdfBase64 } from "@/lib/finance/amendment-pdf-client";
-import { uploadAmendmentMergedPdf } from "@/lib/finance/amendment-pdf-merge";
+import { uploadAmendmentMergedPdf, uploadAmendmentExtraAttachments } from "@/lib/finance/amendment-pdf-merge";
 import { formatCurrency, parseMoneyInput } from "@/lib/finance/calculations";
 import type {
   FinancialQuote,
@@ -54,8 +54,10 @@ export function NewAmendmentModal({
   const [selectedQuoteIds, setSelectedQuoteIds] = useState<Set<string>>(new Set());
   const [danobatComment, setDanobatComment] = useState("");
   const [error, setError] = useState<string | null>(null);
-  const [step, setStep] = useState<"form" | "email">("form");
+  const [step, setStep] = useState<"form" | "attachments" | "email">("form");
   const [createdAmendmentId, setCreatedAmendmentId] = useState<string | null>(null);
+  const [extraFiles, setExtraFiles] = useState<File[]>([]);
+  const [uploadingExtras, setUploadingExtras] = useState(false);
 
   const selectedLot = useMemo(
     () => lots.find((lot) => lot.id === enterpriseId) ?? null,
@@ -206,19 +208,116 @@ export function NewAmendmentModal({
       }
 
       setCreatedAmendmentId(result.amendmentId);
-      setStep("email");
+      setStep("attachments");
       router.refresh();
     });
+  }
+
+  async function handleContinueToEmail() {
+    if (!createdAmendmentId) return;
+
+    setUploadingExtras(true);
+    setError(null);
+
+    try {
+      if (extraFiles.length > 0) {
+        const formData = new FormData();
+        for (const file of extraFiles) {
+          formData.append("files", file);
+        }
+
+        const uploadResult = await uploadAmendmentExtraAttachments(
+          project.id,
+          createdAmendmentId,
+          formData
+        );
+
+        if (!uploadResult.ok) {
+          setError(uploadResult.error);
+          return;
+        }
+      }
+
+      setStep("email");
+    } finally {
+      setUploadingExtras(false);
+    }
+  }
+
+  function handleExtraFilesChange(event: React.ChangeEvent<HTMLInputElement>) {
+    const selected = Array.from(event.target.files ?? []);
+    setExtraFiles(selected);
+    event.target.value = "";
   }
 
   function handleClose() {
     setStep("form");
     setCreatedAmendmentId(null);
+    setExtraFiles([]);
     setError(null);
     setManualLines([]);
     setSelectedQuoteIds(new Set());
     setDanobatComment("");
     onClose();
+  }
+
+  if (step === "attachments" && createdAmendmentId) {
+    return (
+      <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+        <div className="w-full max-w-lg rounded-2xl bg-white shadow-xl">
+          <div className="flex items-center justify-between border-b border-slate-200 px-5 py-4">
+            <h3 className="text-lg font-semibold text-slate-900">Pièces jointes complémentaires</h3>
+            <button
+              type="button"
+              onClick={handleClose}
+              className="rounded-lg px-3 py-1 text-sm text-slate-500 hover:bg-slate-100"
+            >
+              Fermer
+            </button>
+          </div>
+
+          <div className="space-y-4 p-5">
+            <p className="text-sm text-slate-600">
+              Vous pouvez joindre des devis complémentaires (PDF) qui seront inclus à l&apos;envoi
+              du mail à l&apos;entreprise.
+            </p>
+
+            <div>
+              <label className="mb-2 block text-sm font-medium text-slate-700">
+                Devis complémentaires (PDF)
+              </label>
+              <input
+                type="file"
+                accept=".pdf,application/pdf"
+                multiple
+                onChange={handleExtraFilesChange}
+                className="block w-full cursor-pointer text-sm text-slate-600 file:mr-3 file:rounded-lg file:border-0 file:bg-violet-50 file:px-3 file:py-2 file:text-sm file:font-medium file:text-violet-700 hover:file:bg-violet-100"
+              />
+              {extraFiles.length > 0 && (
+                <ul className="mt-2 space-y-1 text-sm text-slate-600">
+                  {extraFiles.map((file) => (
+                    <li key={`${file.name}-${file.size}`}>{file.name}</li>
+                  ))}
+                </ul>
+              )}
+            </div>
+
+            {error && (
+              <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{error}</p>
+            )}
+
+            <button
+              type="button"
+              onClick={handleContinueToEmail}
+              disabled={uploadingExtras}
+              className="w-full rounded-xl bg-violet-600 px-4 py-3 text-sm font-semibold text-white hover:bg-violet-700 disabled:opacity-60"
+            >
+              {uploadingExtras ? "Enregistrement…" : "Continuer vers l'envoi mail"}
+            </button>
+          </div>
+        </div>
+      </div>
+    );
   }
 
   if (step === "email" && createdAmendmentId) {

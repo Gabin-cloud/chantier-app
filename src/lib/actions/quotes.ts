@@ -8,7 +8,11 @@ import {
   validateQuoteCategory,
 } from "@/lib/finance/quote-category";
 import { createClient } from "@/lib/supabase/server";
-import type { FinancialQuote, FinancialQuoteWithLot } from "@/lib/types/database";
+import type {
+  FinancialQuote,
+  FinancialQuoteWithLot,
+  QuoteValidationStatus,
+} from "@/lib/types/database";
 
 const FINANCIAL_BUCKET = "financial-files";
 
@@ -24,6 +28,14 @@ function revalidateQuotes(projectId: string) {
   for (const path of quotePaths(projectId)) {
     revalidatePath(path);
   }
+}
+
+function deriveValidationStatus(row: Record<string, unknown>): QuoteValidationStatus {
+  const raw = row.validation_status as QuoteValidationStatus | undefined;
+  if (raw === "yes" || raw === "no" || raw === "pending") return raw;
+  if (Boolean(row.is_rejected)) return "no";
+  if (row.validated_at) return "yes";
+  return "pending";
 }
 
 function mapQuoteRow(row: Record<string, unknown>): FinancialQuoteWithLot {
@@ -49,6 +61,9 @@ function mapQuoteRow(row: Record<string, unknown>): FinancialQuoteWithLot {
     amount_ht: Number(row.amount_ht),
     is_rejected: Boolean(row.is_rejected),
     validated_at: (row.validated_at as string | null) ?? null,
+    validation_status: deriveValidationStatus(row),
+    mou_sent_at: (row.mou_sent_at as string | null) ?? null,
+    mou_return_at: (row.mou_return_at as string | null) ?? null,
     amendment_id: (row.amendment_id as string | null) ?? null,
     comment: (row.comment as string | null) ?? null,
     file_path: (row.file_path as string | null) ?? null,
@@ -296,7 +311,11 @@ export async function updateQuoteField(
     if (str === "non") {
       const { error } = await supabase
         .from("financial_quotes")
-        .update({ is_rejected: true, validated_at: null })
+        .update({
+          is_rejected: true,
+          validated_at: null,
+          validation_status: "no",
+        })
         .eq("id", quoteId)
         .eq("project_id", projectId);
       if (error) return { ok: false, error: error.message };
@@ -305,7 +324,58 @@ export async function updateQuoteField(
     }
     const { error } = await supabase
       .from("financial_quotes")
-      .update({ validated_at: str || null, is_rejected: false })
+      .update({
+        validated_at: str || null,
+        is_rejected: false,
+        validation_status: str ? "yes" : "pending",
+      })
+      .eq("id", quoteId)
+      .eq("project_id", projectId);
+    if (error) return { ok: false, error: error.message };
+    revalidateQuotes(projectId);
+    return { ok: true };
+  }
+
+  if (field === "validation_status") {
+    const status = String(value ?? "") as QuoteValidationStatus;
+    if (status !== "yes" && status !== "no" && status !== "pending") {
+      return { ok: false, error: "Statut de validation invalide." };
+    }
+
+    const updatePayload: Record<string, unknown> = { validation_status: status };
+    if (status === "no") {
+      updatePayload.is_rejected = true;
+      updatePayload.validated_at = null;
+    } else if (status === "yes") {
+      updatePayload.is_rejected = false;
+      const { data: current } = await supabase
+        .from("financial_quotes")
+        .select("validated_at")
+        .eq("id", quoteId)
+        .single();
+      if (!current?.validated_at) {
+        updatePayload.validated_at = new Date().toISOString().slice(0, 10);
+      }
+    } else {
+      updatePayload.is_rejected = false;
+      updatePayload.validated_at = null;
+    }
+
+    const { error } = await supabase
+      .from("financial_quotes")
+      .update(updatePayload)
+      .eq("id", quoteId)
+      .eq("project_id", projectId);
+    if (error) return { ok: false, error: error.message };
+    revalidateQuotes(projectId);
+    return { ok: true };
+  }
+
+  if (field === "mou_sent_at" || field === "mou_return_at") {
+    const str = String(value ?? "").trim();
+    const { error } = await supabase
+      .from("financial_quotes")
+      .update({ [field]: str || null })
       .eq("id", quoteId)
       .eq("project_id", projectId);
     if (error) return { ok: false, error: error.message };
