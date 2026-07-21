@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useMemo, useRef, useState, useTransition } from "react";
+import { useCallback, useMemo, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import {
   deletePrevisionnelColumn,
@@ -10,7 +10,9 @@ import {
 } from "@/lib/actions/previsionnel";
 import { formatCurrency } from "@/lib/finance/calculations";
 import { evaluateFormula, isFormula } from "@/lib/finance/formula";
-import { exportPrevisionnelPdf } from "@/lib/finance/previsionnel-pdf";
+import { PrintReportBanner } from "@/components/print/PrintReportBanner";
+import { TableExportToolbar } from "@/components/print/TableExportToolbar";
+import type { ExcelColumn } from "@/lib/print/table-export";
 import {
   computeCellValue,
   computeColumnTotal,
@@ -159,9 +161,7 @@ export function PrevisionnelPanel({
   comments: initialComments,
 }: PrevisionnelPanelProps) {
   const router = useRouter();
-  const printRef = useRef<HTMLDivElement>(null);
   const [isPending, startTransition] = useTransition();
-  const [exporting, setExporting] = useState(false);
 
   const [columns, setColumns] = useState(initialColumns);
   const [cells, setCells] = useState(initialCells);
@@ -284,19 +284,54 @@ export function PrevisionnelPanel({
     router.refresh();
   };
 
-  const handleExportPdf = async () => {
-    if (!printRef.current) return;
-    setExporting(true);
-    try {
-      const safeName = project.name.replace(/[^\w\s-]/g, "").trim() || "previsionnel";
-      await exportPrevisionnelPdf({
-        element: printRef.current,
-        fileName: `Previsionnel-${safeName}.pdf`,
-      });
-    } finally {
-      setExporting(false);
-    }
-  };
+  const excelExport = useMemo(() => {
+    const excelColumns: ExcelColumn[] = renderedColumns.map((col) => ({
+      header: col.label,
+      value: "",
+    }));
+
+    const excelRows: ExcelColumn[][] = lots.map((lot) =>
+      renderedColumns.map((col) => {
+        if (col.kind === "fixed") {
+          if (col.key === "lot_number") {
+            return { header: col.label, value: lot.lot_number ?? "" };
+          }
+          if (col.key === "designation") {
+            return { header: col.label, value: lot.designation ?? "" };
+          }
+          if (col.key === "titulaire") {
+            return { header: col.label, value: lot.name };
+          }
+          if (col.key === "market_ht") {
+            return {
+              header: col.label,
+              value: formatCurrency(Number(lot.contract_amount_ht)),
+            };
+          }
+          return { header: col.label, value: "" };
+        }
+        if (col.kind === "comment") {
+          return { header: col.label, value: getComment(lot.id) || "" };
+        }
+        if (col.kind === "dynamic") {
+          const configColumn = columns.find((c) => c.id === col.configColumnId);
+          if (!configColumn) {
+            return { header: col.label, value: "" };
+          }
+          return {
+            header: col.label,
+            value: computeCellValue(col, configColumn, columns, cells, lot).display,
+          };
+        }
+        return { header: "", value: "" };
+      })
+    );
+
+    return { columns: excelColumns, rows: excelRows };
+  }, [renderedColumns, lots, columns, cells, getComment]);
+
+  const safeExportName =
+    project.name.replace(/[^\w\s-]/g, "").trim() || "previsionnel";
 
   const renderDynamicCell = (
     lot: LotWithFinancials,
@@ -529,14 +564,13 @@ export function PrevisionnelPanel({
           >
             + Ajouter une colonne
           </button>
-          <button
-            type="button"
-            onClick={handleExportPdf}
-            disabled={exporting || lots.length === 0}
-            className="rounded-lg bg-slate-900 px-3 py-2 text-sm font-medium text-white hover:bg-slate-800 disabled:opacity-50"
-          >
-            {exporting ? "Export…" : "Exporter PDF"}
-          </button>
+          <TableExportToolbar
+            printRootId="previsionnel-print"
+            excelFilename={`Previsionnel-${safeExportName}`}
+            excelColumns={excelExport.columns}
+            excelRows={excelExport.rows}
+            disabled={lots.length === 0}
+          />
         </div>
       </div>
 
@@ -550,28 +584,9 @@ export function PrevisionnelPanel({
         </div>
       )}
 
-      {/* Zone d'impression PDF (cachée) */}
-      <div className="pointer-events-none fixed -left-[9999px] top-0">
-        <div
-          ref={printRef}
-          className="bg-white p-8"
-          style={{ width: "297mm" }}
-        >
-          <div className="mb-6 border-b border-slate-300 pb-4">
-            <h1 className="text-xl font-bold text-slate-900">Prévisionnel financier</h1>
-            <p className="mt-1 text-base text-slate-700">{project.name}</p>
-            {project.client_name && (
-              <p className="text-sm text-slate-500">Maître d&apos;ouvrage : {project.client_name}</p>
-            )}
-            <p className="mt-2 text-xs text-slate-400">
-              Document généré le{" "}
-              {new Intl.DateTimeFormat("fr-FR", {
-                day: "2-digit",
-                month: "long",
-                year: "numeric",
-              }).format(new Date())}
-            </p>
-          </div>
+      <div id="previsionnel-print" className="pointer-events-none fixed -left-[9999px] top-0">
+        <div className="bg-white p-8" style={{ width: "297mm" }}>
+          <PrintReportBanner title="TABLEAU PREVISIONNEL" project={project} />
           {lots.length > 0 && tableContent(true)}
         </div>
       </div>
