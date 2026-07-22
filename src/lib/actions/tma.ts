@@ -55,13 +55,22 @@ export async function getTmaEntries(projectId: string): Promise<WorkTmaEntry[]> 
 
   const { data, error } = await supabase
     .from("work_tma_entries")
-    .select("*")
+    .select("*, quote:financial_quotes(validation_status)")
     .eq("project_id", projectId)
     .order("sort_order", { ascending: true })
     .order("created_at", { ascending: true });
 
   if (error) throw new Error(error.message);
-  return (data ?? []) as WorkTmaEntry[];
+
+  return (data ?? []).map((row) => {
+    const quoteRaw = row.quote as { validation_status?: string } | null;
+    const { quote: _quote, ...entry } = row;
+    return {
+      ...entry,
+      quote_validation_status:
+        (quoteRaw?.validation_status as WorkTmaEntry["quote_validation_status"]) ?? null,
+    } as WorkTmaEntry;
+  });
 }
 
 export async function getOpenTmaLogements(projectId: string): Promise<
@@ -875,6 +884,7 @@ export async function updateTmaField(
     "montant_ht",
     "mou_envoi",
     "mou_acceptation",
+    "controle_chantier",
   ]);
 
   if (syncedFields.has(field)) {
@@ -889,6 +899,73 @@ export async function updateTmaField(
   }
 
   revalidateTmaAndQuotes(projectId);
+}
+
+/** Met à jour l'acceptation MOU (devis lié) depuis le tableau TMA. */
+export async function updateTmaQuoteAcceptance(
+  projectId: string,
+  entryId: string,
+  status: "yes" | "no" | "pending"
+): Promise<void> {
+  await requireProjectRoles(projectId, ["admin", "gestionnaire"]);
+  const supabase = await createClient();
+
+  const quoteId = await ensureFinancialQuoteForTmaEntry(projectId, entryId, supabase);
+  if (!quoteId) throw new Error("Aucun devis lié à cette ligne TMA.");
+
+  const updatePayload: Record<string, unknown> = { validation_status: status };
+  if (status === "no") {
+    updatePayload.is_rejected = true;
+    updatePayload.validated_at = null;
+  } else if (status === "yes") {
+    updatePayload.is_rejected = false;
+    updatePayload.validated_at = new Date().toISOString().slice(0, 10);
+  } else {
+    updatePayload.is_rejected = false;
+    updatePayload.validated_at = null;
+  }
+
+  const { error } = await supabase
+    .from("financial_quotes")
+    .update(updatePayload)
+    .eq("id", quoteId)
+    .eq("project_id", projectId);
+
+  if (error) throw new Error(error.message);
+  revalidateTmaAndQuotes(projectId);
+}
+
+/** Enregistre la date de contrôle chantier (TMA validée uniquement). */
+export async function updateTmaControleChantier(
+  projectId: string,
+  entryId: string,
+  date: string | null
+): Promise<void> {
+  await requireProjectRoles(projectId, ["admin", "gestionnaire"]);
+  const supabase = await createClient();
+
+  const { data: entry } = await supabase
+    .from("work_tma_entries")
+    .select("quote_id, quote:financial_quotes(validation_status)")
+    .eq("id", entryId)
+    .eq("project_id", projectId)
+    .maybeSingle();
+
+  if (!entry) throw new Error("Ligne TMA introuvable.");
+
+  const quoteRaw = entry.quote as { validation_status?: string } | null;
+  if (quoteRaw?.validation_status !== "yes") {
+    throw new Error("Le contrôle chantier n'est possible que pour une TMA acceptée.");
+  }
+
+  const { error } = await supabase
+    .from("work_tma_entries")
+    .update({ controle_chantier: date })
+    .eq("id", entryId)
+    .eq("project_id", projectId);
+
+  if (error) throw new Error(error.message);
+  revalidateTma(projectId);
 }
 
 export async function deleteTmaEntry(projectId: string, entryId: string): Promise<void> {

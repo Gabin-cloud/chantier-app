@@ -35,6 +35,7 @@ export async function syncQuoteAmountFromTmaEntries(
     .select("montant_ht")
     .eq("project_id", projectId)
     .eq("quote_id", quoteId)
+    .eq("is_request_line", false)
     .neq("status", "to_analyze");
 
   const total = (entries ?? []).reduce((sum, row) => sum + Number(row.montant_ht ?? 0), 0);

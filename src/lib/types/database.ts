@@ -119,6 +119,8 @@ export type OwnerDirectoryEntry = {
   signatory_name: string | null;
   signatory_email: string | null;
   logo_path: string | null;
+  situation_template_path: string | null;
+  situation_template_name: string | null;
   doc_marche: boolean;
   doc_os: boolean;
   doc_ae: boolean;
@@ -373,6 +375,8 @@ export type WorkTmaEntry = {
   mou_envoi: string | null;
   mou_acceptation: string | null;
   montant_ht: number;
+  controle_chantier: string | null;
+  quote_validation_status: QuoteValidationStatus | null;
   nf_status: TmaTriState | null;
   pmr_status: TmaTriState | null;
   status: WorkTmaEntryStatus;

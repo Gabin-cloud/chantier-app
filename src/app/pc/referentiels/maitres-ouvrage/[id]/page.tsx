@@ -1,11 +1,13 @@
 import Link from "next/link";
 import { PcAppNav } from "@/components/pc/PcAppNav";
 import { OwnerDocumentTemplates } from "@/components/referentiels/OwnerDocumentTemplates";
+import { OwnerSituationTemplatePanel } from "@/components/referentiels/OwnerSituationTemplatePanel";
 import {
   DatabaseErrorNotice,
   SupabaseSetupNotice,
 } from "@/components/SupabaseSetupNotice";
 import { getOwnerDocumentTemplatesPage } from "@/lib/actions/owner-document-templates";
+import { getOwnerSituationTemplateUrl } from "@/lib/actions/owner-situation-template";
 import { getOwnerDirectory } from "@/lib/actions/operation-sheet";
 import type { OwnerDirectoryEntry } from "@/lib/types/database";
 import type { OwnerDocumentTemplatesPageData } from "@/lib/actions/owner-document-templates";
@@ -24,7 +26,15 @@ function FieldRow({ label, value }: { label: string; value: string | null | unde
   );
 }
 
-function OwnerInfosPanel({ owner }: { owner: OwnerDirectoryEntry }) {
+function OwnerInfosPanel({
+  owner,
+  templateUrl,
+  canEdit,
+}: {
+  owner: OwnerDirectoryEntry;
+  templateUrl: string | null;
+  canEdit: boolean;
+}) {
   const docs = [
     owner.doc_marche && "Marché",
     owner.doc_os && "OS",
@@ -67,6 +77,12 @@ function OwnerInfosPanel({ owner }: { owner: OwnerDirectoryEntry }) {
           <p className="mt-3 font-mono text-xs text-slate-600">{owner.logo_path}</p>
         ) : null}
       </section>
+
+      <OwnerSituationTemplatePanel
+        owner={owner}
+        templateUrl={templateUrl}
+        canEdit={canEdit}
+      />
     </div>
   );
 }
@@ -102,6 +118,10 @@ export default async function OwnerDetailPage({ params }: PageProps) {
     return <DatabaseErrorNotice message="Maître d'ouvrage introuvable dans le référentiel." />;
   }
 
+  const templateUrl = owner.situation_template_path
+    ? await getOwnerSituationTemplateUrl(owner.situation_template_path)
+    : null;
+
   return (
     <main className="min-h-full bg-slate-50 px-4 py-6 sm:px-6">
       <div className="mx-auto w-full max-w-6xl">
@@ -122,7 +142,13 @@ export default async function OwnerDetailPage({ params }: PageProps) {
 
         <OwnerDocumentTemplates
           data={templatesPage}
-          infos={<OwnerInfosPanel owner={owner} />}
+          infos={
+            <OwnerInfosPanel
+              owner={owner}
+              templateUrl={templateUrl}
+              canEdit={templatesPage.canEdit}
+            />
+          }
         />
       </div>
     </main>

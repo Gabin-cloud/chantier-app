@@ -16,6 +16,10 @@ type SituationExportPanelProps = {
   lot: LotWithFinancials;
   situation: FinancialSituation;
   invoiceUrl?: string | null;
+  ownerSituationTemplate?: {
+    templateName: string | null;
+    templateUrl: string | null;
+  } | null;
 };
 
 export function SituationExportPanel({
@@ -23,6 +27,7 @@ export function SituationExportPanel({
   lot,
   situation,
   invoiceUrl,
+  ownerSituationTemplate,
 }: SituationExportPanelProps) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
@@ -81,6 +86,25 @@ export function SituationExportPanel({
           Glissez la facture de l&apos;entreprise ici pour la fusionner avec
           l&apos;attestation de situation.
         </p>
+
+        {ownerSituationTemplate?.templateUrl && (
+          <div className="mb-4 rounded-xl border border-blue-200 bg-blue-50 px-4 py-3">
+            <p className="text-sm font-medium text-blue-900">
+              Modèle Excel promoteur
+              {ownerSituationTemplate.templateName
+                ? ` : ${ownerSituationTemplate.templateName}`
+                : ""}
+            </p>
+            <a
+              href={ownerSituationTemplate.templateUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="mt-1 inline-block text-sm font-semibold text-blue-800 underline"
+            >
+              Télécharger le modèle situation de travaux
+            </a>
+          </div>
+        )}
 
         <div
           onDragOver={(e) => {

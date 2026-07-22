@@ -44,6 +44,13 @@ export function ProjectHub({ project, basePath, projectRole }: ProjectHubProps) 
       color: "bg-blue-600 text-white",
       visible: canAccessField(projectRole),
     },
+    {
+      href: `/tablette/projets/${project.id}/tma`,
+      label: "Contrôle TMA",
+      description: "Vérifier les TMA acceptées sur le chantier",
+      color: "bg-amber-600 text-white",
+      visible: canAccessField(projectRole) || canEditProject(projectRole),
+    },
   ];
 
   const allPcActions = [

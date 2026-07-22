@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { requireFinanceAccess } from "@/lib/actions/members";
 import { formatAmendmentDbError } from "@/lib/finance/amendment-form";
+import { buildAmendmentDocumentHtml } from "@/lib/finance/amendment-document";
 import { computeAmendmentTtc } from "@/lib/finance/calculations";
 import { normalizeAmendment } from "@/lib/finance/amendment-workflow";
 import { createClient } from "@/lib/supabase/server";
@@ -444,7 +445,6 @@ export type CreateAmendmentInput = {
   amendmentType: "ts" | "tma";
   lines: { designation: string; amount_ht: number; quote_id?: string | null }[];
   danobatComment?: string | null;
-  documentHtml: string;
 };
 
 export async function createAmendmentFromQuotes(
@@ -485,6 +485,24 @@ export async function createAmendmentFromQuotes(
     const totalHt = input.lines.reduce((sum, line) => sum + line.amount_ht, 0);
     const amountTtc = computeAmendmentTtc(totalHt, Number(lot.vat_rate ?? 20));
 
+    const { data: project, error: projectError } = await supabase
+      .from("projects")
+      .select("*")
+      .eq("id", projectId)
+      .single();
+
+    if (projectError || !project) {
+      return { ok: false, error: "Projet introuvable." };
+    }
+
+    const documentHtml = buildAmendmentDocumentHtml({
+      project: project as Parameters<typeof buildAmendmentDocumentHtml>[0]["project"],
+      lot: lot as Parameters<typeof buildAmendmentDocumentHtml>[0]["lot"],
+      amendmentNumber,
+      amendmentType: input.amendmentType,
+      lines: input.lines,
+    });
+
     const { data: amendment, error: insertError } = await supabase
       .from("financial_amendments")
       .insert({
@@ -495,7 +513,7 @@ export async function createAmendmentFromQuotes(
         amount_ttc: amountTtc,
         amendment_type: input.amendmentType,
         signature_status: "chez_entreprise",
-        document_html: input.documentHtml,
+        document_html: documentHtml,
         danobat_comment: input.danobatComment?.trim() || null,
       })
       .select("id")
@@ -528,9 +546,15 @@ export async function createAmendmentFromQuotes(
       .filter((id): id is string => Boolean(id));
 
     if (quoteIds.length > 0) {
+      const today = new Date().toISOString().slice(0, 10);
       await supabase
         .from("financial_quotes")
-        .update({ amendment_id: amendment.id })
+        .update({
+          amendment_id: amendment.id,
+          validation_status: "yes",
+          validated_at: today,
+          is_rejected: false,
+        })
         .in("id", quoteIds)
         .eq("project_id", projectId);
     }
