@@ -23,12 +23,16 @@ type TmaAnalysisModalProps = {
 };
 
 function entryToLine(entry: WorkTmaEntry): AnalysisLine {
+  const requestEntryId = entry.id.startsWith("seed-")
+    ? entry.id.replace(/^seed-/, "")
+    : undefined;
   return {
     id: entry.id.startsWith("seed-") ? undefined : entry.id,
+    requestEntryId,
     localisation: entry.localisation,
     natureTravaux: entry.nature_travaux,
     montantHt: entry.montant_ht,
-    isRequestLine: entry.is_request_line,
+    isRequestLine: Boolean(requestEntryId) || entry.is_request_line,
   };
 }
 
@@ -71,7 +75,23 @@ export function TmaAnalysisModal({
       }
 
       const first = result.entries[0];
-      setLines(result.entries.map(entryToLine));
+      setLines(
+        result.entries.map((entry) => {
+          const line = entryToLine(entry);
+          if (!line.requestEntryId && result.requestLines.length) {
+            const match = result.requestLines.find(
+              (req) =>
+                req.localisation.trim() === entry.localisation.trim() &&
+                req.nature_travaux.trim() === entry.nature_travaux.trim()
+            );
+            if (match) {
+              line.requestEntryId = match.id;
+              line.isRequestLine = true;
+            }
+          }
+          return line;
+        })
+      );
       setRequestLines(result.requestLines);
       setContractAmountHt(result.contractAmountHt);
       setLogementNumber(first.logement_number);
@@ -143,14 +163,14 @@ export function TmaAnalysisModal({
       title="Analyse du dépôt TMA"
       subtitle={`Logement ${logementNumber || "—"} — ${enterpriseName || "Entreprise"}`}
       onClose={onClose}
-      maxWidth="2xl"
+      maxWidth="fullscreen"
     >
       {loading ? (
         <p className="text-sm text-slate-500">Chargement…</p>
       ) : loadError ? (
         <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">{loadError}</p>
       ) : (
-        <div className="space-y-4">
+        <div className="flex min-h-0 flex-1 flex-col space-y-4">
           <div className="flex flex-wrap items-center gap-3">
             <button
               type="button"
@@ -166,8 +186,8 @@ export function TmaAnalysisModal({
             )}
           </div>
 
-          <div className="grid gap-4 lg:grid-cols-2">
-            <section className="flex min-h-[420px] flex-col rounded-lg border border-slate-200 bg-slate-50">
+          <div className="grid min-h-0 flex-1 gap-4 lg:grid-cols-[1.2fr_0.8fr]">
+            <section className="flex min-h-0 flex-col rounded-lg border border-slate-200 bg-slate-50">
               <header className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase text-slate-500">
                 Devis entreprise
               </header>
@@ -175,7 +195,8 @@ export function TmaAnalysisModal({
                 <iframe
                   src={depositPdfUrl}
                   title={depositFileName ?? "Devis TMA"}
-                  className="min-h-[380px] flex-1 w-full bg-white"
+                  className="min-h-0 flex-1 w-full bg-white"
+                  style={{ minHeight: "70vh" }}
                 />
               ) : (
                 <p className="flex flex-1 items-center justify-center p-4 text-sm text-slate-500">

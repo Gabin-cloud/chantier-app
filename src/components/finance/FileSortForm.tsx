@@ -295,7 +295,9 @@ export function FileSortForm({
           fd.set("quoteDate", tmaQuoteDate);
           if (sourceEmail) fd.set("sourceEmail", sourceEmail);
 
-          const result = await saveTmaDepositFromOutlook(projectId, fd);
+          const result = await saveTmaDepositFromOutlook(projectId, fd, {
+            skipRevalidate: true,
+          });
           if (!result.ok) {
             setError(normalizeClassifyError(result.error));
             return;

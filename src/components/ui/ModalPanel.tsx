@@ -7,10 +7,10 @@ type ModalPanelProps = {
   subtitle?: string;
   onClose: () => void;
   children: ReactNode;
-  maxWidth?: "sm" | "md" | "lg" | "xl" | "2xl";
+  maxWidth?: "sm" | "md" | "lg" | "xl" | "2xl" | "fullscreen";
 };
 
-const MAX_WIDTH: Record<NonNullable<ModalPanelProps["maxWidth"]>, string> = {
+const MAX_WIDTH: Record<Exclude<NonNullable<ModalPanelProps["maxWidth"]>, "fullscreen">, string> = {
   sm: "max-w-md",
   md: "max-w-lg",
   lg: "max-w-2xl",
@@ -25,13 +25,18 @@ export function ModalPanel({
   children,
   maxWidth = "lg",
 }: ModalPanelProps) {
+  const isFullscreen = maxWidth === "fullscreen";
   return (
     <div
-      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-4 sm:items-center"
+      className="fixed inset-0 z-50 flex items-end justify-center bg-black/40 p-2 sm:items-center sm:p-4"
       onClick={onClose}
     >
       <div
-        className={`flex max-h-[90vh] w-full ${MAX_WIDTH[maxWidth]} flex-col overflow-hidden rounded-2xl bg-white shadow-xl`}
+        className={`flex w-full flex-col overflow-hidden rounded-2xl bg-white shadow-xl ${
+          isFullscreen
+            ? "h-[98vh] max-h-[98vh] max-w-[98vw]"
+            : `max-h-[90vh] ${MAX_WIDTH[maxWidth]}`
+        }`}
         onClick={(e) => e.stopPropagation()}
       >
         <div className="flex items-start justify-between border-b border-slate-100 px-5 py-4">
@@ -52,7 +57,9 @@ export function ModalPanel({
             ✕
           </button>
         </div>
-        <div className="overflow-y-auto px-5 py-4">{children}</div>
+        <div className={`overflow-y-auto px-5 py-4 ${isFullscreen ? "flex min-h-0 flex-1 flex-col" : ""}`}>
+          {children}
+        </div>
       </div>
     </div>
   );

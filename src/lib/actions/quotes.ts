@@ -260,7 +260,9 @@ export async function saveQuote(
     if (category.is_tma && data.id) {
       try {
         const tmaLogement = ((formData.get("tmaLogementNumber") as string) ?? "").trim();
-        await fillTmaFromQuote(projectId, data.id, tmaLogement || undefined);
+        await fillTmaFromQuote(projectId, data.id, tmaLogement || undefined, {
+          skipRevalidate: options?.skipRevalidate,
+        });
       } catch {
         /* TMA sync best-effort */
       }

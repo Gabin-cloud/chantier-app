@@ -36,6 +36,7 @@ export type TmaDossierFormData = {
 
 export type TmaAnalysisLineInput = {
   id?: string;
+  requestEntryId?: string;
   localisation: string;
   natureTravaux: string;
   montantHt: number;
@@ -254,11 +255,16 @@ export async function getTmaAnalysisContext(
         editableEntries = (reqForFill as WorkTmaEntry[]).map((req, i) => {
           const existing = typed[i];
           return existing
-            ? { ...existing, localisation: req.localisation, nature_travaux: req.nature_travaux }
+            ? {
+                ...existing,
+                localisation: req.localisation,
+                nature_travaux: req.nature_travaux,
+              }
             : {
                 ...req,
                 id: `seed-${req.id}`,
                 status: "to_analyze" as WorkTmaEntryStatus,
+                is_request_line: false,
                 montant_ht: 0,
                 quote_id: first.quote_id,
                 devis_number: first.devis_number,
@@ -510,7 +516,8 @@ export async function saveTmaDossier(
 export async function fillTmaFromQuote(
   projectId: string,
   quoteId: string,
-  logementNumber?: string
+  logementNumber?: string,
+  options?: { skipRevalidate?: boolean }
 ): Promise<void> {
   const supabase = await createClient();
 
@@ -597,7 +604,7 @@ export async function fillTmaFromQuote(
         nature_travaux: requestRow?.nature_travaux ?? "",
         logement_number: requestRow?.logement_number ?? logement,
         dossier_id: requestRow?.dossier_id ?? dossierId,
-        is_request_line: true,
+        is_request_line: false,
         montant_ht: 0,
       };
 
@@ -647,7 +654,7 @@ export async function fillTmaFromQuote(
     });
   }
 
-  revalidateTma(projectId);
+  if (!options?.skipRevalidate) revalidateTma(projectId);
 }
 
 export async function saveTmaAnalysis(
@@ -667,10 +674,6 @@ export async function saveTmaAnalysis(
     await requireProjectRoles(projectId, ["admin", "gestionnaire"]);
     const supabase = await createClient();
 
-    const status: WorkTmaEntryStatus = context.markAnalyzed ? "analyzed" : "to_analyze";
-    const existingIds = new Set(context.entryIds);
-    const keptIds = new Set<string>();
-
     const { data: seedRows } = await supabase
       .from("work_tma_entries")
       .select("devis_number, devis_recu_le, deposit_file_path, deposit_file_name, quote_id")
@@ -679,55 +682,150 @@ export async function saveTmaAnalysis(
       .limit(1);
 
     const seed = seedRows?.[0];
+    const devisFields = {
+      devis_number: seed?.devis_number ?? "",
+      devis_recu_le: seed?.devis_recu_le ?? null,
+      deposit_file_path: seed?.deposit_file_path ?? null,
+      deposit_file_name: seed?.deposit_file_name ?? null,
+      quote_id: context.quoteId ?? seed?.quote_id ?? null,
+    };
 
-    const { data: maxRow } = await supabase
-      .from("work_tma_entries")
-      .select("sort_order")
-      .eq("project_id", projectId)
-      .order("sort_order", { ascending: false })
-      .limit(1)
-      .maybeSingle();
-    let sortOrder = maxRow?.sort_order ?? 0;
-
-    for (const line of context.lines) {
-      const payload = {
-        localisation: line.localisation.trim(),
-        nature_travaux: line.natureTravaux.trim(),
-        montant_ht: line.montantHt,
-        is_request_line: line.isRequestLine,
-        status,
-        logement_number: context.logementNumber,
-        enterprise_id: context.enterpriseId,
-        enterprise_name: context.enterpriseName,
-        dossier_id: context.dossierId,
-        quote_id: context.quoteId ?? seed?.quote_id ?? null,
-        devis_number: seed?.devis_number ?? "",
-        devis_recu_le: seed?.devis_recu_le ?? null,
-        deposit_file_path: seed?.deposit_file_path ?? null,
-        deposit_file_name: seed?.deposit_file_name ?? null,
-      };
-
-      if (line.id && existingIds.has(line.id) && !line.id.startsWith("seed-")) {
-        await supabase.from("work_tma_entries").update(payload).eq("id", line.id);
-        keptIds.add(line.id);
-      } else {
-        sortOrder += 1;
-        const { data: created } = await supabase
+    if (context.markAnalyzed) {
+      let requestLines: WorkTmaEntry[] = [];
+      if (context.dossierId && context.enterpriseId) {
+        const { data: reqRows } = await supabase
           .from("work_tma_entries")
-          .insert({
-            project_id: projectId,
-            ...payload,
-            sort_order: sortOrder,
-          })
-          .select("id")
-          .single();
-        if (created) keptIds.add(created.id);
-      }
-    }
+          .select("*")
+          .eq("project_id", projectId)
+          .eq("dossier_id", context.dossierId)
+          .eq("enterprise_id", context.enterpriseId)
+          .eq("is_request_line", true)
+          .in("status", ["sent", "draft"]);
 
-    for (const id of context.entryIds) {
-      if (!keptIds.has(id)) {
-        await supabase.from("work_tma_entries").delete().eq("id", id);
+        requestLines = (reqRows ?? []) as WorkTmaEntry[];
+      }
+
+      const matchedRequestIds = new Set<string>();
+      const { data: maxRow } = await supabase
+        .from("work_tma_entries")
+        .select("sort_order")
+        .eq("project_id", projectId)
+        .order("sort_order", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      let sortOrder = maxRow?.sort_order ?? 0;
+
+      for (const line of context.lines) {
+        const linePayload = {
+          localisation: line.localisation.trim(),
+          nature_travaux: line.natureTravaux.trim(),
+          montant_ht: line.montantHt,
+          status: "analyzed" as WorkTmaEntryStatus,
+          ...devisFields,
+        };
+
+        let requestId =
+          line.requestEntryId ??
+          (line.id?.startsWith("seed-") ? line.id.replace(/^seed-/, "") : null);
+
+        if (!requestId && line.isRequestLine) {
+          const match = requestLines.find(
+            (req) =>
+              !matchedRequestIds.has(req.id) &&
+              req.localisation.trim() === line.localisation.trim() &&
+              req.nature_travaux.trim() === line.natureTravaux.trim()
+          );
+          requestId = match?.id ?? null;
+        }
+
+        if (requestId && line.isRequestLine) {
+          await supabase
+            .from("work_tma_entries")
+            .update({ ...linePayload, is_request_line: true })
+            .eq("id", requestId)
+            .eq("project_id", projectId);
+          matchedRequestIds.add(requestId);
+        } else {
+          sortOrder += 1;
+          await supabase.from("work_tma_entries").insert({
+            project_id: projectId,
+            logement_number: context.logementNumber,
+            enterprise_id: context.enterpriseId,
+            enterprise_name: context.enterpriseName,
+            dossier_id: context.dossierId,
+            is_request_line: false,
+            sort_order: sortOrder,
+            ...linePayload,
+          });
+        }
+      }
+
+      await supabase
+        .from("work_tma_entries")
+        .delete()
+        .eq("project_id", projectId)
+        .in("id", context.entryIds);
+
+      if (devisFields.quote_id && context.dossierId && context.enterpriseId) {
+        await supabase
+          .from("work_tma_entries")
+          .delete()
+          .eq("project_id", projectId)
+          .eq("dossier_id", context.dossierId)
+          .eq("enterprise_id", context.enterpriseId)
+          .eq("status", "to_analyze")
+          .eq("quote_id", devisFields.quote_id);
+      }
+    } else {
+      const status: WorkTmaEntryStatus = "to_analyze";
+      const existingIds = new Set(context.entryIds);
+      const keptIds = new Set<string>();
+
+      const { data: maxRow } = await supabase
+        .from("work_tma_entries")
+        .select("sort_order")
+        .eq("project_id", projectId)
+        .order("sort_order", { ascending: false })
+        .limit(1)
+        .maybeSingle();
+      let sortOrder = maxRow?.sort_order ?? 0;
+
+      for (const line of context.lines) {
+        const payload = {
+          localisation: line.localisation.trim(),
+          nature_travaux: line.natureTravaux.trim(),
+          montant_ht: line.montantHt,
+          is_request_line: false,
+          status,
+          logement_number: context.logementNumber,
+          enterprise_id: context.enterpriseId,
+          enterprise_name: context.enterpriseName,
+          dossier_id: context.dossierId,
+          ...devisFields,
+        };
+
+        if (line.id && existingIds.has(line.id) && !line.id.startsWith("seed-")) {
+          await supabase.from("work_tma_entries").update(payload).eq("id", line.id);
+          keptIds.add(line.id);
+        } else {
+          sortOrder += 1;
+          const { data: created } = await supabase
+            .from("work_tma_entries")
+            .insert({
+              project_id: projectId,
+              ...payload,
+              sort_order: sortOrder,
+            })
+            .select("id")
+            .single();
+          if (created) keptIds.add(created.id);
+        }
+      }
+
+      for (const id of context.entryIds) {
+        if (!keptIds.has(id)) {
+          await supabase.from("work_tma_entries").delete().eq("id", id);
+        }
       }
     }
 
@@ -822,7 +920,8 @@ export async function markTmaSentToMou(projectId: string, entryIds: string[]): P
 
 export async function saveTmaDepositFromOutlook(
   projectId: string,
-  formData: FormData
+  formData: FormData,
+  options?: { skipRevalidate?: boolean }
 ): Promise<{ ok: true; tmaPath: string } | { ok: false; error: string }> {
   try {
     await requireProjectRoles(projectId, ["admin", "gestionnaire"]);
@@ -889,9 +988,11 @@ export async function saveTmaDepositFromOutlook(
       created_by: user?.id ?? null,
     });
 
-    await fillTmaFromQuote(projectId, quote.id, logementNumber);
+    await fillTmaFromQuote(projectId, quote.id, logementNumber, {
+      skipRevalidate: options?.skipRevalidate,
+    });
 
-    revalidateTma(projectId);
+    if (!options?.skipRevalidate) revalidateTma(projectId);
     return { ok: true, tmaPath: `/pc/projets/${projectId}/suivi-travaux/tma` };
   } catch (err) {
     return {
