@@ -3,6 +3,12 @@
 import { revalidatePath } from "next/cache";
 import { requireProjectAccess, requireProjectRoles } from "@/lib/auth/permissions";
 import { createClient } from "@/lib/supabase/server";
+import {
+  ensureFinancialQuoteForTmaEntry,
+  revalidateTmaAndQuotes,
+  syncQuoteAfterTmaAnalysis,
+  syncQuoteFieldFromTmaEntry,
+} from "@/lib/actions/tma-quote-sync";
 import type {
   TmaDepositGroup,
   WorkTmaEntry,
@@ -654,7 +660,7 @@ export async function fillTmaFromQuote(
     });
   }
 
-  if (!options?.skipRevalidate) revalidateTma(projectId);
+  if (!options?.skipRevalidate) revalidateTmaAndQuotes(projectId);
 }
 
 export async function saveTmaAnalysis(
@@ -776,6 +782,13 @@ export async function saveTmaAnalysis(
           .eq("status", "to_analyze")
           .eq("quote_id", devisFields.quote_id);
       }
+
+      await syncQuoteAfterTmaAnalysis(projectId, devisFields.quote_id, {
+        devis_number: devisFields.devis_number,
+        devis_recu_le: devisFields.devis_recu_le,
+        deposit_file_path: devisFields.deposit_file_path,
+        deposit_file_name: devisFields.deposit_file_name,
+      }, supabase);
     } else {
       const status: WorkTmaEntryStatus = "to_analyze";
       const existingIds = new Set(context.entryIds);
@@ -829,7 +842,7 @@ export async function saveTmaAnalysis(
       }
     }
 
-    revalidateTma(projectId);
+    revalidateTmaAndQuotes(projectId);
     return { ok: true };
   } catch (err) {
     return {
@@ -855,7 +868,27 @@ export async function updateTmaField(
     .eq("project_id", projectId);
 
   if (error) throw new Error(error.message);
-  revalidateTma(projectId);
+
+  const syncedFields = new Set([
+    "devis_number",
+    "devis_recu_le",
+    "montant_ht",
+    "mou_envoi",
+    "mou_acceptation",
+  ]);
+
+  if (syncedFields.has(field)) {
+    try {
+      if (field === "devis_number" || field === "montant_ht") {
+        await ensureFinancialQuoteForTmaEntry(projectId, entryId, supabase);
+      }
+      await syncQuoteFieldFromTmaEntry(projectId, entryId, field, value, supabase);
+    } catch {
+      /* sync best-effort */
+    }
+  }
+
+  revalidateTmaAndQuotes(projectId);
 }
 
 export async function deleteTmaEntry(projectId: string, entryId: string): Promise<void> {
@@ -915,7 +948,25 @@ export async function markTmaSentToMou(projectId: string, entryIds: string[]): P
     .in("id", entryIds);
 
   if (error) throw new Error(error.message);
-  revalidateTma(projectId);
+
+  const { data: entries } = await supabase
+    .from("work_tma_entries")
+    .select("quote_id")
+    .eq("project_id", projectId)
+    .in("id", entryIds);
+
+  const quoteIds = new Set(
+    (entries ?? []).map((e) => e.quote_id).filter((id): id is string => Boolean(id))
+  );
+  for (const quoteId of quoteIds) {
+    await supabase
+      .from("financial_quotes")
+      .update({ mou_sent_at: today })
+      .eq("id", quoteId)
+      .eq("project_id", projectId);
+  }
+
+  revalidateTmaAndQuotes(projectId);
 }
 
 export async function saveTmaDepositFromOutlook(
@@ -992,7 +1043,7 @@ export async function saveTmaDepositFromOutlook(
       skipRevalidate: options?.skipRevalidate,
     });
 
-    if (!options?.skipRevalidate) revalidateTma(projectId);
+    if (!options?.skipRevalidate) revalidateTmaAndQuotes(projectId);
     return { ok: true, tmaPath: `/pc/projets/${projectId}/suivi-travaux/tma` };
   } catch (err) {
     return {

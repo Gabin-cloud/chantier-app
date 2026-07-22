@@ -4,7 +4,6 @@ import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { NewTmaModal } from "@/components/travaux/NewTmaModal";
 import { TmaAnalysisModal } from "@/components/travaux/TmaAnalysisModal";
-import { TmaComptabiliteEmailStep } from "@/components/travaux/TmaComptabiliteEmailStep";
 import { TmaMouEmailStep } from "@/components/travaux/TmaMouEmailStep";
 import { updateTmaField, deleteTmaEntry } from "@/lib/actions/tma";
 import { formatCurrency } from "@/lib/finance/calculations";
@@ -713,7 +712,6 @@ export function TmaTrackingPanel({
   const [modalOpen, setModalOpen] = useState(false);
   const [activeTab, setActiveTab] = useState<"deposits" | "all">("deposits");
   const [analysisEntryIds, setAnalysisEntryIds] = useState<string[] | null>(null);
-  const [comptaOpen, setComptaOpen] = useState(false);
   const [mouOpen, setMouOpen] = useState(false);
   const [filters, setFilters] = useState<TmaColumnFilters>(emptyTmaFilters);
   const [isPending, startTransition] = useTransition();
@@ -753,27 +751,18 @@ export function TmaTrackingPanel({
               Travaux modificatifs acquéreurs (TMA)
             </h2>
             <p className="mt-0.5 text-xs text-slate-500">
-              Demande → envoi entreprises → dépôts à analyser → comptabilité
+              Demande → envoi entreprises → dépôts à analyser → envoi MOU
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
             {analyzedEntryIds.length > 0 && (
-              <>
-                <button
-                  type="button"
-                  onClick={() => setMouOpen(true)}
-                  className="rounded-lg border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-100"
-                >
-                  Envoyer au MOU ({analyzedEntryIds.length})
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setComptaOpen(true)}
-                  className="rounded-lg border border-emerald-300 bg-emerald-50 px-4 py-2 text-sm font-semibold text-emerald-800 hover:bg-emerald-100"
-                >
-                  Envoyer à la comptabilité ({analyzedEntryIds.length})
-                </button>
-              </>
+              <button
+                type="button"
+                onClick={() => setMouOpen(true)}
+                className="rounded-lg border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-100"
+              >
+                Envoyer au MOU ({analyzedEntryIds.length})
+              </button>
             )}
             <button
               type="button"
@@ -888,18 +877,6 @@ export function TmaTrackingPanel({
           onSaved={() => router.refresh()}
         />
       )}
-
-      <TmaComptabiliteEmailStep
-        projectId={projectId}
-        entryIds={analyzedEntryIds}
-        m365Ready={m365Ready}
-        open={comptaOpen}
-        onClose={() => setComptaOpen(false)}
-        onComplete={() => {
-          setComptaOpen(false);
-          router.refresh();
-        }}
-      />
 
       <TmaMouEmailStep
         projectId={projectId}
