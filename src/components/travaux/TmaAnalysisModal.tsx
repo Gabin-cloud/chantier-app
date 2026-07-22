@@ -3,7 +3,6 @@
 import { useEffect, useState, useTransition } from "react";
 import { AppFormField } from "@/components/ui/AppFormField";
 import { ModalPanel } from "@/components/ui/ModalPanel";
-import { useOpenDocument } from "@/components/documents/DocumentLink";
 import { getQuoteFileUrl } from "@/lib/actions/quotes";
 import {
   getTmaAnalysisContext,
@@ -25,7 +24,7 @@ type TmaAnalysisModalProps = {
 
 function entryToLine(entry: WorkTmaEntry): AnalysisLine {
   return {
-    id: entry.id,
+    id: entry.id.startsWith("seed-") ? undefined : entry.id,
     localisation: entry.localisation,
     natureTravaux: entry.nature_travaux,
     montantHt: entry.montant_ht,
@@ -51,11 +50,10 @@ export function TmaAnalysisModal({
   const [enterpriseName, setEnterpriseName] = useState("");
   const [dossierId, setDossierId] = useState<string | null>(null);
   const [quoteId, setQuoteId] = useState<string | null>(null);
-  const [depositFilePath, setDepositFilePath] = useState<string | null>(null);
+  const [depositPdfUrl, setDepositPdfUrl] = useState<string | null>(null);
   const [depositFileName, setDepositFileName] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [showMarketPrice, setShowMarketPrice] = useState(false);
-  const { openDocument } = useOpenDocument();
 
   useEffect(() => {
     if (!open || !entryIds.length) return;
@@ -81,8 +79,15 @@ export function TmaAnalysisModal({
       setEnterpriseName(first.enterprise_name);
       setDossierId(first.dossier_id);
       setQuoteId(first.quote_id);
-      setDepositFilePath(first.deposit_file_path);
-      setDepositFileName(first.deposit_file_name);
+      setDepositFileName(result.depositFileName);
+
+      if (result.depositFilePath) {
+        const url = await getQuoteFileUrl(projectId, result.depositFilePath);
+        if (!cancelled) setDepositPdfUrl(url);
+      } else {
+        setDepositPdfUrl(null);
+      }
+
       setLoading(false);
     }
 
@@ -98,22 +103,10 @@ export function TmaAnalysisModal({
     setLines((prev) => prev.map((line, i) => (i === index ? { ...line, ...patch } : line)));
   }
 
-  function addLine(fromRequest?: WorkTmaEntry) {
+  function addLine() {
     setLines((prev) => [
       ...prev,
-      fromRequest
-        ? {
-            localisation: fromRequest.localisation,
-            natureTravaux: fromRequest.nature_travaux,
-            montantHt: 0,
-            isRequestLine: true,
-          }
-        : {
-            localisation: "",
-            natureTravaux: "",
-            montantHt: 0,
-            isRequestLine: false,
-          },
+      { localisation: "", natureTravaux: "", montantHt: 0, isRequestLine: false },
     ]);
   }
 
@@ -171,120 +164,128 @@ export function TmaAnalysisModal({
                 Marché : {formatCurrency(contractAmountHt)}
               </span>
             )}
-            {depositFilePath && (
-              <button
-                type="button"
-                onClick={async () => {
-                  const url = await getQuoteFileUrl(projectId, depositFilePath);
-                  openDocument(url, depositFileName ?? "Dépôt TMA");
-                }}
-                className="text-xs font-semibold text-blue-600 hover:underline"
-              >
-                Ouvrir le dépôt PDF
-              </button>
-            )}
           </div>
 
-          {requestLines.length > 0 && (
-            <section className="rounded-lg border border-slate-200 bg-slate-50 p-3">
-              <h3 className="text-xs font-bold uppercase text-slate-500">
-                Demande initiale (référence)
-              </h3>
-              <ul className="mt-2 space-y-1 text-xs text-slate-700">
-                {requestLines.map((req) => (
-                  <li key={req.id} className="flex flex-wrap gap-2">
-                    <span className="font-medium">{req.localisation || "—"}</span>
-                    <span>—</span>
-                    <span>{req.nature_travaux || "—"}</span>
-                  </li>
-                ))}
-              </ul>
+          <div className="grid gap-4 lg:grid-cols-2">
+            <section className="flex min-h-[420px] flex-col rounded-lg border border-slate-200 bg-slate-50">
+              <header className="border-b border-slate-200 px-3 py-2 text-xs font-semibold uppercase text-slate-500">
+                Devis entreprise
+              </header>
+              {depositPdfUrl ? (
+                <iframe
+                  src={depositPdfUrl}
+                  title={depositFileName ?? "Devis TMA"}
+                  className="min-h-[380px] flex-1 w-full bg-white"
+                />
+              ) : (
+                <p className="flex flex-1 items-center justify-center p-4 text-sm text-slate-500">
+                  Aucun PDF de dépôt disponible.
+                </p>
+              )}
             </section>
-          )}
 
-          <div className="overflow-x-auto rounded-lg border border-slate-200">
-            <table className="w-full min-w-[640px] border-collapse text-sm">
-              <thead>
-                <tr className="bg-slate-50 text-left text-xs font-semibold text-slate-600">
-                  <th className="border-b border-slate-200 px-2 py-2">Localisation</th>
-                  <th className="border-b border-slate-200 px-2 py-2">Nature des travaux</th>
-                  <th className="border-b border-slate-200 px-2 py-2 text-right">Montant H.T.</th>
-                  <th className="w-8 border-b border-slate-200 px-1 py-2" />
-                </tr>
-              </thead>
-              <tbody>
-                {lines.map((line, index) => (
-                  <tr key={line.id ?? `new-${index}`} className="border-b border-slate-100">
-                    <td className="px-2 py-1 align-top">
-                      <input
-                        type="text"
-                        value={line.localisation}
-                        onChange={(e) => updateLine(index, { localisation: e.target.value })}
-                        className="w-full rounded border border-slate-300 px-2 py-1.5 text-xs"
-                      />
-                    </td>
-                    <td className="px-2 py-1 align-top">
-                      <input
-                        type="text"
-                        value={line.natureTravaux}
-                        onChange={(e) => updateLine(index, { natureTravaux: e.target.value })}
-                        className="w-full rounded border border-slate-300 px-2 py-1.5 text-xs"
-                      />
-                      {!line.isRequestLine && (
-                        <span className="mt-0.5 block text-[10px] text-amber-600">
-                          Ligne ajoutée à l&apos;analyse
-                        </span>
-                      )}
-                    </td>
-                    <td className="px-2 py-1 align-top">
-                      <AppFormField
-                        label=""
-                        name={`montant_${index}`}
-                        format="money"
-                        value={line.montantHt ? String(line.montantHt) : ""}
-                        onChange={(v) =>
-                          updateLine(index, {
-                            montantHt:
-                              parseFloat(v.replace(/\s/g, "").replace(",", ".")) || 0,
-                          })
-                        }
-                      />
-                    </td>
-                    <td className="px-1 py-1 text-center align-top">
-                      {lines.length > 1 && (
-                        <button
-                          type="button"
-                          onClick={() => removeLine(index)}
-                          className="text-slate-400 hover:text-red-600"
-                        >
-                          ✕
-                        </button>
-                      )}
-                    </td>
-                  </tr>
-                ))}
-              </tbody>
-              <tfoot>
-                <tr className="bg-slate-50 font-semibold">
-                  <td colSpan={2} className="px-2 py-2 text-right text-xs">
-                    Total H.T.
-                  </td>
-                  <td className="px-2 py-2 text-right text-xs tabular-nums">
-                    {formatCurrency(totalHt)}
-                  </td>
-                  <td />
-                </tr>
-              </tfoot>
-            </table>
-            <div className="border-t border-slate-200 px-2 py-2">
-              <button
-                type="button"
-                onClick={() => addLine()}
-                className="text-xs font-semibold text-violet-600 hover:underline"
-              >
-                + Ajouter une ligne
-              </button>
-            </div>
+            <section className="space-y-3">
+              {requestLines.length > 0 && (
+                <div className="rounded-lg border border-slate-200 bg-slate-50 px-3 py-2">
+                  <h3 className="text-[10px] font-bold uppercase text-slate-500">
+                    Demande initiale ({enterpriseName})
+                  </h3>
+                  <ul className="mt-1 space-y-0.5 text-xs text-slate-600">
+                    {requestLines.map((req) => (
+                      <li key={req.id}>
+                        {req.localisation || "—"} — {req.nature_travaux || "—"}
+                      </li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+
+              <div className="overflow-x-auto rounded-lg border border-slate-200">
+                <table className="w-full border-collapse text-sm">
+                  <thead>
+                    <tr className="bg-slate-50 text-left text-xs font-semibold text-slate-600">
+                      <th className="border-b border-slate-200 px-2 py-2">Localisation</th>
+                      <th className="border-b border-slate-200 px-2 py-2">Nature des travaux</th>
+                      <th className="border-b border-slate-200 px-2 py-2 text-right">
+                        Montant H.T.
+                      </th>
+                      <th className="w-8 border-b border-slate-200" />
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {lines.map((line, index) => (
+                      <tr key={line.id ?? `line-${index}`} className="border-b border-slate-100">
+                        <td className="px-2 py-1 align-top">
+                          <input
+                            type="text"
+                            value={line.localisation}
+                            onChange={(e) =>
+                              updateLine(index, { localisation: e.target.value })
+                            }
+                            className="w-full rounded border border-slate-300 px-2 py-1.5 text-xs"
+                          />
+                        </td>
+                        <td className="px-2 py-1 align-top">
+                          <input
+                            type="text"
+                            value={line.natureTravaux}
+                            onChange={(e) =>
+                              updateLine(index, { natureTravaux: e.target.value })
+                            }
+                            className="w-full rounded border border-slate-300 px-2 py-1.5 text-xs"
+                          />
+                        </td>
+                        <td className="px-2 py-1 align-top">
+                          <AppFormField
+                            label=""
+                            name={`montant_${index}`}
+                            format="money"
+                            value={line.montantHt ? String(line.montantHt) : ""}
+                            onChange={(v) =>
+                              updateLine(index, {
+                                montantHt:
+                                  parseFloat(v.replace(/\s/g, "").replace(",", ".")) || 0,
+                              })
+                            }
+                          />
+                        </td>
+                        <td className="px-1 py-1 text-center align-top">
+                          {lines.length > 1 && (
+                            <button
+                              type="button"
+                              onClick={() => removeLine(index)}
+                              className="text-slate-400 hover:text-red-600"
+                            >
+                              ✕
+                            </button>
+                          )}
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="bg-slate-50 font-semibold">
+                      <td colSpan={2} className="px-2 py-2 text-right text-xs">
+                        Total H.T.
+                      </td>
+                      <td className="px-2 py-2 text-right text-xs tabular-nums">
+                        {formatCurrency(totalHt)}
+                      </td>
+                      <td />
+                    </tr>
+                  </tfoot>
+                </table>
+                <div className="border-t border-slate-200 px-2 py-2">
+                  <button
+                    type="button"
+                    onClick={addLine}
+                    className="text-xs font-semibold text-violet-600 hover:underline"
+                  >
+                    + Ajouter une ligne
+                  </button>
+                </div>
+              </div>
+            </section>
           </div>
 
           {error && (

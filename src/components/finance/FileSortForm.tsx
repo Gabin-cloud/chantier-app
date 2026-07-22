@@ -16,7 +16,7 @@ import {
   uploadWorkControlAttestation,
 } from "@/lib/actions/work-control";
 import { getProjectQuotes, saveQuote } from "@/lib/actions/quotes";
-import { getOpenTmaLogements } from "@/lib/actions/tma";
+import { getOpenTmaLogements, saveTmaDepositFromOutlook } from "@/lib/actions/tma";
 import type { FinancialQuoteWithLot, IncomingFileCategory } from "@/lib/types/database";
 import { INCOMING_FILE_CATEGORY_LABELS } from "@/lib/types/database";
 
@@ -46,6 +46,13 @@ export const FILE_SORT_CATEGORIES: {
     label: "Devis",
     description: "Suivi devis",
     color: "border-amber-200 bg-amber-50 text-amber-800 hover:bg-amber-100",
+    requiresSituation: false,
+  },
+  {
+    id: "tma",
+    label: "TMA",
+    description: "Dépôt devis à analyser",
+    color: "border-purple-200 bg-purple-50 text-purple-800 hover:bg-purple-100",
     requiresSituation: false,
   },
   {
@@ -160,6 +167,10 @@ export function FileSortForm({
     { logementNumber: string; dossierId: string }[]
   >([]);
   const [tmaLogementNumber, setTmaLogementNumber] = useState("");
+  const [tmaQuoteNumber, setTmaQuoteNumber] = useState("");
+  const [tmaQuoteDate, setTmaQuoteDate] = useState(
+    () => mailDate ?? new Date().toISOString().slice(0, 10)
+  );
 
   useEffect(() => {
     setSourceEmail(initialSourceEmail);
@@ -193,15 +204,16 @@ export function FileSortForm({
   }, [category, projectId]);
 
   useEffect(() => {
-    if (category !== "devis" || !devisValues.isTma || !projectId) {
+    if (category !== "devis" && category !== "tma") {
       setTmaLogements([]);
       setTmaLogementNumber("");
       return;
     }
+    if (!projectId) return;
     getOpenTmaLogements(projectId)
       .then(setTmaLogements)
       .catch(() => setTmaLogements([]));
-  }, [category, devisValues.isTma, projectId]);
+  }, [category, projectId]);
 
   useEffect(() => {
     getQuickSortData(projectId)
@@ -271,6 +283,33 @@ export function FileSortForm({
     if (category === "devis" && devisMode === "signed" && !selectedQuoteId) return;
 
     setError(null);
+
+    if (category === "tma") {
+      startTransition(async () => {
+        try {
+          const fd = new FormData();
+          fd.set("file", file);
+          fd.set("enterpriseId", enterpriseId);
+          fd.set("tmaLogementNumber", tmaLogementNumber);
+          fd.set("quoteNumber", tmaQuoteNumber);
+          fd.set("quoteDate", tmaQuoteDate);
+          if (sourceEmail) fd.set("sourceEmail", sourceEmail);
+
+          const result = await saveTmaDepositFromOutlook(projectId, fd);
+          if (!result.ok) {
+            setError(normalizeClassifyError(result.error));
+            return;
+          }
+          resetAfterSuccess(
+            `Dépôt TMA enregistré pour le logement ${tmaLogementNumber}. Ouvrez le suivi TMA sur PC pour analyser.`
+          );
+        } catch (err) {
+          const raw = err instanceof Error ? err.message : "Erreur d'enregistrement.";
+          setError(normalizeClassifyError(raw));
+        }
+      });
+      return;
+    }
 
     if (category === "devis") {
       startTransition(async () => {
@@ -368,6 +407,7 @@ export function FileSortForm({
     (category !== "levee_controle" || selectedNcKeys.length > 0) &&
     (category !== "devis" || devisMode !== "signed" || selectedQuoteId) &&
     (category !== "devis" || !devisValues.isTma || Boolean(tmaLogementNumber)) &&
+    (category !== "tma" || Boolean(tmaLogementNumber)) &&
     !isPending;
 
   const gridCols = compact ? "grid-cols-2" : "grid-cols-2";
@@ -539,6 +579,55 @@ export function FileSortForm({
         </section>
       )}
 
+      {category === "tma" && enterpriseId && (
+        <section className="space-y-3">
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-purple-700">
+              Logement TMA
+            </label>
+            {tmaLogements.length === 0 ? (
+              <p className="rounded-lg bg-amber-50 px-3 py-2 text-xs text-amber-800">
+                Aucune demande TMA ouverte. Créez d&apos;abord une TMA sur PC.
+              </p>
+            ) : (
+              <select
+                value={tmaLogementNumber}
+                onChange={(e) => setTmaLogementNumber(e.target.value)}
+                className="w-full rounded-lg border border-purple-200 px-3 py-2 text-sm"
+              >
+                <option value="">— Choisir le logement —</option>
+                {tmaLogements.map((l) => (
+                  <option key={l.dossierId} value={l.logementNumber}>
+                    Logt {l.logementNumber}
+                  </option>
+                ))}
+              </select>
+            )}
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-600">N° devis</label>
+            <input
+              type="text"
+              value={tmaQuoteNumber}
+              onChange={(e) => setTmaQuoteNumber(e.target.value)}
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            />
+          </div>
+          <div>
+            <label className="mb-1 block text-xs font-semibold text-slate-600">Date du devis</label>
+            <input
+              type="date"
+              value={tmaQuoteDate}
+              onChange={(e) => setTmaQuoteDate(e.target.value)}
+              className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+            />
+          </div>
+          <p className="text-[10px] text-slate-500">
+            Le dépôt apparaîtra dans « Dépôts à analyser » du suivi TMA sur PC.
+          </p>
+        </section>
+      )}
+
       {category === "devis" && enterpriseId && (
         <section className="space-y-3">
           <div className="flex gap-2">
@@ -631,7 +720,7 @@ export function FileSortForm({
         </section>
       )}
 
-      {category && enterpriseId && category !== "devis" && (
+      {category && enterpriseId && category !== "devis" && category !== "tma" && (
         <section className="space-y-2">
           <div>
             <label className="mb-1 block text-xs font-medium text-slate-500">
@@ -673,6 +762,20 @@ export function FileSortForm({
         </section>
       )}
 
+      {category === "tma" && enterpriseId && (
+        <section>
+          <label className="mb-1 block text-xs font-medium text-slate-500">
+            E-mail expéditeur
+          </label>
+          <input
+            type="email"
+            value={sourceEmail}
+            onChange={(e) => setSourceEmail(e.target.value)}
+            className="w-full rounded-lg border border-slate-200 px-3 py-2 text-sm"
+          />
+        </section>
+      )}
+
       {error && (
         <p className="rounded-lg bg-red-50 px-3 py-2 text-sm text-red-700">
           {error}
@@ -692,7 +795,9 @@ export function FileSortForm({
       >
         {isPending
           ? "Classement…"
-          : category === "devis"
+          : category === "tma"
+            ? "Déposer dans le suivi TMA"
+            : category === "devis"
             ? devisMode === "signed"
               ? "Enregistrer le devis signé"
               : "Enregistrer dans le suivi devis"

@@ -34,6 +34,11 @@ import {
   DEFAULT_TMA_COMPTABILITE_EMAIL_BODY,
   DEFAULT_TMA_COMPTABILITE_EMAIL_SUBJECT,
 } from "@/lib/notifications/tma-comptabilite-email";
+import {
+  TMA_MOU_EMAIL_MERGE_TAGS,
+  DEFAULT_TMA_MOU_EMAIL_BODY,
+  DEFAULT_TMA_MOU_EMAIL_SUBJECT,
+} from "@/lib/notifications/tma-mou-email";
 
 export type EmailTemplateData = {
   id: string;
@@ -565,6 +570,33 @@ export async function updateTmaComptabiliteEmailTemplate(input: {
       error: err instanceof Error ? err.message : "Impossible d'enregistrer le modèle.",
     };
   }
+}
+
+export async function getTmaMouEmailTemplate(): Promise<{
+  subjectTemplate: string;
+  bodyTemplate: string;
+  defaultCc: string;
+}> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("email_templates")
+    .select("subject_template, body_template, default_cc")
+    .eq("slug", "tma_mou_send")
+    .maybeSingle();
+
+  if (error || !data) {
+    return {
+      subjectTemplate: DEFAULT_TMA_MOU_EMAIL_SUBJECT,
+      bodyTemplate: DEFAULT_TMA_MOU_EMAIL_BODY,
+      defaultCc: "",
+    };
+  }
+
+  return {
+    subjectTemplate: data.subject_template,
+    bodyTemplate: data.body_template,
+    defaultCc: data.default_cc ?? "",
+  };
 }
 
 export async function getPlatformInvitationEmailTemplate(): Promise<{

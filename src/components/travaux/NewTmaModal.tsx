@@ -4,7 +4,7 @@ import { useEffect, useState, useTransition } from "react";
 import { AppFormField } from "@/components/ui/AppFormField";
 import { ModalPanel } from "@/components/ui/ModalPanel";
 import { TmaEmailStep } from "@/components/travaux/TmaEmailStep";
-import { saveTmaDossier, type TmaDossierFormData, type TmaLineInput, type TmaTriState } from "@/lib/actions/tma";
+import { saveTmaDossier, getTmaDossierByLogement, type TmaDossierFormData, type TmaLineInput, type TmaTriState } from "@/lib/actions/tma";
 import type { Enterprise } from "@/lib/types/database";
 
 type NewTmaModalProps = {
@@ -76,6 +76,9 @@ export function NewTmaModal({
   const [mouFiles, setMouFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
   const [emailDossierId, setEmailDossierId] = useState<string | null>(null);
+  const [existingDossierId, setExistingDossierId] = useState<string | null>(null);
+  const [loadingDossier, setLoadingDossier] = useState(false);
+  const [dossierLoaded, setDossierLoaded] = useState(false);
 
   useEffect(() => {
     if (open) {
@@ -86,8 +89,36 @@ export function NewTmaModal({
       setMouFiles([]);
       setError(null);
       setEmailDossierId(null);
+      setExistingDossierId(null);
+      setDossierLoaded(false);
     }
   }, [open]);
+
+  useEffect(() => {
+    if (!open || !logementNumber.trim()) {
+      setExistingDossierId(null);
+      setDossierLoaded(false);
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setLoadingDossier(true);
+      const result = await getTmaDossierByLogement(projectId, logementNumber);
+      setLoadingDossier(false);
+      if (!result) {
+        setExistingDossierId(null);
+        setDossierLoaded(false);
+        return;
+      }
+      setExistingDossierId(result.dossier.id);
+      setNfStatus(result.dossier.nf_status ?? "");
+      setPmrStatus(result.dossier.pmr_status ?? "");
+      setLines(result.lines.length ? result.lines : [emptyLine()]);
+      setDossierLoaded(true);
+    }, 400);
+
+    return () => clearTimeout(timer);
+  }, [open, projectId, logementNumber]);
 
   if (!open) return null;
 
@@ -129,6 +160,7 @@ export function NewTmaModal({
 
   function buildFormData(markSent: boolean): FormData {
     const payload: TmaDossierFormData = {
+      dossierId: existingDossierId ?? undefined,
       logementNumber,
       nfStatus,
       pmrStatus,
@@ -161,8 +193,12 @@ export function NewTmaModal({
 
   return (
     <ModalPanel
-      title="Nouvelle TMA"
-      subtitle="Questionnaire de saisie pour le logement"
+      title={existingDossierId ? `TMA logement ${logementNumber}` : "Nouvelle TMA"}
+      subtitle={
+        existingDossierId
+          ? "Dossier existant — modifiez et enregistrez, envoi mail possible ensuite"
+          : "Questionnaire de saisie pour le logement"
+      }
       onClose={onClose}
       maxWidth="2xl"
     >
@@ -174,6 +210,16 @@ export function NewTmaModal({
           onChange={setLogementNumber}
           required
         />
+
+        {loadingDossier && (
+          <p className="text-xs text-slate-500">Recherche d&apos;un dossier existant…</p>
+        )}
+        {dossierLoaded && existingDossierId && (
+          <p className="rounded-lg border border-blue-200 bg-blue-50 px-3 py-2 text-xs text-blue-900">
+            Dossier TMA trouvé pour ce logement. Les lignes existantes sont pré-remplies — vous
+            pouvez les modifier puis enregistrer ou envoyer aux entreprises.
+          </p>
+        )}
 
         <div className="overflow-x-auto rounded-lg border border-slate-200">
           <table className="w-full min-w-[640px] border-collapse text-sm">

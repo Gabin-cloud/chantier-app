@@ -19,6 +19,7 @@ function revalidateTma(projectId: string) {
 export type TmaTriState = "oui" | "non" | "nc";
 
 export type TmaLineInput = {
+  entryId?: string;
   localisation: string;
   enterpriseId: string;
   enterpriseName: string;
@@ -26,6 +27,7 @@ export type TmaLineInput = {
 };
 
 export type TmaDossierFormData = {
+  dossierId?: string;
   logementNumber: string;
   nfStatus: TmaTriState | "";
   pmrStatus: TmaTriState | "";
@@ -65,7 +67,6 @@ export async function getOpenTmaLogements(projectId: string): Promise<
     .from("work_tma_dossiers")
     .select("id, logement_number")
     .eq("project_id", projectId)
-    .in("status", ["sent", "draft"])
     .order("created_at", { ascending: false });
 
   if (error) throw new Error(error.message);
@@ -92,6 +93,55 @@ export async function getTmaDossier(
 
   if (error) throw new Error(error.message);
   return (data ?? null) as WorkTmaDossier | null;
+}
+
+export type TmaDossierLoadResult = {
+  dossier: WorkTmaDossier;
+  lines: TmaLineInput[];
+};
+
+/** Charge le dossier TMA le plus récent pour un n° de logement. */
+export async function getTmaDossierByLogement(
+  projectId: string,
+  logementNumber: string
+): Promise<TmaDossierLoadResult | null> {
+  await requireProjectAccess(projectId);
+  const logement = logementNumber.trim();
+  if (!logement) return null;
+
+  const supabase = await createClient();
+
+  const { data: dossier, error } = await supabase
+    .from("work_tma_dossiers")
+    .select("*")
+    .eq("project_id", projectId)
+    .eq("logement_number", logement)
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  if (error || !dossier) return null;
+
+  const { data: entries } = await supabase
+    .from("work_tma_entries")
+    .select("*")
+    .eq("dossier_id", dossier.id)
+    .eq("is_request_line", true)
+    .in("status", ["draft", "sent"])
+    .order("sort_order", { ascending: true });
+
+  const lines: TmaLineInput[] = (entries ?? []).map((e) => ({
+    entryId: e.id,
+    localisation: e.localisation,
+    enterpriseId: e.enterprise_id ?? "",
+    enterpriseName: e.enterprise_name,
+    natureTravaux: e.nature_travaux,
+  }));
+
+  return {
+    dossier: dossier as WorkTmaDossier,
+    lines: lines.length ? lines : [],
+  };
 }
 
 export async function getTmaDepositGroups(projectId: string): Promise<TmaDepositGroup[]> {
@@ -137,6 +187,8 @@ export async function getTmaAnalysisContext(
       requestLines: WorkTmaEntry[];
       contractAmountHt: number;
       dossier: WorkTmaDossier | null;
+      depositFilePath: string | null;
+      depositFileName: string | null;
     }
   | { ok: false; error: string }
 > {
@@ -182,12 +234,56 @@ export async function getTmaAnalysisContext(
       requestLines = (reqLines ?? []) as WorkTmaEntry[];
     }
 
+    // Lignes éditables : priorité aux entrées du dépôt, sinon seed depuis la demande
+    let editableEntries = typed;
+    if (
+      first.dossier_id &&
+      enterpriseId &&
+      typed.every((e) => !e.montant_ht && e.status === "to_analyze")
+    ) {
+      const { data: reqForFill } = await supabase
+        .from("work_tma_entries")
+        .select("*")
+        .eq("project_id", projectId)
+        .eq("dossier_id", first.dossier_id)
+        .eq("enterprise_id", enterpriseId)
+        .eq("is_request_line", true)
+        .in("status", ["sent", "draft"]);
+
+      if (reqForFill?.length && typed.length <= 1) {
+        editableEntries = (reqForFill as WorkTmaEntry[]).map((req, i) => {
+          const existing = typed[i];
+          return existing
+            ? { ...existing, localisation: req.localisation, nature_travaux: req.nature_travaux }
+            : {
+                ...req,
+                id: `seed-${req.id}`,
+                status: "to_analyze" as WorkTmaEntryStatus,
+                montant_ht: 0,
+                quote_id: first.quote_id,
+                devis_number: first.devis_number,
+                devis_recu_le: first.devis_recu_le,
+                deposit_file_path: first.deposit_file_path,
+                deposit_file_name: first.deposit_file_name,
+              };
+        }) as WorkTmaEntry[];
+      }
+    }
+
     let dossier: WorkTmaDossier | null = null;
     if (first.dossier_id) {
       dossier = await getTmaDossier(projectId, first.dossier_id);
     }
 
-    return { ok: true, entries: typed, requestLines, contractAmountHt, dossier };
+    return {
+      ok: true,
+      entries: editableEntries,
+      requestLines,
+      contractAmountHt,
+      dossier,
+      depositFilePath: first.deposit_file_path,
+      depositFileName: first.deposit_file_name,
+    };
   } catch (err) {
     return {
       ok: false,
@@ -250,30 +346,67 @@ export async function saveTmaDossier(
       return { ok: false, error: "Ajoutez au moins une ligne au tableau." };
     }
 
-    const { data: dossier, error: dossierError } = await supabase
-      .from("work_tma_dossiers")
-      .insert({
-        project_id: projectId,
-        logement_number: form.logementNumber.trim(),
+    const logement = form.logementNumber.trim();
+    const entryStatus: WorkTmaEntryStatus = markSent ? "sent" : "draft";
+    let dossierId = form.dossierId?.trim() || null;
+
+    if (dossierId) {
+      const dossierUpdate: Record<string, unknown> = {
         nf_status: form.nfStatus || null,
         pmr_status: form.pmrStatus || null,
-        status: markSent ? "sent" : "draft",
-        sent_at: markSent ? new Date().toISOString() : null,
-      })
-      .select("id")
-      .single();
+      };
+      if (markSent) {
+        dossierUpdate.status = "sent";
+        dossierUpdate.sent_at = new Date().toISOString();
+      }
 
-    if (dossierError) throw new Error(dossierError.message);
+      const { error: updateError } = await supabase
+        .from("work_tma_dossiers")
+        .update(dossierUpdate)
+        .eq("id", dossierId)
+        .eq("project_id", projectId);
+
+      if (updateError) throw new Error(updateError.message);
+    } else {
+      const { data: dossier, error: dossierError } = await supabase
+        .from("work_tma_dossiers")
+        .insert({
+          project_id: projectId,
+          logement_number: logement,
+          nf_status: form.nfStatus || null,
+          pmr_status: form.pmrStatus || null,
+          status: markSent ? "sent" : "draft",
+          sent_at: markSent ? new Date().toISOString() : null,
+        })
+        .select("id")
+        .single();
+
+      if (dossierError) throw new Error(dossierError.message);
+      dossierId = dossier.id;
+    }
+
+    if (!dossierId) {
+      return { ok: false, error: "Dossier TMA introuvable." };
+    }
 
     const mouPaths = mouFiles.length
-      ? await uploadMouDocuments(supabase, projectId, dossier.id, mouFiles)
+      ? await uploadMouDocuments(supabase, projectId, dossierId, mouFiles)
       : [];
 
     if (mouPaths.length) {
+      const { data: existingDossier } = await supabase
+        .from("work_tma_dossiers")
+        .select("mou_document_paths")
+        .eq("id", dossierId)
+        .single();
+      const merged = [
+        ...((existingDossier?.mou_document_paths ?? []) as string[]),
+        ...mouPaths,
+      ];
       await supabase
         .from("work_tma_dossiers")
-        .update({ mou_document_paths: mouPaths })
-        .eq("id", dossier.id);
+        .update({ mou_document_paths: merged })
+        .eq("id", dossierId);
     }
 
     const { data: maxRow } = await supabase
@@ -287,10 +420,9 @@ export async function saveTmaDossier(
     let sortOrder = maxRow?.sort_order ?? 0;
     const entryIds: string[] = [];
     const modifDate = new Date().toISOString().slice(0, 10);
-    const entryStatus: WorkTmaEntryStatus = markSent ? "sent" : "draft";
+    const keptEntryIds = new Set<string>();
 
     for (const line of validLines) {
-      sortOrder += 1;
       let enterpriseName = line.enterpriseName.trim();
       if (line.enterpriseId) {
         const { data: ent } = await supabase
@@ -301,32 +433,71 @@ export async function saveTmaDossier(
         if (ent?.name) enterpriseName = ent.name;
       }
 
+      const linePayload = {
+        logement_number: logement,
+        localisation: line.localisation.trim(),
+        nature_travaux: line.natureTravaux.trim(),
+        enterprise_id: line.enterpriseId || null,
+        enterprise_name: enterpriseName,
+        nf_status: form.nfStatus || null,
+        pmr_status: form.pmrStatus || null,
+        status: entryStatus,
+        is_request_line: true,
+      };
+
+      if (line.entryId) {
+        const { data: updated, error: updateErr } = await supabase
+          .from("work_tma_entries")
+          .update(linePayload)
+          .eq("id", line.entryId)
+          .eq("project_id", projectId)
+          .in("status", ["draft", "sent"])
+          .select("id")
+          .maybeSingle();
+
+        if (updateErr) throw new Error(updateErr.message);
+        if (updated) {
+          entryIds.push(updated.id);
+          keptEntryIds.add(updated.id);
+          continue;
+        }
+      }
+
+      sortOrder += 1;
       const { data: entry, error: entryError } = await supabase
         .from("work_tma_entries")
         .insert({
           project_id: projectId,
-          dossier_id: dossier.id,
-          logement_number: form.logementNumber.trim(),
-          localisation: line.localisation.trim(),
+          dossier_id: dossierId,
           modif_demandee_le: modifDate,
-          nature_travaux: line.natureTravaux.trim(),
-          enterprise_id: line.enterpriseId || null,
-          enterprise_name: enterpriseName,
-          nf_status: form.nfStatus || null,
-          pmr_status: form.pmrStatus || null,
-          status: entryStatus,
-          is_request_line: true,
           sort_order: sortOrder,
+          ...linePayload,
         })
         .select("id")
         .single();
 
       if (entryError) throw new Error(entryError.message);
       entryIds.push(entry.id);
+      keptEntryIds.add(entry.id);
+    }
+
+    if (form.dossierId) {
+      const { data: staleRows } = await supabase
+        .from("work_tma_entries")
+        .select("id")
+        .eq("dossier_id", dossierId)
+        .eq("is_request_line", true)
+        .in("status", ["draft", "sent"]);
+
+      for (const row of staleRows ?? []) {
+        if (!keptEntryIds.has(row.id)) {
+          await supabase.from("work_tma_entries").delete().eq("id", row.id);
+        }
+      }
     }
 
     revalidateTma(projectId);
-    return { ok: true, dossierId: dossier.id, entryIds };
+    return { ok: true, dossierId, entryIds };
   } catch (err) {
     return {
       ok: false,
@@ -403,10 +574,55 @@ export async function fillTmaFromQuote(
 
   if (matchingLines?.length) {
     for (const line of matchingLines) {
-      await supabase
+      const { data: requestRow } = await supabase
         .from("work_tma_entries")
-        .update(depositPayload)
-        .eq("id", line.id);
+        .select("localisation, nature_travaux, logement_number, dossier_id")
+        .eq("id", line.id)
+        .single();
+
+      const { data: existingAnalyze } = await supabase
+        .from("work_tma_entries")
+        .select("id")
+        .eq("project_id", projectId)
+        .eq("quote_id", quote.id)
+        .eq("enterprise_id", quote.enterprise_id)
+        .eq("localisation", requestRow?.localisation ?? "")
+        .eq("nature_travaux", requestRow?.nature_travaux ?? "")
+        .eq("status", "to_analyze")
+        .maybeSingle();
+
+      const analyzePayload = {
+        ...depositPayload,
+        localisation: requestRow?.localisation ?? "",
+        nature_travaux: requestRow?.nature_travaux ?? "",
+        logement_number: requestRow?.logement_number ?? logement,
+        dossier_id: requestRow?.dossier_id ?? dossierId,
+        is_request_line: true,
+        montant_ht: 0,
+      };
+
+      if (existingAnalyze) {
+        await supabase
+          .from("work_tma_entries")
+          .update(analyzePayload)
+          .eq("id", existingAnalyze.id);
+      } else {
+        const { data: maxRow } = await supabase
+          .from("work_tma_entries")
+          .select("sort_order")
+          .eq("project_id", projectId)
+          .order("sort_order", { ascending: false })
+          .limit(1)
+          .maybeSingle();
+
+        await supabase.from("work_tma_entries").insert({
+          project_id: projectId,
+          modif_demandee_le: quote.quote_date ?? null,
+          sort_order: (maxRow?.sort_order ?? 0) + 1,
+          enterprise_id: quote.enterprise_id,
+          ...analyzePayload,
+        });
+      }
     }
   } else {
     const { data: maxRow } = await supabase
@@ -491,7 +707,7 @@ export async function saveTmaAnalysis(
         deposit_file_name: seed?.deposit_file_name ?? null,
       };
 
-      if (line.id && existingIds.has(line.id)) {
+      if (line.id && existingIds.has(line.id) && !line.id.startsWith("seed-")) {
         await supabase.from("work_tma_entries").update(payload).eq("id", line.id);
         keptIds.add(line.id);
       } else {
@@ -587,4 +803,100 @@ export async function markTmaSentToAccounting(
 
   if (error) throw new Error(error.message);
   revalidateTma(projectId);
+}
+
+export async function markTmaSentToMou(projectId: string, entryIds: string[]): Promise<void> {
+  await requireProjectRoles(projectId, ["admin", "gestionnaire"]);
+  const supabase = await createClient();
+  const today = new Date().toISOString().slice(0, 10);
+
+  const { error } = await supabase
+    .from("work_tma_entries")
+    .update({ mou_envoi: today })
+    .eq("project_id", projectId)
+    .in("id", entryIds);
+
+  if (error) throw new Error(error.message);
+  revalidateTma(projectId);
+}
+
+export async function saveTmaDepositFromOutlook(
+  projectId: string,
+  formData: FormData
+): Promise<{ ok: true; tmaPath: string } | { ok: false; error: string }> {
+  try {
+    await requireProjectRoles(projectId, ["admin", "gestionnaire"]);
+    const supabase = await createClient();
+
+    const file = formData.get("file") as File | null;
+    const enterpriseId = (formData.get("enterpriseId") as string) || "";
+    const logementNumber = ((formData.get("tmaLogementNumber") as string) ?? "").trim();
+    const quoteNumber = ((formData.get("quoteNumber") as string) ?? "").trim();
+    const quoteDate =
+      (formData.get("quoteDate") as string) || new Date().toISOString().slice(0, 10);
+    const sourceEmail = ((formData.get("sourceEmail") as string) ?? "").trim() || null;
+
+    if (!file?.size) return { ok: false, error: "Veuillez sélectionner un fichier." };
+    if (!enterpriseId) return { ok: false, error: "Veuillez sélectionner une entreprise." };
+    if (!logementNumber) return { ok: false, error: "Veuillez sélectionner un logement TMA." };
+
+    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const storagePath = `${projectId}/quotes/${enterpriseId}/tma_${Date.now()}_${safeName}`;
+    const buffer = Buffer.from(await file.arrayBuffer());
+    const { error: uploadError } = await supabase.storage
+      .from(FINANCIAL_BUCKET)
+      .upload(storagePath, buffer, {
+        contentType: file.type || "application/pdf",
+        upsert: false,
+      });
+    if (uploadError) return { ok: false, error: uploadError.message };
+
+    const { data: quote, error: quoteError } = await supabase
+      .from("financial_quotes")
+      .insert({
+        project_id: projectId,
+        enterprise_id: enterpriseId,
+        quote_number: quoteNumber,
+        quote_date: quoteDate,
+        is_cie: false,
+        is_ts: false,
+        is_tma: true,
+        designation: `TMA logement ${logementNumber}`,
+        amount_ht: 0,
+        file_path: storagePath,
+        file_name: file.name,
+      })
+      .select("id")
+      .single();
+
+    if (quoteError || !quote) {
+      return { ok: false, error: quoteError?.message ?? "Erreur création devis TMA." };
+    }
+
+    const {
+      data: { user },
+    } = await supabase.auth.getUser();
+
+    await supabase.from("incoming_files").insert({
+      project_id: projectId,
+      enterprise_id: enterpriseId,
+      category: "tma",
+      file_path: storagePath,
+      file_name: file.name,
+      storage_provider: "supabase",
+      source_email: sourceEmail,
+      notes: `TMA logement ${logementNumber}`,
+      created_by: user?.id ?? null,
+    });
+
+    await fillTmaFromQuote(projectId, quote.id, logementNumber);
+
+    revalidateTma(projectId);
+    return { ok: true, tmaPath: `/pc/projets/${projectId}/suivi-travaux/tma` };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Erreur lors du dépôt TMA.",
+    };
+  }
 }
