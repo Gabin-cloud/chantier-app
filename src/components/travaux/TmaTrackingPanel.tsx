@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useRef, useState, useTransition } from "react";
 import { useRouter } from "next/navigation";
 import { NewTmaModal } from "@/components/travaux/NewTmaModal";
 import { TmaAnalysisModal } from "@/components/travaux/TmaAnalysisModal";
@@ -23,8 +23,6 @@ type TmaTrackingPanelProps = {
   m365Ready: boolean;
 };
 
-const BORDER = "border border-slate-300";
-
 const STATUS_LABELS: Record<WorkTmaEntryStatus, string> = {
   draft: "Brouillon",
   sent: "Demande envoyée",
@@ -42,6 +40,267 @@ const STATUS_COLORS: Record<WorkTmaEntryStatus, string> = {
   sent_to_accounting: "bg-violet-100 text-violet-800",
   completed: "bg-slate-200 text-slate-800",
 };
+
+const BORDER = "border border-slate-300";
+
+type TmaColumnFilters = {
+  status: Set<WorkTmaEntryStatus>;
+  logement: Set<string>;
+  localisation: Set<string>;
+  modifDemandee: Set<string>;
+  natureTravaux: Set<string>;
+  enterprise: Set<string>;
+  devisNumber: Set<string>;
+  devisRecu: Set<string>;
+  mouEnvoi: Set<string>;
+  mouAcceptation: Set<string>;
+  montantHt: Set<string>;
+};
+
+function emptyTmaFilters(): TmaColumnFilters {
+  return {
+    status: new Set(),
+    logement: new Set(),
+    localisation: new Set(),
+    modifDemandee: new Set(),
+    natureTravaux: new Set(),
+    enterprise: new Set(),
+    devisNumber: new Set(),
+    devisRecu: new Set(),
+    mouEnvoi: new Set(),
+    mouAcceptation: new Set(),
+    montantHt: new Set(),
+  };
+}
+
+type ColumnFilterDropdownProps = {
+  label: string;
+  options: { value: string; label: string }[];
+  selected: Set<string>;
+  onChange: (next: Set<string>) => void;
+};
+
+function ColumnFilterDropdown({
+  label,
+  options,
+  selected,
+  onChange,
+}: ColumnFilterDropdownProps) {
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+  const active = selected.size > 0;
+
+  useEffect(() => {
+    if (!open) return;
+    function handleClick(e: MouseEvent) {
+      if (ref.current && !ref.current.contains(e.target as Node)) {
+        setOpen(false);
+      }
+    }
+    document.addEventListener("mousedown", handleClick);
+    return () => document.removeEventListener("mousedown", handleClick);
+  }, [open]);
+
+  function toggle(value: string) {
+    const allValues = options.map((o) => o.value);
+    if (selected.size === 0) {
+      onChange(new Set(allValues.filter((v) => v !== value)));
+      return;
+    }
+    const next = new Set(selected);
+    if (next.has(value)) next.delete(value);
+    else next.add(value);
+    if (next.size === allValues.length) onChange(new Set());
+    else onChange(next);
+  }
+
+  return (
+    <div ref={ref} className="relative inline-block">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        className={`ml-1 rounded px-1 text-xs ${active ? "bg-blue-200 text-blue-900" : "text-slate-500 hover:bg-slate-200"}`}
+        title={`Filtrer ${label}`}
+      >
+        ▾
+      </button>
+      {open && (
+        <div className="absolute left-0 top-full z-30 mt-1 min-w-[10rem] rounded-lg border border-slate-200 bg-white p-2 shadow-lg">
+          <div className="mb-2 flex gap-1">
+            <button
+              type="button"
+              className="rounded px-1.5 py-0.5 text-[10px] text-blue-600 hover:bg-blue-50"
+              onClick={() => onChange(new Set(options.map((o) => o.value)))}
+            >
+              Tout
+            </button>
+            <button
+              type="button"
+              className="rounded px-1.5 py-0.5 text-[10px] text-slate-600 hover:bg-slate-50"
+              onClick={() => onChange(new Set())}
+            >
+              Effacer
+            </button>
+          </div>
+          <ul className="max-h-48 space-y-1 overflow-y-auto">
+            {options.map((opt) => (
+              <li key={opt.value}>
+                <label className="flex cursor-pointer items-center gap-2 rounded px-1 py-0.5 text-xs hover:bg-slate-50">
+                  <input
+                    type="checkbox"
+                    checked={selected.size === 0 || selected.has(opt.value)}
+                    onChange={() => toggle(opt.value)}
+                  />
+                  {opt.label}
+                </label>
+              </li>
+            ))}
+          </ul>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function FilterableHeader({
+  children,
+  label,
+  filterKey,
+  options,
+  filters,
+  setFilters,
+  align = "left",
+}: {
+  children: React.ReactNode;
+  label: string;
+  filterKey: keyof TmaColumnFilters;
+  options: { value: string; label: string }[];
+  filters: TmaColumnFilters;
+  setFilters: React.Dispatch<React.SetStateAction<TmaColumnFilters>>;
+  align?: "left" | "center" | "right";
+}) {
+  const alignClass =
+    align === "right" ? "text-right" : align === "center" ? "text-center" : "text-left";
+  return (
+    <th className={`${BORDER} px-2 py-2 font-bold ${alignClass}`}>
+      <div
+        className={`flex items-center gap-0.5 ${
+          align === "right"
+            ? "justify-end"
+            : align === "center"
+              ? "justify-center"
+              : "justify-start"
+        }`}
+      >
+        <span>{children}</span>
+        <ColumnFilterDropdown
+          label={label}
+          options={options}
+          selected={filters[filterKey] as Set<string>}
+          onChange={(next) =>
+            setFilters((prev) => ({ ...prev, [filterKey]: next }))
+          }
+        />
+      </div>
+    </th>
+  );
+}
+
+function formatMoneyFilter(value: number): string {
+  return value ? formatCurrency(value) : "—";
+}
+
+function buildTmaFilterOptions(entries: WorkTmaEntry[]) {
+  const status = new Set<WorkTmaEntryStatus>();
+  const logement = new Set<string>();
+  const localisation = new Set<string>();
+  const modifDemandee = new Set<string>();
+  const natureTravaux = new Set<string>();
+  const enterprise = new Set<string>();
+  const devisNumber = new Set<string>();
+  const devisRecu = new Set<string>();
+  const mouEnvoi = new Set<string>();
+  const mouAcceptation = new Set<string>();
+  const montantHt = new Set<string>();
+
+  for (const entry of entries) {
+    status.add(entry.status);
+    logement.add(entry.logement_number || "—");
+    localisation.add(entry.localisation || "—");
+    modifDemandee.add(formatDate(entry.modif_demandee_le) || "—");
+    natureTravaux.add(entry.nature_travaux || "—");
+    enterprise.add(entry.enterprise_name || "—");
+    devisNumber.add(entry.devis_number || "—");
+    devisRecu.add(formatDate(entry.devis_recu_le) || "—");
+    mouEnvoi.add(formatDate(entry.mou_envoi) || "—");
+    mouAcceptation.add(formatDate(entry.mou_acceptation) || "—");
+    montantHt.add(formatMoneyFilter(entry.montant_ht));
+  }
+
+  const toOptions = (values: Set<string>) =>
+    Array.from(values)
+      .sort((a, b) => a.localeCompare(b, "fr", { numeric: true }))
+      .map((v) => ({ value: v, label: v }));
+
+  return {
+    status: Array.from(status).map((v) => ({
+      value: v,
+      label: STATUS_LABELS[v],
+    })),
+    logement: toOptions(logement),
+    localisation: toOptions(localisation),
+    modifDemandee: toOptions(modifDemandee),
+    natureTravaux: toOptions(natureTravaux),
+    enterprise: toOptions(enterprise),
+    devisNumber: toOptions(devisNumber),
+    devisRecu: toOptions(devisRecu),
+    mouEnvoi: toOptions(mouEnvoi),
+    mouAcceptation: toOptions(mouAcceptation),
+    montantHt: toOptions(montantHt),
+  };
+}
+
+function applyTmaFilters(entries: WorkTmaEntry[], filters: TmaColumnFilters): WorkTmaEntry[] {
+  return entries.filter((entry) => {
+    if (filters.status.size > 0 && !filters.status.has(entry.status)) return false;
+    if (filters.logement.size > 0 && !filters.logement.has(entry.logement_number || "—"))
+      return false;
+    if (filters.localisation.size > 0 && !filters.localisation.has(entry.localisation || "—"))
+      return false;
+    if (
+      filters.modifDemandee.size > 0 &&
+      !filters.modifDemandee.has(formatDate(entry.modif_demandee_le) || "—")
+    )
+      return false;
+    if (
+      filters.natureTravaux.size > 0 &&
+      !filters.natureTravaux.has(entry.nature_travaux || "—")
+    )
+      return false;
+    if (filters.enterprise.size > 0 && !filters.enterprise.has(entry.enterprise_name || "—"))
+      return false;
+    if (filters.devisNumber.size > 0 && !filters.devisNumber.has(entry.devis_number || "—"))
+      return false;
+    if (
+      filters.devisRecu.size > 0 &&
+      !filters.devisRecu.has(formatDate(entry.devis_recu_le) || "—")
+    )
+      return false;
+    if (filters.mouEnvoi.size > 0 && !filters.mouEnvoi.has(formatDate(entry.mou_envoi) || "—"))
+      return false;
+    if (
+      filters.mouAcceptation.size > 0 &&
+      !filters.mouAcceptation.has(formatDate(entry.mou_acceptation) || "—")
+    )
+      return false;
+    if (
+      filters.montantHt.size > 0 &&
+      !filters.montantHt.has(formatMoneyFilter(entry.montant_ht))
+    )
+      return false;
+    return true;
+  });
+}
 
 function formatDate(value: string | null): string {
   if (!value) return "";
@@ -197,12 +456,18 @@ function EditableMoney({
 function TmaTable({
   projectId,
   entries,
+  filterOptions,
+  filters,
+  setFilters,
   onDelete,
   isPending,
   showStatus = true,
 }: {
   projectId: string;
   entries: WorkTmaEntry[];
+  filterOptions: ReturnType<typeof buildTmaFilterOptions>;
+  filters: TmaColumnFilters;
+  setFilters: React.Dispatch<React.SetStateAction<TmaColumnFilters>>;
   onDelete: (id: string) => void;
   isPending: boolean;
   showStatus?: boolean;
@@ -218,30 +483,117 @@ function TmaTable({
       <thead>
         <tr className="bg-slate-50">
           {showStatus && (
-            <th className={`${BORDER} px-2 py-2 text-left font-bold`}>Statut</th>
+            <FilterableHeader
+              label="Statut"
+              filterKey="status"
+              options={filterOptions.status}
+              filters={filters}
+              setFilters={setFilters}
+            >
+              Statut
+            </FilterableHeader>
           )}
-          <th className={`${BORDER} px-2 py-2 text-left font-bold`}>Logt n°</th>
-          <th className={`${BORDER} px-2 py-2 text-left font-bold`}>Localisation</th>
-          <th className={`${BORDER} px-2 py-2 text-left font-bold`}>Modif demandée le</th>
-          <th className={`${BORDER} min-w-[12rem] px-2 py-2 text-left font-bold`}>
+          <FilterableHeader
+            label="Logt n°"
+            filterKey="logement"
+            options={filterOptions.logement}
+            filters={filters}
+            setFilters={setFilters}
+          >
+            Logt n°
+          </FilterableHeader>
+          <FilterableHeader
+            label="Localisation"
+            filterKey="localisation"
+            options={filterOptions.localisation}
+            filters={filters}
+            setFilters={setFilters}
+          >
+            Localisation
+          </FilterableHeader>
+          <FilterableHeader
+            label="Modif demandée le"
+            filterKey="modifDemandee"
+            options={filterOptions.modifDemandee}
+            filters={filters}
+            setFilters={setFilters}
+          >
+            Modif demandée le
+          </FilterableHeader>
+          <FilterableHeader
+            label="Nature des travaux"
+            filterKey="natureTravaux"
+            options={filterOptions.natureTravaux}
+            filters={filters}
+            setFilters={setFilters}
+          >
             Nature des travaux modificatifs
-          </th>
-          <th className={`${BORDER} px-2 py-2 text-left font-bold`}>Entreprise concernée</th>
+          </FilterableHeader>
+          <FilterableHeader
+            label="Entreprise"
+            filterKey="enterprise"
+            options={filterOptions.enterprise}
+            filters={filters}
+            setFilters={setFilters}
+          >
+            Entreprise concernée
+          </FilterableHeader>
           <th className={`${BORDER} px-2 py-2 text-center font-bold`} colSpan={2}>
             Entreprise
           </th>
           <th className={`${BORDER} px-2 py-2 text-center font-bold`} colSpan={2}>
             MOU devis
           </th>
-          <th className={`${BORDER} px-2 py-2 text-right font-bold`}>Montant H.T.</th>
+          <FilterableHeader
+            label="Montant H.T."
+            filterKey="montantHt"
+            options={filterOptions.montantHt}
+            filters={filters}
+            setFilters={setFilters}
+            align="right"
+          >
+            Montant H.T.
+          </FilterableHeader>
           <th className={`${BORDER} w-8 px-1 py-2`} />
         </tr>
         <tr className="bg-slate-50 text-[10px] text-slate-600">
           <th className={BORDER} colSpan={showStatus ? 6 : 5} />
-          <th className={`${BORDER} px-2 py-1 font-semibold`}>N° devis</th>
-          <th className={`${BORDER} px-2 py-1 font-semibold`}>reçu le</th>
-          <th className={`${BORDER} px-2 py-1 font-semibold`}>Envoi</th>
-          <th className={`${BORDER} px-2 py-1 font-semibold`}>Acceptat.</th>
+          <FilterableHeader
+            label="N° devis"
+            filterKey="devisNumber"
+            options={filterOptions.devisNumber}
+            filters={filters}
+            setFilters={setFilters}
+          >
+            N° devis
+          </FilterableHeader>
+          <FilterableHeader
+            label="reçu le"
+            filterKey="devisRecu"
+            options={filterOptions.devisRecu}
+            filters={filters}
+            setFilters={setFilters}
+          >
+            reçu le
+          </FilterableHeader>
+          <FilterableHeader
+            label="Envoi MOU"
+            filterKey="mouEnvoi"
+            options={filterOptions.mouEnvoi}
+            filters={filters}
+            setFilters={setFilters}
+          >
+            Envoi
+          </FilterableHeader>
+          <FilterableHeader
+            label="Acceptation MOU"
+            filterKey="mouAcceptation"
+            options={filterOptions.mouAcceptation}
+            filters={filters}
+            setFilters={setFilters}
+          >
+            Acceptat.
+          </FilterableHeader>
           <th className={BORDER} colSpan={2} />
         </tr>
       </thead>
@@ -363,9 +715,22 @@ export function TmaTrackingPanel({
   const [analysisEntryIds, setAnalysisEntryIds] = useState<string[] | null>(null);
   const [comptaOpen, setComptaOpen] = useState(false);
   const [mouOpen, setMouOpen] = useState(false);
+  const [filters, setFilters] = useState<TmaColumnFilters>(emptyTmaFilters);
   const [isPending, startTransition] = useTransition();
 
   const depositGroups = useMemo(() => buildDepositGroups(entries), [entries]);
+  const fullTableEntries = useMemo(
+    () => entries.filter((e) => e.status !== "to_analyze"),
+    [entries]
+  );
+  const filterOptions = useMemo(
+    () => buildTmaFilterOptions(fullTableEntries),
+    [fullTableEntries]
+  );
+  const filteredFullTableEntries = useMemo(
+    () => applyTmaFilters(fullTableEntries, filters),
+    [fullTableEntries, filters]
+  );
   const analyzedEntryIds = useMemo(
     () => entries.filter((e) => e.status === "analyzed").map((e) => e.id),
     [entries]
@@ -487,14 +852,17 @@ export function TmaTrackingPanel({
               ))}
             </ul>
           )
-        ) : entries.length === 0 ? (
+        ) : fullTableEntries.length === 0 ? (
           <p className="px-4 py-8 text-sm text-slate-500">
             Aucune TMA enregistrée. Cliquez sur « Nouvelle TMA » pour commencer.
           </p>
         ) : (
           <TmaTable
             projectId={projectId}
-            entries={entries}
+            entries={filteredFullTableEntries}
+            filterOptions={filterOptions}
+            filters={filters}
+            setFilters={setFilters}
             onDelete={handleDelete}
             isPending={isPending}
           />
