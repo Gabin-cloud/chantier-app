@@ -8,6 +8,12 @@ import {
   validateQuoteCategory,
 } from "@/lib/finance/quote-category";
 import { fillTmaFromQuote } from "@/lib/actions/tma";
+import {
+  revalidateTmaAndQuotes,
+  syncAllTmaEntriesFromQuote,
+  syncTmaAmountFromQuote,
+  syncTmaEntriesFromQuoteField,
+} from "@/lib/actions/tma-quote-sync";
 import { createClient } from "@/lib/supabase/server";
 import type {
   FinancialQuote,
@@ -246,7 +252,19 @@ export async function saveQuote(
         .eq("id", quoteId)
         .eq("project_id", projectId);
       if (error) return { ok: false, error: error.message };
+      if (category.is_tma) {
+        try {
+          const tmaLogement = ((formData.get("tmaLogementNumber") as string) ?? "").trim();
+          await fillTmaFromQuote(projectId, quoteId, tmaLogement || undefined, {
+            skipRevalidate: options?.skipRevalidate,
+          });
+          await syncAllTmaEntriesFromQuote(projectId, quoteId, supabase);
+        } catch {
+          /* TMA sync best-effort */
+        }
+      }
       if (!options?.skipRevalidate) revalidateQuotes(projectId);
+      if (category.is_tma && !options?.skipRevalidate) revalidateTmaAndQuotes(projectId);
       return { ok: true, id: quoteId };
     }
 
@@ -268,6 +286,7 @@ export async function saveQuote(
       }
     }
     if (!options?.skipRevalidate) revalidateQuotes(projectId);
+    if (category.is_tma && !options?.skipRevalidate) revalidateTmaAndQuotes(projectId);
     return { ok: true, id: data.id };
   } catch (error) {
     return {
@@ -294,10 +313,29 @@ export async function updateQuoteField(
   await requireFinanceAccess(projectId);
   const supabase = await createClient();
 
+  async function afterTmaQuoteUpdate(isTma: boolean) {
+    if (!isTma) return;
+    try {
+      if (field === "amount_ht") {
+        await syncTmaAmountFromQuote(
+          projectId,
+          quoteId,
+          parseMoneyInput(String(value ?? "0")),
+          supabase
+        );
+      } else {
+        await syncTmaEntriesFromQuoteField(projectId, quoteId, field, value, supabase);
+      }
+      revalidateTmaAndQuotes(projectId);
+    } catch {
+      /* sync best-effort */
+    }
+  }
+
   if (field === "is_cie" || field === "is_ts" || field === "is_tma") {
     const { data: current } = await supabase
       .from("financial_quotes")
-      .select("is_cie, is_ts, is_tma")
+      .select("is_cie, is_ts, is_tma, designation")
       .eq("id", quoteId)
       .single();
     const flags = normalizeQuoteCategory({
@@ -313,7 +351,16 @@ export async function updateQuoteField(
       .eq("id", quoteId)
       .eq("project_id", projectId);
     if (error) return { ok: false, error: error.message };
+    if (field === "is_tma" && flags.is_tma) {
+      try {
+        const logementMatch = (current?.designation ?? "").match(/TMA logement\s+(.+)/i);
+        await fillTmaFromQuote(projectId, quoteId, logementMatch?.[1]?.trim());
+      } catch {
+        /* TMA sync best-effort */
+      }
+    }
     revalidateQuotes(projectId);
+    if (flags.is_tma) revalidateTmaAndQuotes(projectId);
     return { ok: true };
   }
 
@@ -384,12 +431,18 @@ export async function updateQuoteField(
 
   if (field === "mou_sent_at" || field === "mou_return_at") {
     const str = String(value ?? "").trim();
+    const { data: quote } = await supabase
+      .from("financial_quotes")
+      .select("is_tma")
+      .eq("id", quoteId)
+      .single();
     const { error } = await supabase
       .from("financial_quotes")
       .update({ [field]: str || null })
       .eq("id", quoteId)
       .eq("project_id", projectId);
     if (error) return { ok: false, error: error.message };
+    await afterTmaQuoteUpdate(Boolean(quote?.is_tma));
     revalidateQuotes(projectId);
     return { ok: true };
   }
@@ -410,6 +463,12 @@ export async function updateQuoteField(
     return { ok: false, error: "Champ non modifiable." };
   }
 
+  const { data: quoteMeta } = await supabase
+    .from("financial_quotes")
+    .select("is_tma")
+    .eq("id", quoteId)
+    .single();
+
   const { error } = await supabase
     .from("financial_quotes")
     .update({ [field]: updateValue })
@@ -417,6 +476,7 @@ export async function updateQuoteField(
     .eq("project_id", projectId);
 
   if (error) return { ok: false, error: error.message };
+  await afterTmaQuoteUpdate(Boolean(quoteMeta?.is_tma));
   revalidateQuotes(projectId);
   return { ok: true };
 }
