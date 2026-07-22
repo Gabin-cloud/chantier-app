@@ -3,8 +3,10 @@
 import { revalidatePath } from "next/cache";
 import { getProfile, requireUser } from "@/lib/auth/permissions";
 import { createClient } from "@/lib/supabase/server";
+import { createAdminClient, isAdminClientConfigured } from "@/lib/supabase/admin";
 
 const TEMPLATE_BUCKET = "financial-files";
+const SIGNED_URL_TTL_SECONDS = 60 * 60;
 
 async function canManageOwnerTemplates(userId: string): Promise<boolean> {
   const profile = await getProfile();
@@ -19,6 +21,32 @@ async function canManageOwnerTemplates(userId: string): Promise<boolean> {
     .limit(1);
 
   return (data?.length ?? 0) > 0;
+}
+
+function buildSituationTemplatePath(ownerId: string, fileName: string): string {
+  const safeName = fileName.replace(/[^a-zA-Z0-9._-]+/g, "_");
+  // Même convention que les modèles Word MOA (policies storage Supabase).
+  return `${ownerId}/owner-document-templates/situation-travaux/${Date.now()}_${safeName}`;
+}
+
+async function getSignedTemplateUrl(filePath: string): Promise<string | null> {
+  if (!filePath) return null;
+
+  if (isAdminClientConfigured()) {
+    const admin = createAdminClient();
+    const { data, error } = await admin.storage
+      .from(TEMPLATE_BUCKET)
+      .createSignedUrl(filePath, SIGNED_URL_TTL_SECONDS);
+    if (!error && data?.signedUrl) return data.signedUrl;
+  }
+
+  const supabase = await createClient();
+  const { data, error } = await supabase.storage
+    .from(TEMPLATE_BUCKET)
+    .createSignedUrl(filePath, SIGNED_URL_TTL_SECONDS);
+
+  if (error || !data?.signedUrl) return null;
+  return data.signedUrl;
 }
 
 export async function uploadOwnerSituationTemplate(
@@ -41,20 +69,41 @@ export async function uploadOwnerSituationTemplate(
       return { ok: false, error: "Seuls les fichiers Excel (.xlsx, .xls) sont acceptés." };
     }
 
-    const supabase = await createClient();
-    const safeName = file.name.replace(/[^a-zA-Z0-9._-]/g, "_");
-    const filePath = `owner-templates/${ownerId}/situation-travaux/${safeName}`;
+    if (file.size > 15 * 1024 * 1024) {
+      return { ok: false, error: "Fichier trop volumineux (max 15 Mo)." };
+    }
+
+    const filePath = buildSituationTemplatePath(ownerId, file.name);
     const buffer = Buffer.from(await file.arrayBuffer());
+    const contentType =
+      file.type ||
+      (lower.endsWith(".xls")
+        ? "application/vnd.ms-excel"
+        : "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet");
 
-    const { error: uploadError } = await supabase.storage
-      .from(TEMPLATE_BUCKET)
-      .upload(filePath, buffer, {
-        contentType: file.type || "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        upsert: true,
-      });
+    let uploadErrorMessage: string | null = null;
 
-    if (uploadError) return { ok: false, error: uploadError.message };
+    if (isAdminClientConfigured()) {
+      const admin = createAdminClient();
+      const { error: uploadError } = await admin.storage
+        .from(TEMPLATE_BUCKET)
+        .upload(filePath, buffer, { contentType, upsert: true });
 
+      if (uploadError) uploadErrorMessage = uploadError.message;
+    } else {
+      const supabase = await createClient();
+      const { error: uploadError } = await supabase.storage
+        .from(TEMPLATE_BUCKET)
+        .upload(filePath, buffer, { contentType, upsert: true });
+
+      if (uploadError) uploadErrorMessage = uploadError.message;
+    }
+
+    if (uploadErrorMessage) {
+      return { ok: false, error: uploadErrorMessage };
+    }
+
+    const supabase = await createClient();
     const { error: updateError } = await supabase
       .from("owner_directory")
       .update({
@@ -92,9 +141,12 @@ export async function removeOwnerSituationTemplate(
       .maybeSingle();
 
     if (owner?.situation_template_path) {
-      await supabase.storage
-        .from(TEMPLATE_BUCKET)
-        .remove([owner.situation_template_path]);
+      if (isAdminClientConfigured()) {
+        const admin = createAdminClient();
+        await admin.storage.from(TEMPLATE_BUCKET).remove([owner.situation_template_path]);
+      } else {
+        await supabase.storage.from(TEMPLATE_BUCKET).remove([owner.situation_template_path]);
+      }
     }
 
     const { error } = await supabase
@@ -145,20 +197,16 @@ export async function getOwnerSituationTemplateForProject(projectId: string): Pr
     return { templateName: null, templateUrl: null };
   }
 
-  const { data } = supabase.storage
-    .from(TEMPLATE_BUCKET)
-    .getPublicUrl(owner.situation_template_path);
+  const templateUrl = await getSignedTemplateUrl(owner.situation_template_path);
 
   return {
     templateName: owner.situation_template_name,
-    templateUrl: data.publicUrl ?? null,
+    templateUrl,
   };
 }
 
 export async function getOwnerSituationTemplateUrl(
   templatePath: string
 ): Promise<string | null> {
-  const supabase = await createClient();
-  const { data } = supabase.storage.from(TEMPLATE_BUCKET).getPublicUrl(templatePath);
-  return data.publicUrl ?? null;
+  return getSignedTemplateUrl(templatePath);
 }
