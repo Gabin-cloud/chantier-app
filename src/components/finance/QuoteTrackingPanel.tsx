@@ -4,11 +4,11 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { AddQuoteModal } from "@/components/finance/AddQuoteModal";
 import { AmendmentDocumentModal } from "@/components/finance/AmendmentDocumentModal";
+import { QuotePdfModal } from "@/components/finance/QuotePdfModal";
 import { DevisMouEmailStep } from "@/components/finance/DevisMouEmailStep";
 import { PrintReportBanner } from "@/components/print/PrintReportBanner";
 import { TableExportToolbar } from "@/components/print/TableExportToolbar";
 import { getQuoteFileUrl, updateQuoteField } from "@/lib/actions/quotes";
-import { openDocument } from "@/lib/documents/open-document";
 import { formatCurrency, parseMoneyInput } from "@/lib/finance/calculations";
 import type { ExcelColumn } from "@/lib/print/table-export";
 import type {
@@ -31,12 +31,24 @@ type ColumnFilters = {
   lot: Set<string>;
   enterprise: Set<string>;
   quoteNumber: Set<string>;
-  cie: Set<YesNoFilter>;
-  ts: Set<YesNoFilter>;
-  tma: Set<YesNoFilter>;
+  type: Set<string>;
   validated: Set<ValidatedFilter>;
   amendment: Set<YesNoFilter>;
 };
+
+type SortKey =
+  | "lot"
+  | "enterprise"
+  | "quoteNumber"
+  | "quote_date"
+  | "type"
+  | "designation"
+  | "amount_ht"
+  | "mou_sent_at"
+  | "mou_return_at"
+  | "validated"
+  | "amendment"
+  | "comment";
 
 type EditingCell = {
   quoteId: string;
@@ -55,9 +67,7 @@ const EXCEL_COLUMNS: ExcelColumn[] = [
   { header: "Entreprise", value: "" },
   { header: "N° devis", value: "" },
   { header: "Date", value: "" },
-  { header: "CIE", value: "" },
-  { header: "TS", value: "" },
-  { header: "TMA", value: "" },
+  { header: "Type", value: "" },
   { header: "Désignation", value: "" },
   { header: "Montant H.T.", value: "" },
   { header: "Date envoi MOU", value: "" },
@@ -68,7 +78,14 @@ const EXCEL_COLUMNS: ExcelColumn[] = [
 ];
 
 function isRowStruck(quote: FinancialQuoteWithLot): boolean {
-  return quote.validation_status === "no" || quote.is_rejected;
+  return quote.validation_status !== "yes";
+}
+
+function quoteTypeLabel(quote: FinancialQuoteWithLot): string {
+  if (quote.is_cie) return "CIE";
+  if (quote.is_ts) return "TS";
+  if (quote.is_tma) return "TMA";
+  return "";
 }
 
 function formatDateFr(value: string | null | undefined): string {
@@ -91,9 +108,7 @@ function emptyFilters(): ColumnFilters {
     lot: new Set(),
     enterprise: new Set(),
     quoteNumber: new Set(),
-    cie: new Set(),
-    ts: new Set(),
-    tma: new Set(),
+    type: new Set(),
     validated: new Set(),
     amendment: new Set(),
   };
@@ -194,17 +209,31 @@ function FilterableHeader<T extends string>({
   options,
   filters,
   setFilters,
+  sortKey,
+  sort,
+  onSort,
 }: {
   children: React.ReactNode;
   filterKey: keyof ColumnFilters;
   options: { value: T; label: string }[];
   filters: ColumnFilters;
   setFilters: React.Dispatch<React.SetStateAction<ColumnFilters>>;
+  sortKey?: SortKey;
+  sort?: { key: SortKey | null; dir: "asc" | "desc" };
+  onSort?: (key: SortKey) => void;
 }) {
   return (
     <th className={`${BORDER} px-2 py-2`}>
       <div className="flex items-center justify-center gap-0.5">
-        <span>{children}</span>
+        <button
+          type="button"
+          className={`font-bold ${sortKey && sort?.key === sortKey ? "text-blue-700" : ""}`}
+          onClick={() => sortKey && onSort?.(sortKey)}
+          title={sortKey ? "Trier la colonne" : undefined}
+        >
+          {children}
+          {sortKey && sort?.key === sortKey ? (sort.dir === "asc" ? " ▲" : " ▼") : ""}
+        </button>
         <ColumnFilterDropdown
           label={String(filterKey)}
           options={options}
@@ -291,19 +320,89 @@ export function QuoteTrackingPanel({
   } | null>(null);
   const [signedPrompt, setSignedPrompt] = useState<SignedUploadPrompt | null>(null);
   const [uploadingSigned, setUploadingSigned] = useState(false);
+  const [searchQuery, setSearchQuery] = useState("");
+  const [sort, setSort] = useState<{ key: SortKey | null; dir: "asc" | "desc" }>({
+    key: null,
+    dir: "asc",
+  });
+  const [quotePdfModal, setQuotePdfModal] = useState<{
+    url: string;
+    title: string;
+  } | null>(null);
+
+  function toggleSort(key: SortKey) {
+    setSort((prev) =>
+      prev.key === key
+        ? { key, dir: prev.dir === "asc" ? "desc" : "asc" }
+        : { key, dir: "asc" }
+    );
+  }
+
+  function getSortValue(quote: FinancialQuoteWithLot, key: SortKey): string | number {
+    switch (key) {
+      case "lot":
+        return quote.lot_number ?? "";
+      case "enterprise":
+        return quote.enterprise_name;
+      case "quoteNumber":
+        return quote.quote_number || "";
+      case "quote_date":
+        return quote.quote_date ?? "";
+      case "type":
+        return quoteTypeLabel(quote);
+      case "designation":
+        return quote.designation ?? "";
+      case "amount_ht":
+        return Number(quote.amount_ht);
+      case "mou_sent_at":
+        return quote.mou_sent_at ?? "";
+      case "mou_return_at":
+        return quote.mou_return_at ?? "";
+      case "validated":
+        return formatValidatedDisplay(quote);
+      case "amendment":
+        return quote.amendment_number != null ? String(quote.amendment_number) : "";
+      case "comment":
+        return quote.comment ?? "";
+      default:
+        return "";
+    }
+  }
 
   useEffect(() => {
     setQuotes(initialQuotes);
   }, [initialQuotes]);
 
+  const searchFilteredQuotes = useMemo(() => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return quotes;
+    return quotes.filter((quote) => {
+      const haystack = [
+        quote.lot_number,
+        quote.enterprise_name,
+        quote.quote_number,
+        quote.designation,
+        quote.comment,
+        quoteTypeLabel(quote),
+        formatCurrency(Number(quote.amount_ht)),
+      ]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase();
+      return haystack.includes(q);
+    });
+  }, [quotes, searchQuery]);
+
   const filterOptions = useMemo(() => {
     const lots = new Set<string>();
     const enterprises = new Set<string>();
     const numbers = new Set<string>();
-    for (const q of quotes) {
+    const types = new Set<string>();
+    for (const q of searchFilteredQuotes) {
       lots.add(q.lot_number ?? "—");
       enterprises.add(q.enterprise_name);
       numbers.add(q.quote_number || "—");
+      types.add(quoteTypeLabel(q) || "—");
     }
     return {
       lot: Array.from(lots)
@@ -315,18 +414,9 @@ export function QuoteTrackingPanel({
       quoteNumber: Array.from(numbers)
         .sort((a, b) => a.localeCompare(b, "fr", { numeric: true }))
         .map((v) => ({ value: v, label: v })),
-      cie: [
-        { value: "yes" as YesNoFilter, label: "Oui" },
-        { value: "no" as YesNoFilter, label: "Non" },
-      ],
-      ts: [
-        { value: "yes" as YesNoFilter, label: "Oui" },
-        { value: "no" as YesNoFilter, label: "Non" },
-      ],
-      tma: [
-        { value: "yes" as YesNoFilter, label: "Oui" },
-        { value: "no" as YesNoFilter, label: "Non" },
-      ],
+      type: Array.from(types)
+        .sort((a, b) => a.localeCompare(b, "fr"))
+        .map((v) => ({ value: v, label: v })),
       validated: [
         { value: "yes" as ValidatedFilter, label: "Oui" },
         { value: "no" as ValidatedFilter, label: "Non" },
@@ -337,35 +427,45 @@ export function QuoteTrackingPanel({
         { value: "no" as YesNoFilter, label: "Non" },
       ],
     };
-  }, [quotes]);
+  }, [searchFilteredQuotes]);
 
   const filteredQuotes = useMemo(() => {
-    return quotes.filter((q) => {
+    return searchFilteredQuotes.filter((q) => {
       if (filters.lot.size > 0 && !filters.lot.has(q.lot_number ?? "—")) return false;
       if (filters.enterprise.size > 0 && !filters.enterprise.has(q.enterprise_name))
         return false;
       if (filters.quoteNumber.size > 0 && !filters.quoteNumber.has(q.quote_number || "—"))
         return false;
-      if (filters.cie.size > 0 && !filters.cie.has(yesNo(q.is_cie))) return false;
-      if (filters.ts.size > 0 && !filters.ts.has(yesNo(q.is_ts))) return false;
-      if (filters.tma.size > 0 && !filters.tma.has(yesNo(q.is_tma))) return false;
+      if (filters.type.size > 0 && !filters.type.has(quoteTypeLabel(q) || "—")) return false;
       if (filters.validated.size > 0 && !filters.validated.has(q.validation_status)) return false;
       const hasAmendment = q.amendment_id ? "yes" : "no";
       if (filters.amendment.size > 0 && !filters.amendment.has(hasAmendment as YesNoFilter))
         return false;
       return true;
     });
-  }, [quotes, filters]);
+  }, [searchFilteredQuotes, filters]);
 
   const sortedQuotes = useMemo(() => {
-    return [...filteredQuotes].sort((a, b) => {
+    const rows = [...filteredQuotes];
+    if (sort.key) {
+      rows.sort((a, b) => {
+        const av = getSortValue(a, sort.key!);
+        const bv = getSortValue(b, sort.key!);
+        let cmp = 0;
+        if (typeof av === "number" && typeof bv === "number") cmp = av - bv;
+        else cmp = String(av).localeCompare(String(bv), "fr", { numeric: true });
+        return sort.dir === "asc" ? cmp : -cmp;
+      });
+      return rows;
+    }
+    return rows.sort((a, b) => {
       const lotCmp = (a.lot_number ?? "").localeCompare(b.lot_number ?? "", "fr", {
         numeric: true,
       });
       if (lotCmp !== 0) return lotCmp;
       return a.enterprise_name.localeCompare(b.enterprise_name, "fr");
     });
-  }, [filteredQuotes]);
+  }, [filteredQuotes, sort]);
 
   const allVisibleSelected =
     sortedQuotes.length > 0 && sortedQuotes.every((q) => selectedIds.has(q.id));
@@ -383,12 +483,8 @@ export function QuoteTrackingPanel({
               return { ...col, value: quote.quote_number || "—" };
             case "Date":
               return { ...col, value: formatDateFr(quote.quote_date) };
-            case "CIE":
-              return { ...col, value: quote.is_cie ? "Oui" : "Non" };
-            case "TS":
-              return { ...col, value: quote.is_ts ? "Oui" : "Non" };
-            case "TMA":
-              return { ...col, value: quote.is_tma ? "Oui" : "Non" };
+            case "Type":
+              return { ...col, value: quoteTypeLabel(quote) || "—" };
             case "Désignation":
               return { ...col, value: quote.designation ?? "—" };
             case "Montant H.T.":
@@ -419,10 +515,18 @@ export function QuoteTrackingPanel({
       const filePath = quote.signed_file_path ?? quote.file_path;
       if (!filePath) return;
       const url = await getQuoteFileUrl(projectId, filePath);
-      openDocument(url, quote.quote_number || "Devis");
+      setQuotePdfModal({ url, title: quote.quote_number || "Devis" });
     },
     [projectId]
   );
+
+  async function changeQuoteType(quoteId: string, type: "" | "CIE" | "TS" | "TMA") {
+    const okCie = await saveField(quoteId, "is_cie", type === "CIE");
+    if (!okCie) return;
+    const okTs = await saveField(quoteId, "is_ts", type === "TS");
+    if (!okTs) return;
+    await saveField(quoteId, "is_tma", type === "TMA");
+  }
 
   const saveField = useCallback(
     async (quoteId: string, field: string, value: string | boolean | null) => {
@@ -599,9 +703,7 @@ export function QuoteTrackingPanel({
           <th className={`${BORDER} px-2 py-2`}>Entreprise</th>
           <th className={`${BORDER} px-2 py-2`}>N° devis</th>
           <th className={`${BORDER} px-2 py-2`}>Date</th>
-          <th className={`${BORDER} px-2 py-2 text-center`}>CIE</th>
-          <th className={`${BORDER} px-2 py-2 text-center`}>TS</th>
-          <th className={`${BORDER} px-2 py-2 text-center`}>TMA</th>
+          <th className={`${BORDER} px-2 py-2 text-center`}>Type</th>
           <th className={`${BORDER} px-2 py-2`}>Désignation</th>
           <th className={`${BORDER} px-2 py-2 text-right`}>Montant H.T.</th>
           <th className={`${BORDER} px-2 py-2`}>Date envoi MOU</th>
@@ -628,6 +730,9 @@ export function QuoteTrackingPanel({
           options={filterOptions.lot}
           filters={filters}
           setFilters={setFilters}
+          sortKey="lot"
+          sort={sort}
+          onSort={toggleSort}
         >
           Lot
         </FilterableHeader>
@@ -636,6 +741,9 @@ export function QuoteTrackingPanel({
           options={filterOptions.enterprise}
           filters={filters}
           setFilters={setFilters}
+          sortKey="enterprise"
+          sort={sort}
+          onSort={toggleSort}
         >
           Entreprise
         </FilterableHeader>
@@ -644,43 +752,56 @@ export function QuoteTrackingPanel({
           options={filterOptions.quoteNumber}
           filters={filters}
           setFilters={setFilters}
+          sortKey="quoteNumber"
+          sort={sort}
+          onSort={toggleSort}
         >
           N° devis
         </FilterableHeader>
-        <th className={`${BORDER} px-2 py-2`}>Date</th>
+        <th className={`${BORDER} px-2 py-2`}>
+          <button type="button" className="font-bold" onClick={() => toggleSort("quote_date")}>
+            Date{sort.key === "quote_date" ? (sort.dir === "asc" ? " ▲" : " ▼") : ""}
+          </button>
+        </th>
         <FilterableHeader
-          filterKey="cie"
-          options={filterOptions.cie}
+          filterKey="type"
+          options={filterOptions.type}
           filters={filters}
           setFilters={setFilters}
+          sortKey="type"
+          sort={sort}
+          onSort={toggleSort}
         >
-          CIE
+          Type
         </FilterableHeader>
-        <FilterableHeader
-          filterKey="ts"
-          options={filterOptions.ts}
-          filters={filters}
-          setFilters={setFilters}
-        >
-          TS
-        </FilterableHeader>
-        <FilterableHeader
-          filterKey="tma"
-          options={filterOptions.tma}
-          filters={filters}
-          setFilters={setFilters}
-        >
-          TMA
-        </FilterableHeader>
-        <th className={`${BORDER} px-2 py-2`}>Désignation</th>
-        <th className={`${BORDER} px-2 py-2 text-right`}>Montant H.T.</th>
-        <th className={`${BORDER} px-2 py-2`}>Date envoi MOU</th>
-        <th className={`${BORDER} px-2 py-2`}>Date retour MOU</th>
+        <th className={`${BORDER} px-2 py-2`}>
+          <button type="button" className="font-bold" onClick={() => toggleSort("designation")}>
+            Désignation{sort.key === "designation" ? (sort.dir === "asc" ? " ▲" : " ▼") : ""}
+          </button>
+        </th>
+        <th className={`${BORDER} px-2 py-2 text-right`}>
+          <button type="button" className="font-bold" onClick={() => toggleSort("amount_ht")}>
+            Montant H.T.{sort.key === "amount_ht" ? (sort.dir === "asc" ? " ▲" : " ▼") : ""}
+          </button>
+        </th>
+        <th className={`${BORDER} px-2 py-2`}>
+          <button type="button" className="font-bold" onClick={() => toggleSort("mou_sent_at")}>
+            Date envoi MOU{sort.key === "mou_sent_at" ? (sort.dir === "asc" ? " ▲" : " ▼") : ""}
+          </button>
+        </th>
+        <th className={`${BORDER} px-2 py-2`}>
+          <button type="button" className="font-bold" onClick={() => toggleSort("mou_return_at")}>
+            Date retour MOU{sort.key === "mou_return_at" ? (sort.dir === "asc" ? " ▲" : " ▼") : ""}
+          </button>
+        </th>
         <FilterableHeader
           filterKey="validated"
           options={filterOptions.validated}
           filters={filters}
           setFilters={setFilters}
+          sortKey="validated"
+          sort={sort}
+          onSort={toggleSort}
         >
           Validé
         </FilterableHeader>
@@ -689,10 +810,17 @@ export function QuoteTrackingPanel({
           options={filterOptions.amendment}
           filters={filters}
           setFilters={setFilters}
+          sortKey="amendment"
+          sort={sort}
+          onSort={toggleSort}
         >
           Avenant
         </FilterableHeader>
-        <th className={`${BORDER} px-2 py-2`}>Commentaire DANOBAT</th>
+        <th className={`${BORDER} px-2 py-2`}>
+          <button type="button" className="font-bold" onClick={() => toggleSort("comment")}>
+            Commentaire DANOBAT{sort.key === "comment" ? (sort.dir === "asc" ? " ▲" : " ▼") : ""}
+          </button>
+        </th>
       </>
     );
   }
@@ -744,41 +872,23 @@ export function QuoteTrackingPanel({
             </td>
             <td className={`${BORDER} px-2 py-2 text-center`}>
               {forPrint ? (
-                quote.is_cie ? "✓" : ""
+                quoteTypeLabel(quote) || "—"
               ) : (
-                <button
-                  type="button"
-                  onClick={() => toggleCategory(quote, "is_cie")}
-                  className="min-w-[1.5rem] hover:text-blue-600"
+                <select
+                  value={quoteTypeLabel(quote)}
+                  onChange={(e) =>
+                    changeQuoteType(
+                      quote.id,
+                      e.target.value as "" | "CIE" | "TS" | "TMA"
+                    )
+                  }
+                  className="w-full rounded border border-transparent bg-transparent px-1 py-0.5 text-center text-sm hover:border-slate-300"
                 >
-                  {quote.is_cie ? "✓" : ""}
-                </button>
-              )}
-            </td>
-            <td className={`${BORDER} px-2 py-2 text-center`}>
-              {forPrint ? (
-                quote.is_ts ? "✓" : ""
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => toggleCategory(quote, "is_ts")}
-                  className="min-w-[1.5rem] hover:text-blue-600"
-                >
-                  {quote.is_ts ? "✓" : ""}
-                </button>
-              )}
-            </td>
-            <td className={`${BORDER} px-2 py-2 text-center`}>
-              {forPrint ? (
-                quote.is_tma ? "✓" : ""
-              ) : (
-                <button
-                  type="button"
-                  onClick={() => toggleCategory(quote, "is_tma")}
-                  className="min-w-[1.5rem] hover:text-blue-600"
-                >
-                  {quote.is_tma ? "✓" : ""}
-                </button>
+                  <option value="">—</option>
+                  <option value="CIE">CIE</option>
+                  <option value="TS">TS</option>
+                  <option value="TMA">TMA</option>
+                </select>
               )}
             </td>
             <td className={`${BORDER} px-2 py-2`}>
@@ -858,12 +968,19 @@ export function QuoteTrackingPanel({
 
   return (
     <section className="overflow-x-auto rounded-2xl bg-white p-5 shadow-sm">
-      <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
-        <div>
+        <div className="mb-4 flex flex-wrap items-start justify-between gap-3">
+        <div className="min-w-[16rem] flex-1">
           <h2 className="text-lg font-semibold text-slate-900">Suivi des devis</h2>
           <p className="text-sm text-slate-500">
-            Filtres par colonne · édition inline · impression / export Excel
+            Recherche · filtres · tri · édition inline · impression / export Excel
           </p>
+          <input
+            type="search"
+            value={searchQuery}
+            onChange={(e) => setSearchQuery(e.target.value)}
+            placeholder="Rechercher un devis (n°, entreprise, désignation…)"
+            className="mt-3 w-full max-w-xl rounded-lg border border-slate-300 px-3 py-2 text-sm"
+          />
         </div>
         <div className="flex flex-wrap items-center gap-2">
           {selectedIds.size > 0 && (
@@ -938,6 +1055,13 @@ export function QuoteTrackingPanel({
         title={amendmentModal?.title ?? ""}
         open={Boolean(amendmentModal)}
         onClose={() => setAmendmentModal(null)}
+      />
+
+      <QuotePdfModal
+        url={quotePdfModal?.url ?? null}
+        title={quotePdfModal?.title ?? "Devis"}
+        open={Boolean(quotePdfModal)}
+        onClose={() => setQuotePdfModal(null)}
       />
 
       <SignedDevisUploadModal

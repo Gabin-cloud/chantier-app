@@ -6,7 +6,11 @@ import { AppFormField } from "@/components/ui/AppFormField";
 import { getQuotesForAmendment } from "@/lib/actions/quotes";
 import { buildAmendmentDocumentHtml } from "@/lib/finance/amendment-document";
 import { htmlToPdfBase64 } from "@/lib/finance/amendment-pdf-client";
-import { createAmendmentWithDocument, uploadAmendmentExtraAttachments } from "@/lib/finance/amendment-pdf-merge";
+import {
+  uploadAmendmentExtraAttachments,
+  uploadAmendmentMergedPdfFromFormData,
+} from "@/lib/finance/amendment-pdf-merge";
+import { createAmendmentFromQuotes } from "@/lib/actions/finance";
 import { formatCurrency, parseMoneyInput } from "@/lib/finance/calculations";
 import type {
   FinancialQuote,
@@ -127,12 +131,11 @@ export function NewAmendmentModal({
     return sum + (Number.isFinite(amount) ? amount : 0);
   }, 0);
 
-  async function fileToBase64(file: File): Promise<string> {
-    const buffer = await file.arrayBuffer();
-    const bytes = new Uint8Array(buffer);
-    let binary = "";
-    for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
-    return btoa(binary);
+  async function base64ToPdfFile(base64: string, fileName: string): Promise<File> {
+    const binary = atob(base64);
+    const bytes = new Uint8Array(binary.length);
+    for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+    return new File([bytes], fileName, { type: "application/pdf" });
   }
 
   function handleCreate() {
@@ -182,21 +185,32 @@ export function NewAmendmentModal({
         });
 
         const avenantPdfBase64 = await htmlToPdfBase64(documentHtml);
-        const localPdfBase64List = await Promise.all(
-          localMergeFiles.map((file) => fileToBase64(file))
-        );
+        const avenantPdfFile = await base64ToPdfFile(avenantPdfBase64, "avenant.pdf");
 
-        const result = await createAmendmentWithDocument(
+        const created = await createAmendmentFromQuotes(project.id, {
+          enterpriseId,
+          amendmentType,
+          lines: linesToSave,
+          danobatComment,
+          documentHtml,
+        });
+
+        if (!created.ok) {
+          setError(created.error);
+          return;
+        }
+
+        const uploadForm = new FormData();
+        uploadForm.set("avenantPdf", avenantPdfFile);
+        uploadForm.set("quoteIds", JSON.stringify(created.quoteIds));
+        for (const file of localMergeFiles) {
+          uploadForm.append("localPdfs", file);
+        }
+
+        const result = await uploadAmendmentMergedPdfFromFormData(
           project.id,
-          {
-            enterpriseId,
-            amendmentType,
-            lines: linesToSave,
-            danobatComment,
-            documentHtml,
-          },
-          avenantPdfBase64,
-          localPdfBase64List
+          created.amendmentId,
+          uploadForm
         );
 
         if (!result.ok) {
@@ -204,8 +218,8 @@ export function NewAmendmentModal({
           return;
         }
 
-        setCreatedAmendmentId(result.amendmentId);
-        setStep("attachments");
+        setCreatedAmendmentId(created.amendmentId);
+        setStep("email");
       } catch (err) {
         const raw = err instanceof Error ? err.message : String(err);
         if (raw.includes("unexpected response")) {
