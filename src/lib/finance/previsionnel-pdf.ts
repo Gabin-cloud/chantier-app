@@ -2,6 +2,7 @@
 
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
+import { html2canvasSafeOptions } from "@/lib/finance/html2canvas-safe";
 
 export async function exportPrevisionnelPdf({
   element,
@@ -10,12 +11,15 @@ export async function exportPrevisionnelPdf({
   element: HTMLElement;
   fileName: string;
 }) {
-  const canvas = await html2canvas(element, {
-    scale: 2,
-    useCORS: true,
-    backgroundColor: "#ffffff",
-    logging: false,
-  });
+  const canvas = await html2canvas(
+    element,
+    html2canvasSafeOptions({
+      scale: 2,
+      useCORS: true,
+      backgroundColor: "#ffffff",
+      logging: false,
+    })
+  );
 
   const imgData = canvas.toDataURL("image/png");
   const pdf = new jsPDF("l", "mm", "a4");

@@ -3,6 +3,7 @@
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
 import { PDFDocument } from "pdf-lib";
+import { html2canvasSafeOptions } from "@/lib/finance/html2canvas-safe";
 
 export async function exportMergedSituationPdf({
   certificateElement,
@@ -15,11 +16,10 @@ export async function exportMergedSituationPdf({
   invoiceIsPdf?: boolean;
   fileName: string;
 }) {
-  const canvas = await html2canvas(certificateElement, {
-    scale: 2,
-    useCORS: true,
-    backgroundColor: "#ffffff",
-  });
+  const canvas = await html2canvas(
+    certificateElement,
+    html2canvasSafeOptions({ scale: 2, useCORS: true, backgroundColor: "#ffffff" })
+  );
 
   const imgData = canvas.toDataURL("image/png");
   const pdf = new jsPDF("p", "mm", "a4");

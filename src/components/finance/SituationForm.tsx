@@ -32,6 +32,10 @@ type SituationFormProps = {
     financial_situation_delegations?: FinancialSituationDelegation[];
   };
   invoiceUrl?: string | null;
+  ownerSituationTemplate?: {
+    templateName: string | null;
+    templateUrl: string | null;
+  } | null;
   isNew?: boolean;
 };
 
@@ -52,6 +56,7 @@ export function SituationForm({
   lot,
   situation,
   invoiceUrl,
+  ownerSituationTemplate,
   isNew,
 }: SituationFormProps) {
   const router = useRouter();
@@ -435,6 +440,7 @@ export function SituationForm({
           lot={lot}
           situation={situation}
           invoiceUrl={invoiceUrl}
+          ownerSituationTemplate={ownerSituationTemplate}
         />
       )}
     </div>

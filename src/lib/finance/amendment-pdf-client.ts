@@ -2,6 +2,7 @@
 
 import html2canvas from "html2canvas";
 import jsPDF from "jspdf";
+import { html2canvasSafeOptions } from "@/lib/finance/html2canvas-safe";
 
 function arrayBufferToBase64(buffer: ArrayBuffer): string {
   const bytes = new Uint8Array(buffer);
@@ -23,11 +24,10 @@ export async function htmlToPdfBase64(html: string): Promise<string> {
   document.body.appendChild(container);
 
   try {
-    const canvas = await html2canvas(container, {
-      scale: 2,
-      useCORS: true,
-      backgroundColor: "#ffffff",
-    });
+    const canvas = await html2canvas(
+      container,
+      html2canvasSafeOptions({ scale: 2, useCORS: true, backgroundColor: "#ffffff" })
+    );
 
     const imgData = canvas.toDataURL("image/png");
     const pdf = new jsPDF("p", "mm", "a4");

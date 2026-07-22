@@ -419,12 +419,19 @@ export async function updateQuoteField(
       updatePayload.validated_at = null;
     }
 
+    const { data: quote } = await supabase
+      .from("financial_quotes")
+      .select("is_tma")
+      .eq("id", quoteId)
+      .single();
+
     const { error } = await supabase
       .from("financial_quotes")
       .update(updatePayload)
       .eq("id", quoteId)
       .eq("project_id", projectId);
     if (error) return { ok: false, error: error.message };
+    if (quote?.is_tma) revalidateTmaAndQuotes(projectId);
     revalidateQuotes(projectId);
     return { ok: true };
   }

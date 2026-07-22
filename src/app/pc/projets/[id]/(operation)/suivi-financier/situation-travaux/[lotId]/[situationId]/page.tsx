@@ -4,6 +4,7 @@ import {
   SupabaseSetupNotice,
 } from "@/components/SupabaseSetupNotice";
 import { getFinancialFileUrl, getSituation } from "@/lib/actions/finance";
+import { getOwnerSituationTemplateForProject } from "@/lib/actions/owner-situation-template";
 import { isSupabaseConfigured } from "@/lib/supabase/config";
 
 type PageProps = {
@@ -18,7 +19,10 @@ export default async function EditSituationTravauxPage({ params }: PageProps) {
   const { id, lotId, situationId } = await params;
 
   try {
-    const situation = await getSituation(id, lotId, situationId);
+    const [situation, ownerSituationTemplate] = await Promise.all([
+      getSituation(id, lotId, situationId),
+      getOwnerSituationTemplateForProject(id),
+    ]);
     const lot = situation.enterprise;
     const invoiceUrl = situation.invoice_file_path
       ? await getFinancialFileUrl(id, situation.invoice_file_path)
@@ -31,6 +35,7 @@ export default async function EditSituationTravauxPage({ params }: PageProps) {
           lot={lot}
           situation={situation}
           invoiceUrl={invoiceUrl}
+          ownerSituationTemplate={ownerSituationTemplate}
         />
       </section>
     );

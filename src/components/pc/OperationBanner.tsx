@@ -118,7 +118,9 @@ export function OperationBanner({
                 </p>
               ) : (
                 <ul className="max-h-64 overflow-y-auto">
-                  {favorites.map((fav) => {
+                  {favorites
+                    .filter((fav) => fav.id !== project.id)
+                    .map((fav) => {
                     const favOwner = (fav.owner_name || fav.client_name || "").trim();
                     const label = favOwner
                       ? `${fav.name} — ${favOwner}`
@@ -137,15 +139,6 @@ export function OperationBanner({
                   })}
                 </ul>
               )}
-              <div className="mt-1 border-t border-slate-100 px-3 pt-2">
-                <Link
-                  href={parametresHref}
-                  onClick={() => setMenuOpen(false)}
-                  className="text-xs font-semibold text-slate-600 hover:text-slate-900"
-                >
-                  Fiche opération →
-                </Link>
-              </div>
             </div>
           )}
         </div>

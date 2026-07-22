@@ -5,10 +5,11 @@ import { useRouter } from "next/navigation";
 import { NewTmaModal } from "@/components/travaux/NewTmaModal";
 import { TmaAnalysisModal } from "@/components/travaux/TmaAnalysisModal";
 import { TmaMouEmailStep } from "@/components/travaux/TmaMouEmailStep";
-import { updateTmaField, deleteTmaEntry } from "@/lib/actions/tma";
+import { updateTmaField, deleteTmaEntry, updateTmaQuoteAcceptance, updateTmaControleChantier } from "@/lib/actions/tma";
 import { formatCurrency } from "@/lib/finance/calculations";
 import type {
   Enterprise,
+  QuoteValidationStatus,
   TmaDepositGroup,
   WorkTmaEntry,
   WorkTmaEntryStatus,
@@ -212,11 +213,13 @@ function formatMoneyFilter(value: number): string {
 }
 
 function isTmaRowStruck(entry: WorkTmaEntry): boolean {
-  return !["analyzed", "sent_to_accounting", "completed"].includes(entry.status);
+  return entry.quote_validation_status === "no";
 }
 
-function mouAccepteLabel(value: string | null): string {
-  return value ? "Oui" : "Non";
+function mouAccepteLabel(value: QuoteValidationStatus | null | undefined): string {
+  if (value === "yes") return "Oui";
+  if (value === "no") return "Non";
+  return "—";
 }
 
 function buildTmaFilterOptions(entries: WorkTmaEntry[]) {
@@ -244,7 +247,7 @@ function buildTmaFilterOptions(entries: WorkTmaEntry[]) {
     devisRecu.add(formatDate(entry.devis_recu_le) || "—");
     mouEnvoi.add(formatDate(entry.mou_envoi) || "—");
     mouAcceptation.add(formatDate(entry.mou_acceptation) || "—");
-    mouAccepte.add(mouAccepteLabel(entry.mou_acceptation));
+    mouAccepte.add(mouAccepteLabel(entry.quote_validation_status));
     montantHt.add(formatMoneyFilter(entry.montant_ht));
   }
 
@@ -307,7 +310,7 @@ function applyTmaFilters(entries: WorkTmaEntry[], filters: TmaColumnFilters): Wo
       return false;
     if (
       filters.mouAccepte.size > 0 &&
-      !filters.mouAccepte.has(mouAccepteLabel(entry.mou_acceptation))
+      !filters.mouAccepte.has(mouAccepteLabel(entry.quote_validation_status))
     )
       return false;
     if (
@@ -470,39 +473,86 @@ function EditableMoney({
   );
 }
 
-function EditableAcceptationOuiNon({
+function EditableAccepte({
   projectId,
   entryId,
   value,
 }: {
   projectId: string;
   entryId: string;
-  value: string | null;
+  value: QuoteValidationStatus | null;
 }) {
   const router = useRouter();
   const [isPending, startTransition] = useTransition();
 
+  const selectValue =
+    value === "yes" ? "oui" : value === "no" ? "non" : "";
+
   return (
     <select
-      value={value ? "oui" : "non"}
+      value={selectValue}
       disabled={isPending}
       onChange={(e) => {
-        const accepted = e.target.value === "oui";
+        const next =
+          e.target.value === "oui"
+            ? "yes"
+            : e.target.value === "non"
+              ? "no"
+              : "pending";
         startTransition(async () => {
-          await updateTmaField(
-            projectId,
-            entryId,
-            "mou_acceptation",
-            accepted ? new Date().toISOString().slice(0, 10) : null
-          );
+          await updateTmaQuoteAcceptance(projectId, entryId, next);
           router.refresh();
         });
       }}
       className="w-full border-0 bg-transparent px-1 py-0.5 text-xs focus:bg-yellow-50 focus:outline-none"
     >
-      <option value="non">Non</option>
+      <option value="">—</option>
       <option value="oui">Oui</option>
+      <option value="non">Non</option>
     </select>
+  );
+}
+
+function EditableControleChantier({
+  projectId,
+  entryId,
+  value,
+  canEdit,
+}: {
+  projectId: string;
+  entryId: string;
+  value: string | null;
+  canEdit: boolean;
+}) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+
+  if (!canEdit) {
+    return (
+      <span className="block px-1 py-0.5 text-xs text-slate-400">
+        {formatDate(value) || "—"}
+      </span>
+    );
+  }
+
+  return (
+    <input
+      type="date"
+      defaultValue={value ?? ""}
+      disabled={isPending}
+      onBlur={(e) => {
+        startTransition(async () => {
+          await updateTmaControleChantier(
+            projectId,
+            entryId,
+            e.target.value || null
+          );
+          router.refresh();
+        });
+      }}
+      className="w-full min-w-[7rem] border-0 bg-transparent px-1 py-0.5 text-xs focus:bg-yellow-50 focus:outline-none"
+      title={formatDate(value) || "Contrôle chantier"}
+    />
   );
 }
 
@@ -623,6 +673,7 @@ function TmaTable({
           >
             Montant H.T.
           </FilterableHeader>
+          <th className={`${BORDER} px-2 py-2 text-center font-bold`}>Contrôle chantier</th>
           <th className={`${BORDER} w-8 px-1 py-2`} />
         </tr>
         <tr className="bg-slate-50 text-[10px] text-slate-600">
@@ -656,13 +707,13 @@ function TmaTable({
             Envoi
           </FilterableHeader>
           <FilterableHeader
-            label="Acceptation MOU"
+            label="Retour MOU"
             filterKey="mouAcceptation"
             options={filterOptions.mouAcceptation}
             filters={filters}
             setFilters={setFilters}
           >
-            Acceptat.
+            Retour
           </FilterableHeader>
           <FilterableHeader
             label="Accepté"
@@ -673,14 +724,14 @@ function TmaTable({
           >
             Accepté
           </FilterableHeader>
-          <th className={BORDER} colSpan={2} />
+          <th className={BORDER} colSpan={3} />
         </tr>
       </thead>
       <tbody>
         {entries.map((entry) => (
           <tr
             key={entry.id}
-            className={`hover:bg-slate-50/50 ${isTmaRowStruck(entry) ? "line-through opacity-60" : ""}`}
+            className={`hover:bg-slate-50/50 ${isTmaRowStruck(entry) ? "line-through" : ""}`}
           >
             <td className={`${BORDER} px-1 py-1 text-center`}>
               {["analyzed", "sent_to_accounting", "completed"].includes(entry.status) && (
@@ -770,10 +821,10 @@ function TmaTable({
               />
             </td>
             <td className={`${BORDER} px-1 py-1`}>
-              <EditableAcceptationOuiNon
+              <EditableAccepte
                 projectId={projectId}
                 entryId={entry.id}
-                value={entry.mou_acceptation}
+                value={entry.quote_validation_status}
               />
             </td>
             <td className={`${BORDER} px-1 py-1 text-right`}>
@@ -781,6 +832,14 @@ function TmaTable({
                 projectId={projectId}
                 entryId={entry.id}
                 value={entry.montant_ht}
+              />
+            </td>
+            <td className={`${BORDER} px-1 py-1`}>
+              <EditableControleChantier
+                projectId={projectId}
+                entryId={entry.id}
+                value={entry.controle_chantier}
+                canEdit={entry.quote_validation_status === "yes"}
               />
             </td>
             <td className={`${BORDER} px-1 py-1 text-center`}>
@@ -810,7 +869,7 @@ export function TmaTrackingPanel({
 }: TmaTrackingPanelProps) {
   const router = useRouter();
   const [modalOpen, setModalOpen] = useState(false);
-  const [activeTab, setActiveTab] = useState<"deposits" | "all">("deposits");
+  const [activeTab, setActiveTab] = useState<"deposits" | "all">("all");
   const [analysisEntryIds, setAnalysisEntryIds] = useState<string[] | null>(null);
   const [mouOpen, setMouOpen] = useState(false);
   const [filters, setFilters] = useState<TmaColumnFilters>(emptyTmaFilters);
@@ -909,6 +968,17 @@ export function TmaTrackingPanel({
         <div className="flex gap-1 border-b border-slate-200 px-4 pt-2">
           <button
             type="button"
+            onClick={() => setActiveTab("all")}
+            className={`rounded-t-lg px-4 py-2 text-xs font-semibold ${
+              activeTab === "all"
+                ? "border border-b-0 border-slate-200 bg-white text-slate-900"
+                : "text-slate-500 hover:text-slate-700"
+            }`}
+          >
+            Tableau complet
+          </button>
+          <button
+            type="button"
             onClick={() => setActiveTab("deposits")}
             className={`rounded-t-lg px-4 py-2 text-xs font-semibold ${
               activeTab === "deposits"
@@ -922,17 +992,6 @@ export function TmaTrackingPanel({
                 {depositGroups.length}
               </span>
             )}
-          </button>
-          <button
-            type="button"
-            onClick={() => setActiveTab("all")}
-            className={`rounded-t-lg px-4 py-2 text-xs font-semibold ${
-              activeTab === "all"
-                ? "border border-b-0 border-slate-200 bg-white text-slate-900"
-                : "text-slate-500 hover:text-slate-700"
-            }`}
-          >
-            Tableau complet
           </button>
         </div>
 

@@ -192,7 +192,6 @@ export function NewAmendmentModal({
           amendmentType,
           lines: linesToSave,
           danobatComment,
-          documentHtml,
         });
 
         if (!created.ok) {
