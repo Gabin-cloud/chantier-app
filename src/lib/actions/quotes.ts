@@ -259,7 +259,8 @@ export async function saveQuote(
     if (error) return { ok: false, error: error.message };
     if (category.is_tma && data.id) {
       try {
-        await fillTmaFromQuote(projectId, data.id);
+        const tmaLogement = ((formData.get("tmaLogementNumber") as string) ?? "").trim();
+        await fillTmaFromQuote(projectId, data.id, tmaLogement || undefined);
       } catch {
         /* TMA sync best-effort */
       }

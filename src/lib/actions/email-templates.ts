@@ -29,6 +29,16 @@ import {
   DEFAULT_TMA_ENTREPRISE_EMAIL_BODY,
   DEFAULT_TMA_ENTREPRISE_EMAIL_SUBJECT,
 } from "@/lib/notifications/tma-entreprise-email";
+import {
+  TMA_COMPTABILITE_EMAIL_MERGE_TAGS,
+  DEFAULT_TMA_COMPTABILITE_EMAIL_BODY,
+  DEFAULT_TMA_COMPTABILITE_EMAIL_SUBJECT,
+} from "@/lib/notifications/tma-comptabilite-email";
+import {
+  TMA_MOU_EMAIL_MERGE_TAGS,
+  DEFAULT_TMA_MOU_EMAIL_BODY,
+  DEFAULT_TMA_MOU_EMAIL_SUBJECT,
+} from "@/lib/notifications/tma-mou-email";
 
 export type EmailTemplateData = {
   id: string;
@@ -46,10 +56,14 @@ export type EmailTemplatesSettingsData = {
   platformInvitation: EmailTemplateData;
   amendmentSend: EmailTemplateData;
   devisMouSend: EmailTemplateData;
+  tmaEntrepriseSend: EmailTemplateData;
+  tmaComptabiliteSend: EmailTemplateData;
   mergeTags: typeof VISIT_EMAIL_MERGE_TAGS;
   invitationMergeTags: typeof INVITATION_EMAIL_MERGE_TAGS;
   amendmentMergeTags: typeof AMENDMENT_EMAIL_MERGE_TAGS;
   devisMouMergeTags: typeof DEVIS_MOU_EMAIL_MERGE_TAGS;
+  tmaEntrepriseMergeTags: typeof TMA_ENTREPRISE_EMAIL_MERGE_TAGS;
+  tmaComptabiliteMergeTags: typeof TMA_COMPTABILITE_EMAIL_MERGE_TAGS;
 };
 
 async function canManageEmailTemplates(userId: string): Promise<boolean> {
@@ -106,7 +120,14 @@ export async function getEmailTemplatesSettings(): Promise<EmailTemplatesSetting
   const { data: rows, error } = await supabase
     .from("email_templates")
     .select("id, slug, name, subject_template, body_template, default_cc, updated_at")
-    .in("slug", ["visit_report", "platform_invitation", "amendment_send", "devis_mou_send"]);
+    .in("slug", [
+      "visit_report",
+      "platform_invitation",
+      "amendment_send",
+      "devis_mou_send",
+      "tma_entreprise_send",
+      "tma_comptabilite_send",
+    ]);
 
   if (error) throw new Error(error.message);
 
@@ -114,6 +135,8 @@ export async function getEmailTemplatesSettings(): Promise<EmailTemplatesSetting
   const inviteRow = rows?.find((r) => r.slug === "platform_invitation") ?? null;
   const amendmentRow = rows?.find((r) => r.slug === "amendment_send") ?? null;
   const devisMouRow = rows?.find((r) => r.slug === "devis_mou_send") ?? null;
+  const tmaEntrepriseRow = rows?.find((r) => r.slug === "tma_entreprise_send") ?? null;
+  const tmaComptabiliteRow = rows?.find((r) => r.slug === "tma_comptabilite_send") ?? null;
 
   return {
     canEdit,
@@ -153,10 +176,30 @@ export async function getEmailTemplatesSettings(): Promise<EmailTemplatesSetting
       defaultCc: "",
       updatedAt: new Date().toISOString(),
     }),
+    tmaEntrepriseSend: mapTemplateRow(tmaEntrepriseRow, {
+      id: "default",
+      slug: "tma_entreprise_send",
+      name: "Envoi TMA aux entreprises",
+      subjectTemplate: DEFAULT_TMA_ENTREPRISE_EMAIL_SUBJECT,
+      bodyTemplate: DEFAULT_TMA_ENTREPRISE_EMAIL_BODY,
+      defaultCc: "",
+      updatedAt: new Date().toISOString(),
+    }),
+    tmaComptabiliteSend: mapTemplateRow(tmaComptabiliteRow, {
+      id: "default",
+      slug: "tma_comptabilite_send",
+      name: "Envoi dépôts TMA à la comptabilité",
+      subjectTemplate: DEFAULT_TMA_COMPTABILITE_EMAIL_SUBJECT,
+      bodyTemplate: DEFAULT_TMA_COMPTABILITE_EMAIL_BODY,
+      defaultCc: "",
+      updatedAt: new Date().toISOString(),
+    }),
     mergeTags: VISIT_EMAIL_MERGE_TAGS,
     invitationMergeTags: INVITATION_EMAIL_MERGE_TAGS,
     amendmentMergeTags: AMENDMENT_EMAIL_MERGE_TAGS,
     devisMouMergeTags: DEVIS_MOU_EMAIL_MERGE_TAGS,
+    tmaEntrepriseMergeTags: TMA_ENTREPRISE_EMAIL_MERGE_TAGS,
+    tmaComptabiliteMergeTags: TMA_COMPTABILITE_EMAIL_MERGE_TAGS,
   };
 }
 
@@ -448,6 +491,112 @@ export async function updateTmaEntrepriseEmailTemplate(input: {
       error: err instanceof Error ? err.message : "Impossible d'enregistrer le modèle.",
     };
   }
+}
+
+export async function getTmaComptabiliteEmailTemplate(): Promise<{
+  subjectTemplate: string;
+  bodyTemplate: string;
+  defaultCc: string;
+}> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("email_templates")
+    .select("subject_template, body_template, default_cc")
+    .eq("slug", "tma_comptabilite_send")
+    .maybeSingle();
+
+  if (error || !data) {
+    return {
+      subjectTemplate: DEFAULT_TMA_COMPTABILITE_EMAIL_SUBJECT,
+      bodyTemplate: DEFAULT_TMA_COMPTABILITE_EMAIL_BODY,
+      defaultCc: "",
+    };
+  }
+
+  return {
+    subjectTemplate: data.subject_template,
+    bodyTemplate: data.body_template,
+    defaultCc: data.default_cc ?? "",
+  };
+}
+
+export async function updateTmaComptabiliteEmailTemplate(input: {
+  subjectTemplate: string;
+  bodyTemplate: string;
+  defaultCc?: string;
+}): Promise<{ ok: true } | { ok: false; error: string }> {
+  try {
+    const user = await requireUser();
+    const allowed = await canManageEmailTemplates(user.id);
+    if (!allowed) {
+      return { ok: false, error: "Droits insuffisants pour modifier le mail type." };
+    }
+
+    const supabase = await createClient();
+    const subjectTemplate = input.subjectTemplate.trim();
+    const bodyTemplate = input.bodyTemplate.trim();
+    const defaultCc = input.defaultCc?.trim() ?? "";
+
+    if (!subjectTemplate) return { ok: false, error: "L'objet du mail est obligatoire." };
+    if (!isMeaningfulHtml(bodyTemplate)) {
+      return { ok: false, error: "Le corps du mail est obligatoire." };
+    }
+
+    const row = {
+      slug: "tma_comptabilite_send",
+      name: "Envoi dépôts TMA à la comptabilité",
+      subject_template: subjectTemplate,
+      body_template: bodyTemplate,
+      default_cc: defaultCc || null,
+      updated_by: user.id,
+    };
+
+    const { data: existing } = await supabase
+      .from("email_templates")
+      .select("id")
+      .eq("slug", "tma_comptabilite_send")
+      .maybeSingle();
+
+    const { error } = existing
+      ? await supabase.from("email_templates").update(row).eq("slug", "tma_comptabilite_send")
+      : await supabase.from("email_templates").insert(row);
+
+    if (error) return { ok: false, error: error.message };
+    revalidatePath("/pc/parametres");
+    return { ok: true };
+  } catch (err) {
+    return {
+      ok: false,
+      error: err instanceof Error ? err.message : "Impossible d'enregistrer le modèle.",
+    };
+  }
+}
+
+export async function getTmaMouEmailTemplate(): Promise<{
+  subjectTemplate: string;
+  bodyTemplate: string;
+  defaultCc: string;
+}> {
+  const supabase = await createClient();
+  const { data, error } = await supabase
+    .from("email_templates")
+    .select("subject_template, body_template, default_cc")
+    .eq("slug", "tma_mou_send")
+    .maybeSingle();
+
+  if (error || !data) {
+    return {
+      subjectTemplate: DEFAULT_TMA_MOU_EMAIL_SUBJECT,
+      bodyTemplate: DEFAULT_TMA_MOU_EMAIL_BODY,
+      defaultCc: "",
+    };
+  }
+
+  return {
+    subjectTemplate: data.subject_template,
+    bodyTemplate: data.body_template,
+    defaultCc: data.default_cc ?? "",
+  };
 }
 
 export async function getPlatformInvitationEmailTemplate(): Promise<{

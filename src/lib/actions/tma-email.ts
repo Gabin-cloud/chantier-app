@@ -212,12 +212,28 @@ export async function sendTmaEmail(
     const toError = validateEmailRecipients(recipients, "destinataire");
     if (toError) return { ok: false as const, error: toError };
 
+    const supabase = await createClient();
+    const mouPaths = (assembled.data.dossier.mou_document_paths ?? []) as string[];
+    const attachments: MailAttachment[] = [];
+
+    for (const path of mouPaths) {
+      const { data: blob } = await supabase.storage.from(FINANCIAL_BUCKET).download(path);
+      if (!blob) continue;
+      const bytes = Buffer.from(await blob.arrayBuffer()).toString("base64");
+      attachments.push({
+        name: path.split("/").pop() ?? "document.pdf",
+        contentBytes: bytes,
+        contentType: "application/pdf",
+      });
+    }
+
     const user = await requireUser();
     await sendUserMail(user.id, {
       subject,
       htmlBody,
       to: recipients,
       cc: parseEmailList(overrides?.cc ?? assembled.data.defaultCc),
+      attachments,
     });
 
     revalidatePath(`/pc/projets/${projectId}/suivi-travaux/tma`);

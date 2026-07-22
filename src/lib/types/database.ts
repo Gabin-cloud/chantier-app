@@ -350,6 +350,14 @@ export type FinancialDgdRow = FinancialDgdEntry & {
   enterprise_name: string;
 };
 
+export type WorkTmaEntryStatus =
+  | "draft"
+  | "sent"
+  | "to_analyze"
+  | "analyzed"
+  | "sent_to_accounting"
+  | "completed";
+
 export type WorkTmaEntry = {
   id: string;
   project_id: string;
@@ -367,10 +375,29 @@ export type WorkTmaEntry = {
   montant_ht: number;
   nf_status: TmaTriState | null;
   pmr_status: TmaTriState | null;
-  status: "draft" | "sent" | "completed";
+  status: WorkTmaEntryStatus;
+  quote_id: string | null;
+  deposit_file_path: string | null;
+  deposit_file_name: string | null;
+  is_request_line: boolean;
+  accounting_sent_at: string | null;
   sort_order: number;
   created_at: string;
   updated_at: string;
+};
+
+export type TmaDepositGroup = {
+  quoteId: string | null;
+  logementNumber: string;
+  enterpriseId: string | null;
+  enterpriseName: string;
+  devisNumber: string;
+  devisRecuLe: string | null;
+  depositFilePath: string | null;
+  depositFileName: string | null;
+  entryIds: string[];
+  lineCount: number;
+  totalHt: number;
 };
 
 export type TmaTriState = "oui" | "non" | "nc";
@@ -405,6 +432,7 @@ export type IncomingFileCategory =
   | "chantier"
   | "plan_exe"
   | "levee_controle"
+  | "tma"
   | "autre";
 
 export const INCOMING_FILE_CATEGORY_LABELS: Record<IncomingFileCategory, string> = {
@@ -414,6 +442,7 @@ export const INCOMING_FILE_CATEGORY_LABELS: Record<IncomingFileCategory, string>
   chantier: "Chantier",
   plan_exe: "Plan d'exé",
   levee_controle: "Levée point de contrôle",
+  tma: "TMA",
   autre: "Autre",
 };
 
