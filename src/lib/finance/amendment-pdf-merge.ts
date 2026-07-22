@@ -152,6 +152,50 @@ export async function uploadAmendmentMergedPdf(
   }
 }
 
+/** Upload du PDF fusionné via FormData (évite les payloads base64 trop lourds en server action). */
+export async function uploadAmendmentMergedPdfFromFormData(
+  projectId: string,
+  amendmentId: string,
+  formData: FormData
+): Promise<{ ok: true; documentPath: string } | { ok: false; error: string }> {
+  try {
+    await requireFinanceAccess(projectId);
+
+    const avenantFile = formData.get("avenantPdf");
+    if (!(avenantFile instanceof File) || !avenantFile.size) {
+      return { ok: false, error: "PDF avenant manquant." };
+    }
+
+    const avenantBuffer = Buffer.from(await avenantFile.arrayBuffer());
+    const avenantPdfBase64 = avenantBuffer.toString("base64");
+
+    const localFiles = formData.getAll("localPdfs").filter((f): f is File => f instanceof File);
+    const localPdfBase64List = await Promise.all(
+      localFiles.map(async (file) => {
+        const buffer = Buffer.from(await file.arrayBuffer());
+        return buffer.toString("base64");
+      })
+    );
+
+    const quoteIdsRaw = formData.get("quoteIds");
+    const quoteIds: string[] =
+      typeof quoteIdsRaw === "string" && quoteIdsRaw ? JSON.parse(quoteIdsRaw) : [];
+
+    return uploadAmendmentMergedPdf(
+      projectId,
+      amendmentId,
+      avenantPdfBase64,
+      quoteIds,
+      localPdfBase64List
+    );
+  } catch (error) {
+    return {
+      ok: false,
+      error: error instanceof Error ? error.message : "Impossible d'enregistrer le PDF.",
+    };
+  }
+}
+
 /** Crée l'avenant et fusionne le PDF en une seule action serveur (évite les erreurs RSC). */
 export async function createAmendmentWithDocument(
   projectId: string,

@@ -53,6 +53,7 @@ type TmaColumnFilters = {
   devisRecu: Set<string>;
   mouEnvoi: Set<string>;
   mouAcceptation: Set<string>;
+  mouAccepte: Set<string>;
   montantHt: Set<string>;
 };
 
@@ -68,6 +69,7 @@ function emptyTmaFilters(): TmaColumnFilters {
     devisRecu: new Set(),
     mouEnvoi: new Set(),
     mouAcceptation: new Set(),
+    mouAccepte: new Set(),
     montantHt: new Set(),
   };
 }
@@ -209,6 +211,14 @@ function formatMoneyFilter(value: number): string {
   return value ? formatCurrency(value) : "—";
 }
 
+function isTmaRowStruck(entry: WorkTmaEntry): boolean {
+  return !["analyzed", "sent_to_accounting", "completed"].includes(entry.status);
+}
+
+function mouAccepteLabel(value: string | null): string {
+  return value ? "Oui" : "Non";
+}
+
 function buildTmaFilterOptions(entries: WorkTmaEntry[]) {
   const status = new Set<WorkTmaEntryStatus>();
   const logement = new Set<string>();
@@ -220,6 +230,7 @@ function buildTmaFilterOptions(entries: WorkTmaEntry[]) {
   const devisRecu = new Set<string>();
   const mouEnvoi = new Set<string>();
   const mouAcceptation = new Set<string>();
+  const mouAccepte = new Set<string>();
   const montantHt = new Set<string>();
 
   for (const entry of entries) {
@@ -233,6 +244,7 @@ function buildTmaFilterOptions(entries: WorkTmaEntry[]) {
     devisRecu.add(formatDate(entry.devis_recu_le) || "—");
     mouEnvoi.add(formatDate(entry.mou_envoi) || "—");
     mouAcceptation.add(formatDate(entry.mou_acceptation) || "—");
+    mouAccepte.add(mouAccepteLabel(entry.mou_acceptation));
     montantHt.add(formatMoneyFilter(entry.montant_ht));
   }
 
@@ -255,6 +267,7 @@ function buildTmaFilterOptions(entries: WorkTmaEntry[]) {
     devisRecu: toOptions(devisRecu),
     mouEnvoi: toOptions(mouEnvoi),
     mouAcceptation: toOptions(mouAcceptation),
+    mouAccepte: toOptions(mouAccepte),
     montantHt: toOptions(montantHt),
   };
 }
@@ -290,6 +303,11 @@ function applyTmaFilters(entries: WorkTmaEntry[], filters: TmaColumnFilters): Wo
     if (
       filters.mouAcceptation.size > 0 &&
       !filters.mouAcceptation.has(formatDate(entry.mou_acceptation) || "—")
+    )
+      return false;
+    if (
+      filters.mouAccepte.size > 0 &&
+      !filters.mouAccepte.has(mouAccepteLabel(entry.mou_acceptation))
     )
       return false;
     if (
@@ -452,12 +470,52 @@ function EditableMoney({
   );
 }
 
+function EditableAcceptationOuiNon({
+  projectId,
+  entryId,
+  value,
+}: {
+  projectId: string;
+  entryId: string;
+  value: string | null;
+}) {
+  const router = useRouter();
+  const [isPending, startTransition] = useTransition();
+
+  return (
+    <select
+      value={value ? "oui" : "non"}
+      disabled={isPending}
+      onChange={(e) => {
+        const accepted = e.target.value === "oui";
+        startTransition(async () => {
+          await updateTmaField(
+            projectId,
+            entryId,
+            "mou_acceptation",
+            accepted ? new Date().toISOString().slice(0, 10) : null
+          );
+          router.refresh();
+        });
+      }}
+      className="w-full border-0 bg-transparent px-1 py-0.5 text-xs focus:bg-yellow-50 focus:outline-none"
+    >
+      <option value="non">Non</option>
+      <option value="oui">Oui</option>
+    </select>
+  );
+}
+
 function TmaTable({
   projectId,
   entries,
   filterOptions,
   filters,
   setFilters,
+  selectedIds,
+  onToggleSelect,
+  onToggleSelectAll,
+  allVisibleSelected,
   onDelete,
   isPending,
   showStatus = true,
@@ -467,6 +525,10 @@ function TmaTable({
   filterOptions: ReturnType<typeof buildTmaFilterOptions>;
   filters: TmaColumnFilters;
   setFilters: React.Dispatch<React.SetStateAction<TmaColumnFilters>>;
+  selectedIds: Set<string>;
+  onToggleSelect: (id: string) => void;
+  onToggleSelectAll: () => void;
+  allVisibleSelected: boolean;
   onDelete: (id: string) => void;
   isPending: boolean;
   showStatus?: boolean;
@@ -481,6 +543,14 @@ function TmaTable({
     <table className={`w-full min-w-[1200px] border-collapse text-xs ${BORDER}`}>
       <thead>
         <tr className="bg-slate-50">
+          <th className={`${BORDER} w-8 px-1 py-2 text-center`}>
+            <input
+              type="checkbox"
+              checked={allVisibleSelected}
+              onChange={onToggleSelectAll}
+              aria-label="Tout sélectionner"
+            />
+          </th>
           {showStatus && (
             <FilterableHeader
               label="Statut"
@@ -540,7 +610,7 @@ function TmaTable({
           <th className={`${BORDER} px-2 py-2 text-center font-bold`} colSpan={2}>
             Entreprise
           </th>
-          <th className={`${BORDER} px-2 py-2 text-center font-bold`} colSpan={2}>
+          <th className={`${BORDER} px-2 py-2 text-center font-bold`} colSpan={3}>
             MOU devis
           </th>
           <FilterableHeader
@@ -556,6 +626,7 @@ function TmaTable({
           <th className={`${BORDER} w-8 px-1 py-2`} />
         </tr>
         <tr className="bg-slate-50 text-[10px] text-slate-600">
+          <th className={BORDER} />
           <th className={BORDER} colSpan={showStatus ? 6 : 5} />
           <FilterableHeader
             label="N° devis"
@@ -593,12 +664,34 @@ function TmaTable({
           >
             Acceptat.
           </FilterableHeader>
+          <FilterableHeader
+            label="Accepté"
+            filterKey="mouAccepte"
+            options={filterOptions.mouAccepte}
+            filters={filters}
+            setFilters={setFilters}
+          >
+            Accepté
+          </FilterableHeader>
           <th className={BORDER} colSpan={2} />
         </tr>
       </thead>
       <tbody>
         {entries.map((entry) => (
-          <tr key={entry.id} className="hover:bg-slate-50/50">
+          <tr
+            key={entry.id}
+            className={`hover:bg-slate-50/50 ${isTmaRowStruck(entry) ? "line-through opacity-60" : ""}`}
+          >
+            <td className={`${BORDER} px-1 py-1 text-center`}>
+              {["analyzed", "sent_to_accounting", "completed"].includes(entry.status) && (
+                <input
+                  type="checkbox"
+                  checked={selectedIds.has(entry.id)}
+                  onChange={() => onToggleSelect(entry.id)}
+                  aria-label={`Sélectionner TMA ${entry.logement_number}`}
+                />
+              )}
+            </td>
             {showStatus && (
               <td className={`${BORDER} px-1 py-1`}>
                 <StatusBadge status={entry.status} />
@@ -676,6 +769,13 @@ function TmaTable({
                 value={entry.mou_acceptation}
               />
             </td>
+            <td className={`${BORDER} px-1 py-1`}>
+              <EditableAcceptationOuiNon
+                projectId={projectId}
+                entryId={entry.id}
+                value={entry.mou_acceptation}
+              />
+            </td>
             <td className={`${BORDER} px-1 py-1 text-right`}>
               <EditableMoney
                 projectId={projectId}
@@ -714,6 +814,7 @@ export function TmaTrackingPanel({
   const [analysisEntryIds, setAnalysisEntryIds] = useState<string[] | null>(null);
   const [mouOpen, setMouOpen] = useState(false);
   const [filters, setFilters] = useState<TmaColumnFilters>(emptyTmaFilters);
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [isPending, startTransition] = useTransition();
 
   const depositGroups = useMemo(() => buildDepositGroups(entries), [entries]);
@@ -733,6 +834,37 @@ export function TmaTrackingPanel({
     () => entries.filter((e) => e.status === "analyzed").map((e) => e.id),
     [entries]
   );
+  const mouTargetEntryIds = useMemo(() => {
+    const selectedAnalyzed = Array.from(selectedIds).filter((id) =>
+      analyzedEntryIds.includes(id)
+    );
+    return selectedAnalyzed.length > 0 ? selectedAnalyzed : analyzedEntryIds;
+  }, [selectedIds, analyzedEntryIds]);
+  const allVisibleSelected =
+    filteredFullTableEntries.length > 0 &&
+    filteredFullTableEntries
+      .filter((e) => ["analyzed", "sent_to_accounting", "completed"].includes(e.status))
+      .every((e) => selectedIds.has(e.id));
+
+  function toggleSelect(entryId: string) {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(entryId)) next.delete(entryId);
+      else next.add(entryId);
+      return next;
+    });
+  }
+
+  function toggleSelectAll() {
+    const selectable = filteredFullTableEntries.filter((e) =>
+      ["analyzed", "sent_to_accounting", "completed"].includes(e.status)
+    );
+    if (allVisibleSelected) {
+      setSelectedIds(new Set());
+      return;
+    }
+    setSelectedIds(new Set(selectable.map((e) => e.id)));
+  }
 
   function handleDelete(entryId: string) {
     if (!confirm("Supprimer cette ligne TMA ?")) return;
@@ -755,13 +887,13 @@ export function TmaTrackingPanel({
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {analyzedEntryIds.length > 0 && (
+            {mouTargetEntryIds.length > 0 && (
               <button
                 type="button"
                 onClick={() => setMouOpen(true)}
                 className="rounded-lg border border-blue-300 bg-blue-50 px-4 py-2 text-sm font-semibold text-blue-800 hover:bg-blue-100"
               >
-                Envoyer au MOU ({analyzedEntryIds.length})
+                Envoyer au MOU ({mouTargetEntryIds.length})
               </button>
             )}
             <button
@@ -852,6 +984,10 @@ export function TmaTrackingPanel({
             filterOptions={filterOptions}
             filters={filters}
             setFilters={setFilters}
+            selectedIds={selectedIds}
+            onToggleSelect={toggleSelect}
+            onToggleSelectAll={toggleSelectAll}
+            allVisibleSelected={allVisibleSelected}
             onDelete={handleDelete}
             isPending={isPending}
           />
@@ -880,12 +1016,13 @@ export function TmaTrackingPanel({
 
       <TmaMouEmailStep
         projectId={projectId}
-        entryIds={analyzedEntryIds}
+        entryIds={mouTargetEntryIds}
         m365Ready={m365Ready}
         open={mouOpen}
         onClose={() => setMouOpen(false)}
         onComplete={() => {
           setMouOpen(false);
+          setSelectedIds(new Set());
           router.refresh();
         }}
       />
